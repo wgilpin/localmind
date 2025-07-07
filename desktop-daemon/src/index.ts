@@ -31,13 +31,13 @@ async function startServer() {
     try {
       const { title, content, url } = req.body;
       if (!title || !content) {
-        return res.status(400).send('Title and content are required.');
+        return res.status(400).json({ message: 'Title and content are required.' });
       }
       await ragService.addDocument({ title, content, url });
-      res.status(200).send('Document added successfully.');
+      res.status(200).json({ message: 'Document added successfully.' });
     } catch (error) {
       console.error('Error adding document:', error);
-      res.status(500).send('Failed to add document.');
+      res.status(500).json({ message: 'Failed to add document.' });
     }
   });
 
@@ -51,7 +51,7 @@ async function startServer() {
       res.status(200).json({ result });
     } catch (error) {
       console.error('Error searching:', error);
-      res.status(500).send('Failed to perform search.');
+      res.status(500).json({ message: 'Failed to perform search.' });
     }
   });
 
