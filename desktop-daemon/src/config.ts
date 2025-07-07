@@ -8,3 +8,10 @@ export const OllamaConfig = {
   completionModel: 'llama3',
   vectorIndexFile: './data/localmind.index',
 };
+
+/**
+ * Configuration for the Document Store service.
+ */
+export const DocumentStoreConfig = {
+  documentStoreFile: './data/documents.json',
+};
