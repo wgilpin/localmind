@@ -59,19 +59,26 @@ export class RagService {
 
         const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
 
+        if (retrievedDocuments.length === 0) {
+            return 'No relevant documents found.';
+        }
+
         // 5. Construct a detailed prompt for the completion model.
         // This prompt should include the retrieved document content as context and the original user query.
         const prompt = `
-        Context:
-        ${context}
+        You are a helpful AI assistant.
+        Answer the following question based on the provided context:
 
         Question: ${query}
 
-        Based on the provided context, please answer the question.
+        Context:
+        ${context}
         `;
 
+        const trimmedPrompt = prompt.trim().replace(/ {2,}/g, ' ');
+
         // 6. Use the OllamaService's getCompletion method to get the final answer.
-        const finalAnswer = await this.ollamaService.getCompletion(prompt);
+        const finalAnswer = await this.ollamaService.getCompletion(trimmedPrompt);
 
         // 7. Return the generated answer.
         return finalAnswer;
