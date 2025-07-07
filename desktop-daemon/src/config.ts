@@ -15,3 +15,10 @@ export const OllamaConfig = {
 export const DocumentStoreConfig = {
   documentStoreFile: './data/documents.json',
 };
+
+/**
+ * Configuration for the Server.
+ */
+export const ServerConfig = {
+  port: process.env.PORT || 3000,
+};

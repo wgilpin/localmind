@@ -76,4 +76,23 @@ export class RagService {
         // 7. Return the generated answer.
         return finalAnswer;
     }
+    /**
+     * Adds a document to the RAG system.
+     * @param doc The document to add, including title, content, and optional URL.
+     */
+    public async addDocument(doc: { title: string; content: string; url?: string }): Promise<void> {
+        // 1. Add the document to the DocumentStoreService.
+        const newDocument = { ...doc, url: doc.url || '', timestamp: Date.now() };
+        const addedDocument = await this.documentStoreService.add(newDocument);
+
+        // 2. Generate an embedding for the document's content using the OllamaService.
+        const embedding = await this.ollamaService.getEmbedding(addedDocument.content);
+
+        // 3. Add the resulting embedding to the VectorStoreService.
+        await this.vectorStoreService.add([embedding]);
+
+        // 4. Ensure both the document store and the vector index are saved to disk after the addition.
+        await this.documentStoreService.save();
+        await this.vectorStoreService.save(this.vectorStoreService.getFilePath());
+    }
 }

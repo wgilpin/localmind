@@ -8,10 +8,20 @@ import { OllamaConfig } from '../config';
 export class VectorStoreService {
   private index: Index;
   private readonly dimension: number;
+  public filePath: string;
 
-  constructor() {
+  constructor(filePath: string) {
     this.dimension = OllamaConfig.embeddingDimension;
     this.index = new Index(this.dimension);
+    this.filePath = filePath;
+  }
+
+  /**
+   * Returns the file path for the vector store.
+   * @returns The file path.
+   */
+  getFilePath(): string {
+    return this.filePath;
   }
 
   /**
@@ -38,12 +48,13 @@ export class VectorStoreService {
    * Saves the index to a file.
    * @param path The path to save the index to.
    */
-  async save(path: string): Promise<void> {
+  async save(path?: string): Promise<void> {
+    const pathToSave = path || this.filePath;
     try {
-      await this.index.write(path);
-      console.log(`FAISS index saved to ${path}`);
+      await this.index.write(pathToSave);
+      console.log(`FAISS index saved to ${pathToSave}`);
     } catch (error) {
-      console.error(`Error saving FAISS index to ${path}:`, error);
+      console.error(`Error saving FAISS index to ${pathToSave}:`, error);
       throw error;
     }
   }
@@ -52,17 +63,18 @@ export class VectorStoreService {
    * Loads the index from a file, creating it if it doesn't exist.
    * @param path The path to load the index from.
    */
-  async load(path: string): Promise<void> {
+  async load(path?: string): Promise<void> {
+    const pathToLoad = path || this.filePath;
     try {
-      if (fs.existsSync(path)) {
-        this.index = await Index.read(path);
-        console.log(`FAISS index loaded from ${path}`);
+      if (fs.existsSync(pathToLoad)) {
+        this.index = await Index.read(pathToLoad);
+        console.log(`FAISS index loaded from ${pathToLoad}`);
       } else {
-        console.log(`FAISS index file not found at ${path}. Creating a new index.`);
+        console.log(`FAISS index file not found at ${pathToLoad}. Creating a new index.`);
         this.index = new Index(this.dimension);
       }
     } catch (error) {
-      console.error(`Error loading FAISS index from ${path}:`, error);
+      console.error(`Error loading FAISS index from ${pathToLoad}:`, error);
       throw error;
     }
   }
