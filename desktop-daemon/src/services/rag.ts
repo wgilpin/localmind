@@ -1,0 +1,79 @@
+/**
+ * RagService
+ *
+ * This service orchestrates the RAG pipeline,
+ * integrating Ollama, VectorStore, and DocumentStore services
+ * to process user queries and generate informed responses.
+ */
+import { OllamaService } from './ollama';
+import { VectorStoreService } from './vectorStore';
+import { DocumentStoreService, Document } from './documentStore';
+
+export class RagService {
+    private ollamaService: OllamaService;
+    private vectorStoreService: VectorStoreService;
+    private documentStoreService: DocumentStoreService;
+
+    /**
+     * Constructs a new RagService instance.
+     * @param ollamaService The OllamaService instance.
+     * @param vectorStoreService The VectorStoreService instance.
+     * @param documentStoreService The DocumentStoreService instance.
+     */
+    constructor(
+        ollamaService: OllamaService,
+        vectorStoreService: VectorStoreService,
+        documentStoreService: DocumentStoreService
+    ) {
+        this.ollamaService = ollamaService;
+        this.vectorStoreService = vectorStoreService;
+        this.documentStoreService = documentStoreService;
+    }
+
+    /**
+     * Searches for relevant documents and generates a completion based on the query and retrieved context.
+     * @param query The user's query string.
+     * @returns A promise that resolves to the generated answer string.
+     */
+    public async search(query: string): Promise<string> {
+        // 1. Get the embedding for the user's query using the OllamaService.
+        const queryEmbedding = await this.ollamaService.getEmbedding(query);
+
+        // 2. Use the VectorStoreService to search for the top-k (e.g., k=5) most similar document vectors.
+        const k = 5;
+        const topKVectorIndices = await this.vectorStoreService.search(queryEmbedding, k);
+
+        // 3. Map these indices back to document IDs. Assume a simple 1:1 mapping for now.
+        // The vector index corresponds to the document's position in an array or a list.
+        // For simplicity, we'll use the indices directly as document IDs for retrieval.
+        const documentIdsToRetrieve = topKVectorIndices.I.map(index => index.toString());
+
+        // 4. Retrieve the full content of the top-k documents using the DocumentStoreService.
+        const retrievedDocuments: Document[] = [];
+        for (const docId of documentIdsToRetrieve) {
+            const doc = await this.documentStoreService.get(docId);
+            if (doc) {
+                retrievedDocuments.push(doc);
+            }
+        }
+
+        const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
+
+        // 5. Construct a detailed prompt for the completion model.
+        // This prompt should include the retrieved document content as context and the original user query.
+        const prompt = `
+        Context:
+        ${context}
+
+        Question: ${query}
+
+        Based on the provided context, please answer the question.
+        `;
+
+        // 6. Use the OllamaService's getCompletion method to get the final answer.
+        const finalAnswer = await this.ollamaService.getCompletion(prompt);
+
+        // 7. Return the generated answer.
+        return finalAnswer;
+    }
+}
