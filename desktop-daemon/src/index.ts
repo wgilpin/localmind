@@ -16,7 +16,7 @@ app.use(express.json()); // Middleware to parse JSON request bodies
 app.use(cors());
 
 // Serve static files from the search-ui directory
-app.use(express.static(path.join(__dirname, '../../search-ui')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 let ragService: RagService;
 
