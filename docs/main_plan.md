@@ -71,17 +71,19 @@ This milestone focuses on getting data into the system.
   - In the Desktop Daemon, create an API endpoint to receive and process new notes (title, body, tags).
   - Ensure notes are stored and indexed just like web pages.
 
-### Milestone 3: Search UI
+### Milestone 3: Unify Server and UI Projects
 
-This milestone covers the user-facing application.
+This milestone covers the complete consolidation of the backend and frontend into a single Node.js project.
 
-- **Task 3.1: Configure Static UI Serving:**
-  - Modify the Desktop Daemon's Express server to serve the static files (HTML, CSS, JS) from the `search-ui` directory.
-- **Task 3.2: Update UI API Calls:**
-  - Change the `fetch` requests in the UI's JavaScript to use relative paths (e.g., `/search`) instead of absolute URLs.
-- **Task 3.3: Remove Electron Dependencies:**
-  - Delete Electron-specific files (`main.js`, `preload.js`).
-  - Remove the `electron` package from the `search-ui`'s `package.json`.
+- **Task 3.1: Consolidate UI Files:**
+  - Move all files from the `search-ui` directory (e.g., `index.html`, `renderer.js`, `styles.css`) into a new `desktop-daemon/src/public` directory.
+- **Task 3.2: Merge Dependencies:**
+  - Review `search-ui/package.json` for any unique dependencies and add them to `desktop-daemon/package.json`.
+- **Task 3.3: Update Static Serving Path:**
+  - Modify the `express.static` middleware in `desktop-daemon/src/index.ts` to serve files from the new `src/public` directory.
+- **Task 3.4: Cleanup Old UI Project:**
+  - Delete the entire `search-ui` directory and its contents.
+  - Update all run scripts (`start_all.sh`, `start_dev.sh`) to remove any logic that navigates into or references the `search-ui` directory.
 
 ### Milestone 4: Cross-Device Ingestion (Manual Relay)
 

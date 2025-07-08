@@ -1,11 +1,19 @@
 #!/bin/bash
+# This script builds and starts the unified LocalMind server.
 
-# Start the desktop daemon
-echo "Starting desktop-daemon..."
-(cd desktop-daemon && npm start) &
+echo "--- Starting LocalMind Server ---"
 
-# Start the search UI
-echo "Starting search-ui..."
-(cd search-ui && npm start) &
+# Navigate to the daemon directory
+cd desktop-daemon
 
-echo "All components started."
+# Install dependencies
+echo "Installing dependencies..."
+npm install
+
+# Build the TypeScript source
+echo "Building from source..."
+npm run build
+
+# Start the server
+echo "Launching server..."
+npm start
