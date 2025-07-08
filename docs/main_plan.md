@@ -13,11 +13,11 @@ graph TD
     subgraph "User Devices"
         A[Chrome Extension]
         B[Mobile Share App]
-        C[Web UI - Electron]
+        C[Web Browser]
     end
 
     subgraph "Local Desktop Environment"
-        D[Desktop Daemon]
+        D[Unified Local Server]
         E[Vector DB - FAISS]
         F[Ollama Runtime]
         G[Document Store]
@@ -28,7 +28,8 @@ graph TD
     end
 
     A --gRPC/HTTP--> D
-    C --gRPC/HTTP--> D
+    C --Navigates to--> D
+    D --Serves HTML/CSS/JS--> C
     D --Manages--> E
     D --Manages--> G
     D --Uses--> F
@@ -74,14 +75,13 @@ This milestone focuses on getting data into the system.
 
 This milestone covers the user-facing application.
 
-- **Task 3.1: Setup Electron Shell:**
-  - Create a new Electron project to host the web-based UI.
-  - Set up communication (IPC or local HTTP) between the Electron shell and the frontend.
-- **Task 3.2: Build the UI:**
-  - Design a simple single-page application (e.g., using React or Vue).
-  - Implement a search bar, a results display area, and a simple note-taking form.
-- **Task 3.3: Connect UI to Daemon:**
-  - Wire up the UI to make API calls to the Desktop Daemon for search and note creation.
+- **Task 3.1: Configure Static UI Serving:**
+  - Modify the Desktop Daemon's Express server to serve the static files (HTML, CSS, JS) from the `search-ui` directory.
+- **Task 3.2: Update UI API Calls:**
+  - Change the `fetch` requests in the UI's JavaScript to use relative paths (e.g., `/search`) instead of absolute URLs.
+- **Task 3.3: Remove Electron Dependencies:**
+  - Delete Electron-specific files (`main.js`, `preload.js`).
+  - Remove the `electron` package from the `search-ui`'s `package.json`.
 
 ### Milestone 4: Cross-Device Ingestion (Manual Relay)
 
@@ -113,7 +113,7 @@ Once the MVP is stable, work can begin on the v1.0 features.
 | Component             | Technology                               | Justification                                                 |
 | --------------------- | ---------------------------------------- | ------------------------------------------------------------- |
 | **Desktop Daemon**    | Node.js (TypeScript, Express/gRPC)     | Unifies the stack with Electron, simplifying the build process. |
-| **Web UI Framework**  | Electron + React/Vue                     | Mature ecosystem for building cross-platform desktop apps.    |
+| **Web UI Framework**  | Node.js + Vanilla JS/CSS/HTML            | Simplifies the stack, reduces dependencies, and is lightweight. |
 | **Vector Search**     | FAISS                                    | Fast, efficient, and runs locally as specified in the PRD.    |
 | **LLM Serving**       | Ollama                                   | Simplifies local model management as specified in the PRD.    |
 | **Relay Server**      | Go                                       | Lightweight, fast, and ideal for a simple, high-performance API. |
