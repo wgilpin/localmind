@@ -2,3 +2,9 @@ desktop-daemon/node_modules
 desktop-daemon/dist
 
 
+desktop-daemon/data/documents.json
+desktop-daemon/src/services/documentStore.js
+userData/*
+
+search-ui/node_modules
+

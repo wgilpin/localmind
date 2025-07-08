@@ -14,9 +14,32 @@ export class OllamaService {
    * @param config Optional configuration for Ollama API URL and models.
    */
   constructor(config = OllamaConfig) {
+    console.log('=== OllamaService Constructor Debug ===');
+    console.log('Raw config object:', JSON.stringify(config, null, 2));
+    console.log('Config embeddingModel:', config.embeddingModel);
+    console.log('Config completionModel:', config.completionModel);
+    
     this.ollamaApiUrl = config.ollamaApiUrl;
     this.embeddingModel = config.embeddingModel;
     this.completionModel = config.completionModel;
+    
+    console.log('Assigned embeddingModel:', this.embeddingModel);
+    console.log('Assigned completionModel:', this.completionModel);
+    console.log('=== End Constructor Debug ===');
+    
+    this.pullModel(this.embeddingModel);
+    this.pullModel(this.completionModel);
+  }
+
+  private async pullModel(modelName: string): Promise<void> {
+    try {
+      await axios.post(`${this.ollamaApiUrl}/api/pull`, {
+        name: modelName,
+      });
+    } catch (error) {
+      console.error(`Error pulling model ${modelName}:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -27,10 +50,19 @@ export class OllamaService {
    */
   public async getEmbedding(text: string): Promise<number[]> {
     try {
-      const response = await axios.post(`${this.ollamaApiUrl}/api/embeddings`, {
+      console.log('=== getEmbedding Debug ===');
+      console.log(`this.embeddingModel: "${this.embeddingModel}"`);
+      console.log(`typeof this.embeddingModel: ${typeof this.embeddingModel}`);
+      console.log(`Request payload model: "${this.embeddingModel}"`);
+      console.log('=== End getEmbedding Debug ===');
+      
+      const requestPayload = {
         model: this.embeddingModel,
         prompt: text,
-      });
+      };
+      console.log('Full request payload:', JSON.stringify(requestPayload, null, 2));
+      
+      const response = await axios.post(`${this.ollamaApiUrl}/api/embeddings`, requestPayload);
       if (response.data && response.data.embedding) {
         return response.data.embedding;
       }

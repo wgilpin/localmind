@@ -1,5 +1,8 @@
 
 import express from 'express';
+import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
 import { OllamaConfig, DocumentStoreConfig, ServerConfig } from './config';
 import { OllamaService } from './services/ollama';
 import { VectorStoreService } from './services/vectorStore';
@@ -10,10 +13,19 @@ const app = express();
 const port = ServerConfig.port;
 
 app.use(express.json()); // Middleware to parse JSON request bodies
+app.use(cors());
 
 let ragService: RagService;
 
 async function startServer() {
+  console.log('=== startServer Debug ===');
+  console.log('OllamaConfig at startup:', JSON.stringify(OllamaConfig, null, 2));
+  console.log('=== End startServer Debug ===');
+  
+  const dataDir = path.dirname(OllamaConfig.vectorIndexFile);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
   const ollamaService = new OllamaService(OllamaConfig);
   const vectorStoreService = new VectorStoreService(OllamaConfig.vectorIndexFile);
   const documentStoreService = new DocumentStoreService(DocumentStoreConfig.documentStoreFile);
