@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsSection = document.getElementById('results-section');
     const noteTitle = document.getElementById('note-title');
     const noteContent = document.getElementById('note-content');
+    searchInput.focus();
     const saveNoteButton = document.getElementById('save-note-button');
     const newNoteSection = document.getElementById('new-note-section');
     const fab = document.getElementById('fab');
