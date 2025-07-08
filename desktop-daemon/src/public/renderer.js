@@ -6,6 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const noteTitle = document.getElementById('note-title');
     const noteContent = document.getElementById('note-content');
     const saveNoteButton = document.getElementById('save-note-button');
+    const newNoteSection = document.getElementById('new-note-section');
+    const fab = document.getElementById('fab');
 
     searchButton.addEventListener('click', async () => {
         const query = searchInput.value;
@@ -26,6 +28,10 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error during search:', error);
             resultsContainer.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
         }
+    });
+
+    fab.addEventListener('click', () => {
+        newNoteSection.hidden = !newNoteSection.hidden;
     });
 
     saveNoteButton.addEventListener('click', async () => {

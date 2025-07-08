@@ -16,7 +16,7 @@ app.use(express.json()); // Middleware to parse JSON request bodies
 app.use(cors());
 
 // Serve static files from the search-ui directory
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html' }));
 
 let ragService: RagService;
 
@@ -38,9 +38,6 @@ async function startServer() {
 
   ragService = new RagService(ollamaService, vectorStoreService, documentStoreService);
 
-  app.get('/', (req, res) => {
-    res.send('Hello from LocalMind Daemon!');
-  });
 
   app.post('/documents', async (req: any, res: any) => {
     try {
