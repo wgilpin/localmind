@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('search-input');
     const searchButton = document.getElementById('search-button');
     const resultsContainer = document.getElementById('results-container');
+    const resultsSection = document.getElementById('results-section');
     const noteTitle = document.getElementById('note-title');
     const noteContent = document.getElementById('note-content');
     const saveNoteButton = document.getElementById('save-note-button');
@@ -19,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ query }),
             });
             const result = await response.json();
+            resultsSection.hidden = false;
             resultsContainer.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
         } catch (error) {
             console.error('Error during search:', error);
