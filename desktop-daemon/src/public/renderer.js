@@ -33,6 +33,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     fab.addEventListener('click', () => {
         newNoteSection.hidden = !newNoteSection.hidden;
+        if (!newNoteSection.hidden) {
+            noteTitle.focus();
+        }
     });
 
     saveNoteButton.addEventListener('click', async () => {
