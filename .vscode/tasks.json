@@ -11,6 +11,26 @@
       },
       "problemMatcher": [],
       "label": "npm: build-daemon"
+    },
+    {
+      "type": "npm",
+      "script": "build",
+      "path": "desktop-daemon/frontend/",
+      "group": "build",
+      "problemMatcher": [],
+      "label": "npm: build-frontend"
+    },
+    {
+      "label": "Build All",
+      "dependsOn": [
+        "npm: build-frontend",
+        "npm: build-daemon"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
     }
   ]
 }
