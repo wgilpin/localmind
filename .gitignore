@@ -1,19 +1,18 @@
-desktop-daemon/node_modules
-desktop-daemon/dist
-
-
+desktop-daemon/node_modules/
+desktop-daemon/dist/
 desktop-daemon/data/documents.json
 desktop-daemon/src/services/documentStore.js
-userData/*
-
 desktop-daemon/package-lock.json
 
-/desktop-daemon/dist
+# Frontend build and generated files
+desktop-daemon/frontend/node_modules/
+desktop-daemon/frontend/package-lock.json
 desktop-daemon/frontend/.svelte-kit/
 desktop-daemon/frontend/build/
-desktop-daemon/frontend/node_modules
-desktop-daemon/frontend/package-lock.json
 
-# SvelteKit generated files
+# User data
+userData/
+
+# Global patterns for SvelteKit
 **/.svelte-kit/
 **/build/
