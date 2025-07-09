@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug LocalMind Server",
+      "cwd": "${workspaceFolder}/desktop-daemon",
+      "program": "${workspaceFolder}/desktop-daemon/dist/index.js",
+      "preLaunchTask": "npm: build",
+      "outFiles": [
+        "${workspaceFolder}/desktop-daemon/dist/**/*.js"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "openOnSessionStart",
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    }
+  ]
+}
