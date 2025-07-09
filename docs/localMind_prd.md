@@ -73,7 +73,7 @@ People save countless webpages and notes but struggle to recall them quickly. Th
 
 ### 6.4 Search UI
 
-- Web app (Electron / local host) with a single input.
+- Web app ( local host) with a single input.
 - Pipeline: user query → **all‑MiniLM‑L6‑v2** embeddings → similarity search (top‑k) → context prompt → local LLM served by **Ollama** (auto‑selects the best model the device can run, e.g., Llama 3 8B‑Q4) → answer + citations list.
 - Toggle between “chat” (RAG) and “keyword” modes.
 

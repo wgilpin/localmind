@@ -114,7 +114,7 @@ Once the MVP is stable, work can begin on the v1.0 features.
 
 | Component             | Technology                               | Justification                                                 |
 | --------------------- | ---------------------------------------- | ------------------------------------------------------------- |
-| **Desktop Daemon**    | Node.js (TypeScript, Express/gRPC)     | Unifies the stack with Electron, simplifying the build process. |
+| **Desktop Daemon**    | Node.js (TypeScript, Express/gRPC)     | Unifies the stack and removes Electron, simplifying the build process. |
 | **Web UI Framework**  | Node.js + Vanilla JS/CSS/HTML            | Simplifies the stack, reduces dependencies, and is lightweight. |
 | **Vector Search**     | FAISS                                    | Fast, efficient, and runs locally as specified in the PRD.    |
 | **LLM Serving**       | Ollama                                   | Simplifies local model management as specified in the PRD.    |

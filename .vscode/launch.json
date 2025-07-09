@@ -7,7 +7,7 @@
       "name": "Debug LocalMind Server",
       "cwd": "${workspaceFolder}/desktop-daemon",
       "program": "${workspaceFolder}/desktop-daemon/dist/index.js",
-      "preLaunchTask": "npm: build",
+      "preLaunchTask": "npm: build-daemon",
       "outFiles": [
         "${workspaceFolder}/desktop-daemon/dist/**/*.js"
       ],

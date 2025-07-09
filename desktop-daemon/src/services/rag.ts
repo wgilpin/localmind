@@ -43,6 +43,17 @@ export class RagService {
         const k = 5;
         const topKVectorIndices = await this.vectorStoreService.search(queryEmbedding, k);
 
+        console.log(`=== RAG Search Debug ===`);
+        console.log(`Query: "${query}"`);
+        console.log(`Vector indices found: ${topKVectorIndices.I.length}`);
+        console.log(`Indices: [${topKVectorIndices.I.join(', ')}]`);
+        console.log(`=== End RAG Search Debug ===`);
+
+        // Handle empty search results
+        if (topKVectorIndices.I.length === 0) {
+            return 'No documents available in the knowledge base. Please add some documents first.';
+        }
+
         // 3. Map these indices back to document IDs. Assume a simple 1:1 mapping for now.
         // The vector index corresponds to the document's position in an array or a list.
         // For simplicity, we'll use the indices directly as document IDs for retrieval.

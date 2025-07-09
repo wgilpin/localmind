@@ -40,7 +40,21 @@ export class VectorStoreService {
    * @returns A promise that resolves to an object containing indices (I) and distances (D).
    */
   async search(queryVector: number[], k: number): Promise<{ I: number[], D: number[] }> {
-    const result = this.index.search(queryVector, k);
+    const ntotal = this.index.ntotal();
+    console.log(`=== VectorStore Search Debug ===`);
+    console.log(`Requested k: ${k}`);
+    console.log(`Available ntotal: ${ntotal}`);
+    
+    if (ntotal === 0) {
+      console.log(`Database is empty, returning empty results`);
+      return { I: [], D: [] };
+    }
+    
+    const effectiveK = Math.min(k, ntotal);
+    console.log(`Using effective k: ${effectiveK}`);
+    console.log(`=== End VectorStore Search Debug ===`);
+    
+    const result = this.index.search(queryVector, effectiveK);
     return { I: result.labels, D: result.distances };
   }
 

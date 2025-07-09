@@ -23,16 +23,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const data = await response.json();
-                const results = data.result;
+                const result = data.result;
+
+                console.log('=== Frontend Search Debug ===');
+                console.log('Response data:', data);
+                console.log('Result type:', typeof result);
+                console.log('Result content:', result);
+                console.log('=== End Frontend Search Debug ===');
 
                 if (resultsContainer) {
                     resultsContainer.innerHTML = '';
-                    if (results && results.length > 0) {
-                        results.forEach((result: { content: string }) => {
-                            const resultElement = document.createElement('div');
-                            resultElement.textContent = result.content;
-                            resultsContainer.appendChild(resultElement);
-                        });
+                    if (result && typeof result === 'string' && result.trim().length > 0) {
+                        const resultElement = document.createElement('div');
+                        resultElement.className = 'search-result';
+                        resultElement.textContent = result;
+                        resultsContainer.appendChild(resultElement);
+                        if (resultsSection) {
+                            resultsSection.hidden = false;
+                        }
+                    } else {
+                        const noResultsElement = document.createElement('div');
+                        noResultsElement.className = 'no-results';
+                        noResultsElement.textContent = 'No results found.';
+                        resultsContainer.appendChild(noResultsElement);
                         if (resultsSection) {
                             resultsSection.hidden = false;
                         }
