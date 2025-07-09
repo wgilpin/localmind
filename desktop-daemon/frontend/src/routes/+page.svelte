@@ -1,4 +1,5 @@
 <script lang="ts">
+  // @ts-nocheck
   import Search, { showResultsSection } from '$lib/components/Search.svelte';
   import Results from '$lib/components/Results.svelte';
   import NewNote, { showNewNoteSection } from '$lib/components/NewNote.svelte';

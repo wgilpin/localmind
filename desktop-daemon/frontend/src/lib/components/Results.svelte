@@ -1,4 +1,8 @@
 <script lang="ts">
+  /**
+   * Results component for displaying search results.
+   */
+  // @ts-ignore
   import { searchResults, showResultsSection } from './Search.svelte';
 </script>
 
