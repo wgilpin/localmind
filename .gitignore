@@ -9,11 +9,11 @@ userData/*
 desktop-daemon/package-lock.json
 
 /desktop-daemon/dist
-desktop-daemon/frontend/.svelte-kit
-desktop-daemon/frontend/build
+desktop-daemon/frontend/.svelte-kit/
+desktop-daemon/frontend/build/
 desktop-daemon/frontend/node_modules
 desktop-daemon/frontend/package-lock.json
 
 # SvelteKit generated files
-.svelte-kit/
-build/
+**/.svelte-kit/
+**/build/
