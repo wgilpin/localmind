@@ -38,6 +38,6 @@ async function handleSearch() {
 </script>
 
 <div class="flex space-x-2">
-    <input type="text" id="search-input" placeholder="Enter search query" class="input">
-    <button id="search-button" class="btn">Search</button>
+    <input type="text" id="search-input" placeholder="Enter search query" class="input" bind:value={searchQuery} on:keydown={(e) => e.key === 'Enter' && handleSearch()}>
+    <button id="search-button" class="btn" on:click={handleSearch}>Search</button>
 </div>
