@@ -62,6 +62,14 @@ export class DocumentStoreService {
   }
 
   /**
+   * Retrieves all document IDs from the store.
+   * @returns A Promise that resolves to an array of all document IDs.
+   */
+  async getIds(): Promise<string[]> {
+    return Array.from(this.documents.keys());
+  }
+
+  /**
    * Saves the entire document database to the JSON file.
    * Creates the directory if it doesn't exist.
    * @returns A Promise that resolves when the save operation is complete.

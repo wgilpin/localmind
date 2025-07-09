@@ -13,6 +13,8 @@ export class RagService {
     private ollamaService: OllamaService;
     private vectorStoreService: VectorStoreService;
     private documentStoreService: DocumentStoreService;
+    private vectorIdToDocumentIdMap: string[] = [];
+
 
     /**
      * Constructs a new RagService instance.
@@ -20,7 +22,7 @@ export class RagService {
      * @param vectorStoreService The VectorStoreService instance.
      * @param documentStoreService The DocumentStoreService instance.
      */
-    constructor(
+    private constructor(
         ollamaService: OllamaService,
         vectorStoreService: VectorStoreService,
         documentStoreService: DocumentStoreService
@@ -29,6 +31,21 @@ export class RagService {
         this.vectorStoreService = vectorStoreService;
         this.documentStoreService = documentStoreService;
     }
+
+    private async initialize(): Promise<void> {
+        this.vectorIdToDocumentIdMap = await this.documentStoreService.getIds();
+    }
+
+    public static async create(
+        ollamaService: OllamaService,
+        vectorStoreService: VectorStoreService,
+        documentStoreService: DocumentStoreService
+    ): Promise<RagService> {
+        const ragService = new RagService(ollamaService, vectorStoreService, documentStoreService);
+        await ragService.initialize();
+        return ragService;
+    }
+
 
     /**
      * Searches for relevant documents and generates a completion based on the query and retrieved context.
@@ -54,19 +71,11 @@ export class RagService {
             return 'No documents available in the knowledge base. Please add some documents first.';
         }
 
-        // 3. Map these indices back to document IDs. Assume a simple 1:1 mapping for now.
-        // The vector index corresponds to the document's position in an array or a list.
-        // For simplicity, we'll use the indices directly as document IDs for retrieval.
-        const documentIdsToRetrieve = topKVectorIndices.I.map(index => index.toString());
+        // 3. Map vector indices to document IDs
+        const documentIdsToRetrieve = topKVectorIndices.I.map(index => this.vectorIdToDocumentIdMap[index]).filter(id => id);
 
-        // 4. Retrieve the full content of the top-k documents using the DocumentStoreService.
-        const retrievedDocuments: Document[] = [];
-        for (const docId of documentIdsToRetrieve) {
-            const doc = await this.documentStoreService.get(docId);
-            if (doc) {
-                retrievedDocuments.push(doc);
-            }
-        }
+        // 4. Retrieve documents from the document store
+        const retrievedDocuments = await this.documentStoreService.getMany(documentIdsToRetrieve);
 
         const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
 
@@ -102,6 +111,8 @@ export class RagService {
         // 1. Add the document to the DocumentStoreService.
         const newDocument = { ...doc, url: doc.url || '', timestamp: Date.now() };
         const addedDocument = await this.documentStoreService.add(newDocument);
+        this.vectorIdToDocumentIdMap.push(addedDocument.id);
+
 
         // 2. Generate an embedding for the document's content using the OllamaService.
         const embedding = await this.ollamaService.getEmbedding(addedDocument.content);

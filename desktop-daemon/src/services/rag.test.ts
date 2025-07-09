@@ -31,7 +31,7 @@ describe('RagService (Integration Tests)', () => {
   let mockVectorStoreService: jest.Mocked < VectorStoreService > ;
   let mockDocumentStoreService: jest.Mocked < DocumentStoreService > ;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Clear all mocks before each test
     jest.clearAllMocks();
 
@@ -39,8 +39,12 @@ describe('RagService (Integration Tests)', () => {
     mockOllamaService = new OllamaService() as jest.Mocked < OllamaService > ;
     mockVectorStoreService = new VectorStoreService('test-vector-store.faiss') as jest.Mocked < VectorStoreService > ;
     mockDocumentStoreService = new DocumentStoreService('test-document-store.json') as jest.Mocked < DocumentStoreService > ;
+    
+    // Mock the getIds method to return an empty array by default
+    mockDocumentStoreService.getIds.mockResolvedValue([]);
 
-    ragService = new RagService(
+
+    ragService = await RagService.create(
       mockOllamaService,
       mockVectorStoreService,
       mockDocumentStoreService
@@ -95,17 +99,13 @@ describe('RagService (Integration Tests)', () => {
     it('should correctly execute the RAG pipeline for a given query', async () => {
       const query = 'test query';
       const queryEmbedding = [0.4, 0.5, 0.6];
-      // searchResults here represent the raw output from vectorStoreService.search
-      // where 'id' is a conceptual placeholder for the FAISS index.
       const searchResults = [{
         id: 0,
         score: 0.9
-      }, // Corresponds to document with ID '0'
-      {
+      }, {
         id: 1,
         score: 0.8
-      }, // Corresponds to document with ID '1'
-      ];
+      }, ];
       const documents: Document[] = [{
         id: '0',
         content: 'content of doc1',
@@ -126,20 +126,23 @@ describe('RagService (Integration Tests)', () => {
         I: searchResults.map(r => r.id),
         D: searchResults.map(r => r.score)
       });
-      mockDocumentStoreService.get.mockImplementation(async (id: string) => {
-        if (id === '0') return documents[0];
-        if (id === '1') return documents[1];
-        return undefined;
-      });
+      mockDocumentStoreService.getMany.mockResolvedValue(documents);
+      mockDocumentStoreService.getIds.mockResolvedValue(documents.map(doc => doc.id));
       mockOllamaService.getCompletion.mockResolvedValue(completion);
+      
+      // Re-initialize ragService with the correct mocks for this test case
+      ragService = await RagService.create(
+        mockOllamaService,
+        mockVectorStoreService,
+        mockDocumentStoreService
+      );
+
 
       const result = await ragService.search(query);
 
       expect(mockOllamaService.getEmbedding).toHaveBeenCalledWith(query);
       expect(mockVectorStoreService.search).toHaveBeenCalledWith(queryEmbedding, 5);
-      expect(mockDocumentStoreService.get).toHaveBeenCalledTimes(2);
-      expect(mockDocumentStoreService.get).toHaveBeenCalledWith('0');
-      expect(mockDocumentStoreService.get).toHaveBeenCalledWith('1');
+      expect(mockDocumentStoreService.getMany).toHaveBeenCalledWith(['0', '1']);
 
       const expectedPrompt = `
         You are a helpful AI assistant.
@@ -170,15 +173,15 @@ content of doc2
         I: [],
         D: []
       });
-      mockDocumentStoreService.get.mockResolvedValue(undefined); // All gets return undefined
+      mockDocumentStoreService.getMany.mockResolvedValue([]);
 
       const result = await ragService.search(query);
 
       expect(mockOllamaService.getEmbedding).toHaveBeenCalledWith(query);
       expect(mockVectorStoreService.search).toHaveBeenCalledWith(queryEmbedding, 5);
-      expect(mockDocumentStoreService.get).not.toHaveBeenCalled(); // Should not call get if no results
+      expect(mockDocumentStoreService.getMany).not.toHaveBeenCalled(); // Should not call get if no results
       expect(mockOllamaService.getCompletion).not.toHaveBeenCalled(); // Should not call getCompletion
-      expect(result).toBe('No relevant documents found.');
+      expect(result).toBe('No documents available in the knowledge base. Please add some documents first.');
     });
   });
 });

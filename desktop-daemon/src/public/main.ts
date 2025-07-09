@@ -3,6 +3,60 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchButton = document.getElementById('search-button');
     const resultsContainer = document.getElementById('results-container');
     const resultsSection = document.getElementById('results-section');
+    const fab = document.getElementById('fab');
+    const newNoteSection = document.getElementById('new-note-section');
+    const saveNoteButton = document.getElementById('save-note-button');
+    const noteTitleInput = document.getElementById('note-title') as HTMLInputElement;
+    const noteContentInput = document.getElementById('note-content') as HTMLTextAreaElement;
+
+    if (fab) {
+        fab.addEventListener('click', () => {
+            if (newNoteSection) {
+                newNoteSection.hidden = !newNoteSection.hidden;
+            }
+        });
+    }
+
+    if (saveNoteButton) {
+        saveNoteButton.addEventListener('click', async () => {
+            const title = noteTitleInput.value;
+            const content = noteContentInput.value;
+
+            if (!title || !content) {
+                alert('Please enter a title and content for the note.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/documents', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title: title,
+                        content: content,
+                        url: `note://${Date.now()}`
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save note');
+                }
+
+                noteTitleInput.value = '';
+                noteContentInput.value = '';
+                if (newNoteSection) {
+                    newNoteSection.hidden = true;
+                }
+                alert('Note saved successfully!');
+
+            } catch (error) {
+                console.error('Error saving note:', error);
+                alert('Failed to save note. See console for details.');
+            }
+        });
+    }
 
     if (searchButton) {
         searchButton.addEventListener('click', async () => {
