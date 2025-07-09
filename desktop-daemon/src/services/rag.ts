@@ -9,6 +9,18 @@ import { OllamaService } from './ollama';
 import { VectorStoreService } from './vectorStore';
 import { DocumentStoreService, Document } from './documentStore';
 
+export type SearchProgressStatus =
+  | 'idle'
+  | 'starting'
+  | 'embedding'
+  | 'searching'
+  | 'retrieving'
+  | 'generating'
+  | 'complete'
+  | 'error';
+
+export type ProgressCallback = (status: SearchProgressStatus, message?: string) => void;
+
 export class RagService {
     private ollamaService: OllamaService;
     private vectorStoreService: VectorStoreService;
@@ -50,58 +62,78 @@ export class RagService {
     /**
      * Searches for relevant documents and generates a completion based on the query and retrieved context.
      * @param query The user's query string.
+     * @param onProgress Optional callback for progress updates.
      * @returns A promise that resolves to the generated answer string.
      */
-    public async search(query: string): Promise<string> {
-        // 1. Get the embedding for the user's query using the OllamaService.
-        const queryEmbedding = await this.ollamaService.getEmbedding(query);
+    public async search(query: string, onProgress?: ProgressCallback): Promise<string> {
+        try {
+            onProgress?.('starting', 'Starting search...');
+            
+            // 1. Get the embedding for the user's query using the OllamaService.
+            onProgress?.('embedding', 'Processing query...');
+            const queryEmbedding = await this.ollamaService.getEmbedding(query);
 
-        // 2. Use the VectorStoreService to search for the top-k (e.g., k=5) most similar document vectors.
-        const k = 5;
-        const topKVectorIndices = await this.vectorStoreService.search(queryEmbedding, k);
+            // 2. Use the VectorStoreService to search for the top-k (e.g., k=5) most similar document vectors.
+            onProgress?.('searching', 'Searching knowledge base...');
+            const k = 5;
+            const topKVectorIndices = await this.vectorStoreService.search(queryEmbedding, k);
 
-        console.log(`=== RAG Search Debug ===`);
-        console.log(`Query: "${query}"`);
-        console.log(`Vector indices found: ${topKVectorIndices.I.length}`);
-        console.log(`Indices: [${topKVectorIndices.I.join(', ')}]`);
-        console.log(`=== End RAG Search Debug ===`);
+            console.log(`=== RAG Search Debug ===`);
+            console.log(`Query: "${query}"`);
+            console.log(`Vector indices found: ${topKVectorIndices.I.length}`);
+            console.log(`Indices: [${topKVectorIndices.I.join(', ')}]`);
+            console.log(`=== End RAG Search Debug ===`);
 
-        // Handle empty search results
-        if (topKVectorIndices.I.length === 0) {
-            return 'No documents available in the knowledge base. Please add some documents first.';
+            // Handle empty search results
+            if (topKVectorIndices.I.length === 0) {
+                onProgress?.('complete', 'No documents available in the knowledge base');
+                return 'No documents available in the knowledge base. Please add some documents first.';
+            }
+
+            // 3. Map vector indices to document IDs
+            const documentIdsToRetrieve = topKVectorIndices.I.map(index => this.vectorIdToDocumentIdMap[index]).filter(id => id);
+
+            // 4. Retrieve documents from the document store
+            onProgress?.('retrieving', 'Retrieving relevant documents...');
+            const retrievedDocuments = await this.documentStoreService.getMany(documentIdsToRetrieve);
+
+            const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
+
+            if (retrievedDocuments.length === 0) {
+                onProgress?.('complete', 'No relevant documents found');
+                return 'No relevant documents found.';
+            }
+
+            // 5. Construct a detailed prompt for the completion model.
+            // This prompt should include the retrieved document content as context and the original user query.
+            const prompt = `
+            You are a helpful AI assistant.
+            Answer the following question based on the provided context:
+
+            Question: ${query}
+
+            Context:
+            ${context}
+
+            Instructions:
+            Be concise.
+            Do not refer to the context or the provided information .
+            Constrain your answers very strongly to the provided material and if you do need to refer to you your built-in knowledge tell the user where you have done so.
+            `;
+
+            const trimmedPrompt = prompt.trim().replace(/ {2,}/g, ' ');
+
+            // 6. Use the OllamaService's getCompletion method to get the final answer.
+            onProgress?.('generating', 'Building response...');
+            const finalAnswer = await this.ollamaService.getCompletion(trimmedPrompt);
+
+            // 7. Return the generated answer.
+            onProgress?.('complete', 'Search complete');
+            return finalAnswer;
+        } catch (error) {
+            onProgress?.('error', 'Search failed');
+            throw error;
         }
-
-        // 3. Map vector indices to document IDs
-        const documentIdsToRetrieve = topKVectorIndices.I.map(index => this.vectorIdToDocumentIdMap[index]).filter(id => id);
-
-        // 4. Retrieve documents from the document store
-        const retrievedDocuments = await this.documentStoreService.getMany(documentIdsToRetrieve);
-
-        const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
-
-        if (retrievedDocuments.length === 0) {
-            return 'No relevant documents found.';
-        }
-
-        // 5. Construct a detailed prompt for the completion model.
-        // This prompt should include the retrieved document content as context and the original user query.
-        const prompt = `
-        You are a helpful AI assistant.
-        Answer the following question based on the provided context:
-
-        Question: ${query}
-
-        Context:
-        ${context}
-        `;
-
-        const trimmedPrompt = prompt.trim().replace(/ {2,}/g, ' ');
-
-        // 6. Use the OllamaService's getCompletion method to get the final answer.
-        const finalAnswer = await this.ollamaService.getCompletion(trimmedPrompt);
-
-        // 7. Return the generated answer.
-        return finalAnswer;
     }
     /**
      * Adds a document to the RAG system.

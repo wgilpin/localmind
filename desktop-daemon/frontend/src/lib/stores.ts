@@ -3,3 +3,27 @@ import { writable } from 'svelte/store';
 export const searchResults = writable('');
 export const showResultsSection = writable(false);
 export const showNewNoteSection = writable(false);
+
+export type SearchStatus = 
+  | 'idle'
+  | 'starting'
+  | 'embedding'
+  | 'searching'
+  | 'retrieving'
+  | 'generating'
+  | 'complete'
+  | 'error';
+
+export const searchStatus = writable<SearchStatus>('idle');
+export const searchProgress = writable<string>('');
+
+export const statusMessages: Record<SearchStatus, string> = {
+  idle: '',
+  starting: 'Starting search...',
+  embedding: 'Processing query...',
+  searching: 'Searching knowledge base...',
+  retrieving: 'Retrieving relevant documents...',
+  generating: 'Building response...',
+  complete: 'Search complete',
+  error: 'Search failed'
+};

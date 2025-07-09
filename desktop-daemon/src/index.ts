@@ -67,6 +67,35 @@ async function startServer() {
     }
   });
 
+  app.get('/search-stream/:query', async (req: any, res: any) => {
+    const query = decodeURIComponent(req.params.query);
+    
+    if (!query) {
+      return res.status(400).send('Query is required.');
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+
+    try {
+      const result = await ragService.search(query, (status, message) => {
+        res.write(`data: ${JSON.stringify({ status, message })}\n\n`);
+      });
+      
+      res.write(`data: ${JSON.stringify({ status: 'result', result })}\n\n`);
+      res.end();
+    } catch (error) {
+      console.error('Error in search stream:', error);
+      res.write(`data: ${JSON.stringify({ status: 'error', message: 'Search failed' })}\n\n`);
+      res.end();
+    }
+  });
+
   app.listen(port, () => {
     console.log(`LocalMind Daemon listening at http://localhost:${port}`);
   });

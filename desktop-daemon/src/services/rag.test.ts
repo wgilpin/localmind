@@ -154,6 +154,11 @@ describe('RagService (Integration Tests)', () => {
         content of doc1
 
 content of doc2
+
+        Instructions:
+        Be concise.
+        Do not refer to the context or the provided information .
+        Constrain your answers very strongly to the provided material and if you do need to refer to you your built-in knowledge tell the user where you have done so.
         `.trim().replace(/ {2,}/g, ' ');
 
       expect(mockOllamaService.getCompletion).toHaveBeenCalledWith(expectedPrompt);
