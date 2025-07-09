@@ -9,3 +9,5 @@ userData/*
 search-ui/node_modules
 
 desktop-daemon/package-lock.json
+
+/desktop-daemon/dist
