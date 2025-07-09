@@ -51,7 +51,7 @@ export class DatabaseService {
       CREATE TABLE IF NOT EXISTS vector_mappings (
         vector_id INTEGER PRIMARY KEY,
         document_id TEXT,
-        FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+        FOREIGN KEY(document_id) REFERENCES documents(id)
       );
     `);
   }
@@ -151,8 +151,15 @@ export class DatabaseService {
    * @returns True if the document was deleted, false otherwise.
    */
   deleteDocument(documentId: string): boolean {
+    const deleteMappingsStmt = this.db.prepare(`DELETE FROM vector_mappings WHERE document_id = ?`);
     const deleteDocStmt = this.db.prepare(`DELETE FROM documents WHERE id = ?`);
-    const result = deleteDocStmt.run(documentId);
+
+    const result = this.db.transaction(() => {
+      deleteMappingsStmt.run(documentId);
+      const deleteDocResult = deleteDocStmt.run(documentId);
+      return deleteDocResult;
+    })();
+
     return result.changes > 0;
   }
 

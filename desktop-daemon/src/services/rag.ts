@@ -237,14 +237,16 @@ export class RagService {
      * @returns A promise that resolves to true if the document was deleted, false otherwise.
      */
     public async deleteDocument(documentId: string): Promise<boolean> {
+        const vectorIds = this.databaseService.getVectorIdsByDocumentId(documentId);
         const deletedFromDb = this.databaseService.deleteDocument(documentId);
+    
         if (deletedFromDb) {
-            const vectorIds = this.databaseService.getVectorIdsByDocumentId(documentId);
             if (vectorIds.length > 0) {
                 this.vectorStoreService.deleteVector(vectorIds);
+                await this.saveAllStores(); // Save the vector store after deletion
             }
-            await this.saveAllStores(); // Save the vector store after deletion
         }
+    
         return deletedFromDb;
     }
 
