@@ -182,9 +182,10 @@
 
   .vector-result-item {
     padding: 12px 16px;
-    border: 1px solid #e9ecef;
+    border: 1px solid #e0d4b6;
     border-radius: 8px;
-    background: #fff;
+    background: #f5deb3;
+    color: #4A4A4A;
     transition: all 0.2s ease;
   }
 
@@ -193,14 +194,14 @@
   }
 
   .vector-result-item.clickable:hover {
-    background: #f8f9fa;
-    border-color: #007bff;
+    background: #faf0e6;
+    border-color: #d2b48c;
     transform: translateY(-1px);
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   }
 
   .vector-result-item:focus {
-    outline: 2px solid #007bff;
+    outline: 2px solid #d2b48c;
     outline-offset: 2px;
   }
 
@@ -220,7 +221,7 @@
 
   .result-meta {
     font-size: 0.85em;
-    color: #6c757d;
+    color: #555555;
   }
 
   .expand-icon {
@@ -242,8 +243,8 @@
   }
 
   .vector-result-item.expanded {
-    border-color: #007bff;
-    background: #f8f9fa;
+    border-color: #d2b48c;
+    background: #faf0e6;
   }
 
   .llm-result {
