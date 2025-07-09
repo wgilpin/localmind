@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { writable } from 'svelte/store';
-
-  export const showNewNoteSection = writable(false);
+  import { showNewNoteSection } from '$lib/stores';
 
   let noteTitle = '';
   let noteContent = '';

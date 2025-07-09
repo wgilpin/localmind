@@ -1,8 +1,5 @@
 <script lang="ts">
-import { writable } from 'svelte/store';
-
-export const searchResults = writable('');
-export const showResultsSection = writable(false);
+import { searchResults, showResultsSection } from '$lib/stores';
 
 let searchQuery = '';
 

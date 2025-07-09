@@ -1,9 +1,10 @@
 <script lang="ts">
   // @ts-nocheck
-  import Search, { showResultsSection } from '$lib/components/Search.svelte';
+  import Search from '$lib/components/Search.svelte';
   import Results from '$lib/components/Results.svelte';
-  import NewNote, { showNewNoteSection } from '$lib/components/NewNote.svelte';
+  import NewNote from '$lib/components/NewNote.svelte';
   import FAB from '$lib/components/FAB.svelte';
+  import { showResultsSection, showNewNoteSection } from '$lib/stores';
 </script>
 
 <div id="container">

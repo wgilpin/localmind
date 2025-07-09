@@ -1,8 +1,8 @@
 <script lang="ts">
-import { showNewNoteSection } from './NewNote.svelte';
+import { showNewNoteSection } from '$lib/stores';
 
 function toggleNewNoteSection() {
-  showNewNoteSection.update(n => !n);
+  showNewNoteSection.update((n: boolean) => !n);
 }
 </script>
 
