@@ -34,6 +34,14 @@ export class VectorStoreService {
   }
 
   /**
+   * Returns the total number of vectors in the index.
+   * @returns The total number of vectors.
+   */
+  ntotal(): number {
+    return this.index.ntotal();
+  }
+
+  /**
    * Searches the index for the k nearest neighbors to the queryVector.
    * @param queryVector The vector to query.
    * @param k The number of nearest neighbors to retrieve.

@@ -14,18 +14,9 @@ export class OllamaService {
    * @param config Optional configuration for Ollama API URL and models.
    */
   constructor(config = OllamaConfig) {
-    console.log('=== OllamaService Constructor Debug ===');
-    console.log('Raw config object:', JSON.stringify(config, null, 2));
-    console.log('Config embeddingModel:', config.embeddingModel);
-    console.log('Config completionModel:', config.completionModel);
-    
     this.ollamaApiUrl = config.ollamaApiUrl;
     this.embeddingModel = config.embeddingModel;
     this.completionModel = config.completionModel;
-    
-    console.log('Assigned embeddingModel:', this.embeddingModel);
-    console.log('Assigned completionModel:', this.completionModel);
-    console.log('=== End Constructor Debug ===');
     
     this.pullModel(this.embeddingModel);
     this.pullModel(this.completionModel);
@@ -50,17 +41,10 @@ export class OllamaService {
    */
   public async getEmbedding(text: string): Promise<number[]> {
     try {
-      console.log('=== getEmbedding Debug ===');
-      console.log(`this.embeddingModel: "${this.embeddingModel}"`);
-      console.log(`typeof this.embeddingModel: ${typeof this.embeddingModel}`);
-      console.log(`Request payload model: "${this.embeddingModel}"`);
-      console.log('=== End getEmbedding Debug ===');
-      
       const requestPayload = {
         model: this.embeddingModel,
         prompt: text,
       };
-      console.log('Full request payload:', JSON.stringify(requestPayload, null, 2));
       
       const response = await axios.post(`${this.ollamaApiUrl}/api/embeddings`, requestPayload);
       if (response.data && response.data.embedding) {
@@ -94,5 +78,19 @@ export class OllamaService {
       console.error('Error getting completion:', error);
       throw error;
     }
+  }
+
+  /**
+   * Gets embeddings for an array of texts from the configured embedding model.
+   * @param texts An array of texts to get embeddings for.
+   * @returns A promise that resolves to a 2D array of numbers representing the embeddings.
+   * @throws Error if any API request fails or returns an invalid response.
+   */
+  public async getEmbeddings(texts: string[]): Promise<number[][]> {
+    const embeddings: number[][] = [];
+    for (const text of texts) {
+      embeddings.push(await this.getEmbedding(text));
+    }
+    return embeddings;
   }
 }

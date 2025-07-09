@@ -6,7 +6,7 @@ import path from 'path';
 import { OllamaConfig, DocumentStoreConfig, ServerConfig } from './config';
 import { OllamaService } from './services/ollama';
 import { VectorStoreService } from './services/vectorStore';
-import { DocumentStoreService } from './services/documentStore';
+import { DatabaseService } from './services/database';
 import { RagService } from './services/rag';
 
 const app = express();
@@ -31,12 +31,13 @@ async function startServer() {
   }
   const ollamaService = new OllamaService(OllamaConfig);
   const vectorStoreService = new VectorStoreService(OllamaConfig.vectorIndexFile);
-  const documentStoreService = new DocumentStoreService(DocumentStoreConfig.documentStoreFile);
+  // Initialize DatabaseService
+  const dbPath = path.join(DocumentStoreConfig.documentStoreFile, '..', 'localmind.db');
+  const databaseService = new DatabaseService(dbPath);
 
-  await documentStoreService.load();
   await vectorStoreService.load();
 
-  ragService = await RagService.create(ollamaService, vectorStoreService, documentStoreService);
+  ragService = await RagService.create(ollamaService, vectorStoreService);
 
 
   app.post('/documents', async (req: any, res: any) => {
@@ -45,7 +46,7 @@ async function startServer() {
       if (!title || !content) {
         return res.status(400).json({ message: 'Title and content are required.' });
       }
-      await ragService.addDocument({ title, content, url });
+      await ragService.addDocuments([{ title, content, url }]); // Note: addDocuments now expects an array
       res.status(200).json({ message: 'Document added successfully.' });
     } catch (error) {
       console.error('Error adding document:', error);
@@ -73,10 +74,11 @@ async function startServer() {
       if (!id) {
         return res.status(400).send('Document ID is required.');
       }
-      const document = await ragService['documentStoreService'].get(id);
+      const document = databaseService.getDocumentById(id);
       if (!document) {
         return res.status(404).send('Document not found.');
       }
+      // Only return necessary fields to avoid exposing full content if not desired
       res.status(200).json(document);
     } catch (error) {
       console.error('Error fetching document:', error);

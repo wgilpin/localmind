@@ -7,9 +7,13 @@
  */
 import { OllamaService } from './ollama';
 import { VectorStoreService } from './vectorStore';
-import { DocumentStoreService, Document } from './documentStore';
+import { DatabaseService, Document } from './database';
+import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
+import { v4 as uuidv4 } from 'uuid';
+import * as path from 'path';
+import { DocumentStoreConfig } from '../config'; // Using DocumentStoreConfig for dbPath
 
-const SEARCH_DISTANCE_CUTOFF = 60.0;
+const SEARCH_DISTANCE_CUTOFF = 55.0;
 
 export type SearchProgressStatus =
   | 'idle'
@@ -35,40 +39,49 @@ export type SearchResult = {
     llmResult?: string;
 };
 
+/**
+ * RagService
+ *
+ * This service orchestrates the RAG pipeline,
+ * integrating Ollama, VectorStore, and Database services
+ * to process user queries and generate informed responses.
+ */
 export class RagService {
     private ollamaService: OllamaService;
     private vectorStoreService: VectorStoreService;
-    private documentStoreService: DocumentStoreService;
-    private vectorIdToDocumentIdMap: string[] = [];
-
+    private databaseService: DatabaseService;
+    private textSplitter: RecursiveCharacterTextSplitter;
 
     /**
      * Constructs a new RagService instance.
      * @param ollamaService The OllamaService instance.
      * @param vectorStoreService The VectorStoreService instance.
-     * @param documentStoreService The DocumentStoreService instance.
+     * @param databaseService The DatabaseService instance.
+     * @param textSplitter The RecursiveCharacterTextSplitter instance.
      */
     private constructor(
         ollamaService: OllamaService,
         vectorStoreService: VectorStoreService,
-        documentStoreService: DocumentStoreService
+        databaseService: DatabaseService,
+        textSplitter: RecursiveCharacterTextSplitter
     ) {
         this.ollamaService = ollamaService;
         this.vectorStoreService = vectorStoreService;
-        this.documentStoreService = documentStoreService;
-    }
-
-    private async initialize(): Promise<void> {
-        this.vectorIdToDocumentIdMap = await this.documentStoreService.getIds();
+        this.databaseService = databaseService;
+        this.textSplitter = textSplitter;
     }
 
     public static async create(
         ollamaService: OllamaService,
         vectorStoreService: VectorStoreService,
-        documentStoreService: DocumentStoreService
     ): Promise<RagService> {
-        const ragService = new RagService(ollamaService, vectorStoreService, documentStoreService);
-        await ragService.initialize();
+        const dbPath = path.join(DocumentStoreConfig.documentStoreFile, '..', 'localmind.db');
+        const databaseService = new DatabaseService(dbPath);
+        const textSplitter = new RecursiveCharacterTextSplitter({
+            chunkSize: 1000,
+            chunkOverlap: 200,
+        });
+        const ragService = new RagService(ollamaService, vectorStoreService, databaseService, textSplitter);
         return ragService;
     }
 
@@ -91,11 +104,9 @@ export class RagService {
             .filter(item => item.distance <= SEARCH_DISTANCE_CUTOFF)
             .map(item => item.index);
 
-        const documentIdsToRetrieve = filteredIndices
-            .map(index => this.vectorIdToDocumentIdMap[index])
-            .filter(id => id);
+        const documentIdsToRetrieve = this.databaseService.getDocumentIdsByVectorIds(filteredIndices);
 
-        const retrievedDocuments = await this.documentStoreService.getMany(documentIdsToRetrieve);
+        const retrievedDocuments = this.databaseService.getDocumentsByIds(documentIdsToRetrieve);
 
         return retrievedDocuments.map(doc => ({
             id: doc.id,
@@ -124,12 +135,6 @@ export class RagService {
             const k = 5;
             const searchResults = await this.vectorStoreService.search(queryEmbedding, k);
 
-            console.log(`=== RAG Search Debug ===`);
-            console.log(`Query: "${query}"`);
-            console.log(`Vector indices found: ${searchResults.I.length}`);
-            console.log(`Distances: [${searchResults.D.join(', ')}]`);
-            console.log(`Indices: [${searchResults.I.join(', ')}]`);
-            console.log(`=== End RAG Search Debug ===`);
 
             // Handle empty search results
             if (searchResults.I.length === 0) {
@@ -143,11 +148,11 @@ export class RagService {
                 .filter(item => item.distance <= SEARCH_DISTANCE_CUTOFF)
                 .map(item => item.index);
             
-            const documentIdsToRetrieve = filteredIndices.map(index => this.vectorIdToDocumentIdMap[index]).filter(id => id);
+            const documentIdsToRetrieve = this.databaseService.getDocumentIdsByVectorIds(filteredIndices);
 
             // 4. Retrieve documents from the document store
             onProgress?.('retrieving', 'Retrieving relevant documents...');
-            const retrievedDocuments = await this.documentStoreService.getMany(documentIdsToRetrieve);
+            const retrievedDocuments = this.databaseService.getDocumentsByIds(documentIdsToRetrieve);
 
             const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
 
@@ -188,24 +193,48 @@ export class RagService {
         }
     }
     /**
-     * Adds a document to the RAG system.
-     * @param doc The document to add, including title, content, and optional URL.
+     * Adds documents to the RAG system in a batch.
+     * @param docs An array of documents to add, including title, content, and optional URL.
      */
-    public async addDocument(doc: { title: string; content: string; url?: string }): Promise<void> {
-        // 1. Add the document to the DocumentStoreService.
-        const newDocument = { ...doc, url: doc.url || '', timestamp: Date.now() };
-        const addedDocument = await this.documentStoreService.add(newDocument);
-        this.vectorIdToDocumentIdMap.push(addedDocument.id);
+    public async addDocuments(docs: { title: string; content: string; url?: string }[]): Promise<void> {
+        const documentsToAdd: Document[] = [];
+        const allEmbeddings: number[][] = [];
+        const allMappings: { vectorId: number; documentId: string }[] = [];
 
+        let currentVectorIndex = this.vectorStoreService.ntotal();
 
-        // 2. Generate an embedding for the document's content using the OllamaService.
-        const embedding = await this.ollamaService.getEmbedding(addedDocument.content);
+        for (const doc of docs) {
+            const newDocument: Document = { ...doc, id: uuidv4(), url: doc.url || '', timestamp: Date.now() };
+            documentsToAdd.push(newDocument);
 
-        // 3. Add the resulting embedding to the VectorStoreService.
-        await this.vectorStoreService.add([embedding]);
+            const chunks = await this.textSplitter.splitText(newDocument.content);
+            if (chunks.length === 0) continue;
 
-        // 4. Ensure both the document store and the vector index are saved to disk after the addition.
-        await this.documentStoreService.save();
+            const embeddings: number[][] = await this.ollamaService.getEmbeddings(chunks);
+            
+            embeddings.forEach((_embedding, index) => {
+                allMappings.push({
+                    vectorId: currentVectorIndex + index,
+                    documentId: newDocument.id,
+                });
+            });
+            allEmbeddings.push(...embeddings);
+            currentVectorIndex += embeddings.length;
+        }
+
+        this.databaseService.transaction(() => {
+            documentsToAdd.forEach(doc => this.databaseService.insertDocument(doc));
+            if (allEmbeddings.length > 0) {
+                this.vectorStoreService.add(allEmbeddings);
+            }
+            this.databaseService.insertVectorMappings(allMappings);
+        })();
+    }
+
+    /**
+     * Saves all stores to disk.
+     */
+    public async saveAllStores(): Promise<void> {
         await this.vectorStoreService.save(this.vectorStoreService.getFilePath());
     }
 }
