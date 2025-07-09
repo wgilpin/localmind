@@ -51,7 +51,7 @@ export class DatabaseService {
       CREATE TABLE IF NOT EXISTS vector_mappings (
         vector_id INTEGER PRIMARY KEY,
         document_id TEXT,
-        FOREIGN KEY(document_id) REFERENCES documents(id)
+        FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
       );
     `);
   }
@@ -132,6 +132,28 @@ export class DatabaseService {
     const stmt = this.db.prepare(`SELECT document_id FROM vector_mappings WHERE vector_id IN (${placeholders})`);
     const results = stmt.all(...vectorIds) as { document_id: string }[];
     return results.map(row => row.document_id);
+  }
+
+  /**
+   * Retrieves vector IDs associated with a given document ID.
+   * @param documentId The ID of the document.
+   * @returns An array of vector IDs.
+   */
+  getVectorIdsByDocumentId(documentId: string): number[] {
+    const stmt = this.db.prepare(`SELECT vector_id FROM vector_mappings WHERE document_id = ?`);
+    const results = stmt.all(documentId) as { vector_id: number }[];
+    return results.map(row => row.vector_id);
+  }
+
+  /**
+   * Deletes a document and its associated vector mappings from the database.
+   * @param documentId The ID of the document to delete.
+   * @returns True if the document was deleted, false otherwise.
+   */
+  deleteDocument(documentId: string): boolean {
+    const deleteDocStmt = this.db.prepare(`DELETE FROM documents WHERE id = ?`);
+    const result = deleteDocStmt.run(documentId);
+    return result.changes > 0;
   }
 
   /**

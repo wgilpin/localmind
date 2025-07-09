@@ -67,6 +67,17 @@ export class VectorStoreService {
   }
 
   /**
+   * Deletes vectors from the index by their internal FAISS IDs.
+   * @param ids The array of internal FAISS IDs to delete.
+   */
+  deleteVector(ids: number[]): void {
+    if (ids.length === 0) {
+      return;
+    }
+    this.index.removeIds(ids);
+  }
+
+  /**
    * Saves the index to a file.
    * @param path The path to save the index to.
    */

@@ -53,6 +53,33 @@
   };
 
   /**
+   * Handles deleting a note.
+   * @param noteId The ID of the note to delete
+   */
+  const handleDeleteNote = async (noteId: string) => {
+    if (confirm('Are you sure you want to delete this note and its vector entries?')) {
+      try {
+        const response = await fetch(`/notes/${noteId}`, {
+          method: 'DELETE',
+        });
+        if (response.ok) {
+          // Remove the deleted note from the vectorResults store
+          vectorResults.update(currentResults => currentResults.filter(note => note.id !== noteId));
+          // Also remove from expandedResults and documentContents if present
+          expandedResults.delete(noteId);
+          expandedResults = new Set(expandedResults);
+          documentContents.delete(noteId);
+          documentContents = new Map(documentContents);
+        } else {
+          console.error('Failed to delete note:', response.statusText);
+        }
+      } catch (error) {
+        console.error('Error deleting note:', error);
+      }
+    }
+  };
+
+  /**
    * Checks if a string is a valid HTTP/HTTPS URL.
    * @param string The string to check
    * @returns True if the string is a valid HTTP/HTTPS URL
@@ -99,15 +126,20 @@
               tabindex="0"
               role="button"
             >
-              <div class="result-title">
-                {result.title}
-                {#if result.url && isValidUrl(result.url)}
-                  <span class="external-link-icon">🔗</span>
-                {:else}
-                  <span class="expand-icon" class:expanded={expandedResults.has(result.id)}>
-                    {expandedResults.has(result.id) ? '▼' : '▶'}
-                  </span>
-                {/if}
+              <div class="result-header">
+                <div class="result-title">
+                  {result.title}
+                  {#if result.url && isValidUrl(result.url)}
+                    <span class="external-link-icon">🔗</span>
+                  {:else}
+                    <span class="expand-icon" class:expanded={expandedResults.has(result.id)}>
+                      {expandedResults.has(result.id) ? '▼' : '▶'}
+                    </span>
+                  {/if}
+                </div>
+                <button class="delete-button" on:click|stopPropagation={() => handleDeleteNote(result.id)}>
+                  &times;
+                </button>
               </div>
               <div class="result-meta">
                 {formatDate(result.timestamp)}
@@ -187,6 +219,7 @@
     background: #f5deb3;
     color: #4A4A4A;
     transition: all 0.2s ease;
+    position: relative; /* Added for positioning the delete button */
   }
 
   .vector-result-item.clickable {
@@ -205,10 +238,16 @@
     outline-offset: 2px;
   }
 
+  .result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
   .result-title {
     font-weight: 600;
     color: #333;
-    margin-bottom: 4px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -326,5 +365,20 @@
     text-align: center;
     padding: 40px;
     color: #6c757d;
+  }
+
+  .delete-button {
+    background: none;
+    border: none;
+    color: #dc3545; /* Red color for delete */
+    font-size: 1.5em;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    margin-left: auto; /* Push to the right */
+  }
+
+  .delete-button:hover {
+    color: #c82333;
   }
 </style>

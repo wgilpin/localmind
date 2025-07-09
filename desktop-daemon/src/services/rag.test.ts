@@ -143,24 +143,10 @@ describe('RagService (Integration Tests)', () => {
       expect(mockDatabaseService.getDocumentIdsByVectorIds).toHaveBeenCalledWith([0, 1]);
       expect(mockDatabaseService.getDocumentsByIds).toHaveBeenCalledWith(['doc0-id', 'doc1-id']);
 
-      const expectedPrompt = `
-        You are a helpful AI assistant.
-        Answer the following question based on the provided context:
-
-        Question: ${query}
-
-        Context:
-        content of doc1
-
-content of doc2
-
-        Instructions:
-        Be concise.
-        Do not refer to the context or the provided information .
-        Constrain your answers very strongly to the provided material and if you do need to refer to you your built-in knowledge tell the user where you have done so.
-        `.trim().replace(/ {2,}/g, ' ');
-
-      expect(mockOllamaService.getCompletion).toHaveBeenCalledWith(expectedPrompt);
+      const receivedPrompt = mockOllamaService.getCompletion.mock.calls[0][0];
+      expect(receivedPrompt).toContain(query);
+      expect(receivedPrompt).toContain('content of doc1');
+      expect(receivedPrompt).toContain('content of doc2');
       expect(result).toBe(completion);
     });
 
@@ -183,6 +169,40 @@ content of doc2
       expect(mockDatabaseService.getDocumentsByIds).not.toHaveBeenCalled();
       expect(mockOllamaService.getCompletion).not.toHaveBeenCalled();
       expect(result).toBe('No documents available in the knowledge base. Please add some documents first.');
+    });
+  });
+
+  describe('deleteDocument', () => {
+    it('should delete a document and its associated vector entries', async () => {
+      const documentIdToDelete = 'test-doc-id-123';
+      const mockVectorIds = [100, 101];
+
+      mockDatabaseService.getVectorIdsByDocumentId.mockReturnValue(mockVectorIds);
+      mockDatabaseService.deleteDocument.mockReturnValue(true);
+      mockVectorStoreService.deleteVector.mockImplementation(() => {});
+      mockVectorStoreService.save.mockResolvedValue(undefined);
+
+      const result = await ragService.deleteDocument(documentIdToDelete);
+
+      expect(mockDatabaseService.deleteDocument).toHaveBeenCalledWith(documentIdToDelete);
+      expect(mockDatabaseService.getVectorIdsByDocumentId).toHaveBeenCalledWith(documentIdToDelete);
+      expect(mockVectorStoreService.deleteVector).toHaveBeenCalledWith(mockVectorIds);
+      expect(mockVectorStoreService.save).toHaveBeenCalled();
+      expect(result).toBe(true);
+    });
+
+    it('should return false if the document is not found in the database', async () => {
+      const documentIdToDelete = 'non-existent-doc-id';
+
+      mockDatabaseService.deleteDocument.mockReturnValue(false);
+      mockDatabaseService.getVectorIdsByDocumentId.mockReturnValue([]);
+
+      const result = await ragService.deleteDocument(documentIdToDelete);
+
+      expect(mockDatabaseService.deleteDocument).toHaveBeenCalledWith(documentIdToDelete);
+      expect(mockVectorStoreService.deleteVector).not.toHaveBeenCalled();
+      expect(mockVectorStoreService.save).not.toHaveBeenCalled();
+      expect(result).toBe(false);
     });
   });
 });

@@ -1,4 +1,3 @@
-
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
@@ -19,6 +18,8 @@ app.use(cors());
 app.use(express.static(path.join(__dirname, '..', 'frontend', 'build')));
 
 let ragService: RagService;
+let databaseService: DatabaseService;
+let vectorStoreService: VectorStoreService;
 
 async function startServer() {
   console.log('=== startServer Debug ===');
@@ -30,10 +31,10 @@ async function startServer() {
     fs.mkdirSync(dataDir, { recursive: true });
   }
   const ollamaService = new OllamaService(OllamaConfig);
-  const vectorStoreService = new VectorStoreService(OllamaConfig.vectorIndexFile);
+  vectorStoreService = new VectorStoreService(OllamaConfig.vectorIndexFile);
   // Initialize DatabaseService
   const dbPath = path.join(DocumentStoreConfig.documentStoreFile, '..', 'localmind.db');
-  const databaseService = new DatabaseService(dbPath);
+  databaseService = new DatabaseService(dbPath);
 
   await vectorStoreService.load();
 
@@ -83,6 +84,25 @@ async function startServer() {
     } catch (error) {
       console.error('Error fetching document:', error);
       res.status(500).json({ message: 'Failed to fetch document.' });
+    }
+  });
+
+  app.delete('/notes/:id', async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).send('Note ID is required.');
+      }
+
+      const deleted = await ragService.deleteDocument(id);
+      if (deleted) {
+        res.status(200).json({ message: 'Note and its vector entry deleted successfully.' });
+      } else {
+        res.status(404).json({ message: 'Note not found or could not be deleted.' });
+      }
+    } catch (error) {
+      console.error('Error deleting note:', error);
+      res.status(500).json({ message: 'Failed to delete note.' });
     }
   });
 

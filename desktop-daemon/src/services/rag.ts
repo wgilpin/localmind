@@ -232,6 +232,23 @@ export class RagService {
     }
 
     /**
+     * Deletes a document and its associated vector entries from the RAG system.
+     * @param documentId The ID of the document to delete.
+     * @returns A promise that resolves to true if the document was deleted, false otherwise.
+     */
+    public async deleteDocument(documentId: string): Promise<boolean> {
+        const deletedFromDb = this.databaseService.deleteDocument(documentId);
+        if (deletedFromDb) {
+            const vectorIds = this.databaseService.getVectorIdsByDocumentId(documentId);
+            if (vectorIds.length > 0) {
+                this.vectorStoreService.deleteVector(vectorIds);
+            }
+            await this.saveAllStores(); // Save the vector store after deletion
+        }
+        return deletedFromDb;
+    }
+
+    /**
      * Saves all stores to disk.
      */
     public async saveAllStores(): Promise<void> {
