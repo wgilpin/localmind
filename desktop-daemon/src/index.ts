@@ -67,6 +67,37 @@ async function startServer() {
     }
   });
 
+  app.get('/documents/:id', async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).send('Document ID is required.');
+      }
+      const document = await ragService['documentStoreService'].get(id);
+      if (!document) {
+        return res.status(404).send('Document not found.');
+      }
+      res.status(200).json(document);
+    } catch (error) {
+      console.error('Error fetching document:', error);
+      res.status(500).json({ message: 'Failed to fetch document.' });
+    }
+  });
+
+  app.get('/vector-search/:query', async (req: any, res: any) => {
+    try {
+      const query = decodeURIComponent(req.params.query);
+      if (!query) {
+        return res.status(400).send('Query is required.');
+      }
+      const vectorResults = await ragService.getVectorResults(query);
+      res.status(200).json({ vectorResults });
+    } catch (error) {
+      console.error('Error in vector search:', error);
+      res.status(500).json({ message: 'Failed to perform vector search.' });
+    }
+  });
+
   app.get('/search-stream/:query', async (req: any, res: any) => {
     const query = decodeURIComponent(req.params.query);
     

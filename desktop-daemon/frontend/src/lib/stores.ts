@@ -1,6 +1,14 @@
 import { writable } from 'svelte/store';
 
+export type VectorSearchResult = {
+    id: string;
+    title: string;
+    url?: string;
+    timestamp: number;
+};
+
 export const searchResults = writable('');
+export const vectorResults = writable<VectorSearchResult[]>([]);
 export const showResultsSection = writable(false);
 export const showNewNoteSection = writable(false);
 

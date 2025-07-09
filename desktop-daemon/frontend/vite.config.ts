@@ -6,6 +6,7 @@ export default defineConfig({
 	server: {
 		proxy: {
 			'/search': 'http://localhost:3000',
+			'/vector-search': 'http://localhost:3000',
 			'/documents': 'http://localhost:3000'
 		}
 	}

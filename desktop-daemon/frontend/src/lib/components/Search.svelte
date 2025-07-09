@@ -1,5 +1,5 @@
 <script lang="ts">
-import { searchResults, showResultsSection, searchStatus, searchProgress, statusMessages, type SearchStatus } from '$lib/stores';
+import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, statusMessages, type SearchStatus } from '$lib/stores';
 
 let searchQuery = '';
 
@@ -11,7 +11,20 @@ async function handleSearch() {
     searchProgress.set(statusMessages.starting);
     showResultsSection.set(true);
     searchResults.set('');
+    vectorResults.set([]);
 
+    // First, get immediate vector results
+    try {
+      const vectorResponse = await fetch(`/vector-search/${encodeURIComponent(searchQuery)}`);
+      if (vectorResponse.ok) {
+        const vectorData = await vectorResponse.json();
+        vectorResults.set(vectorData.vectorResults || []);
+      }
+    } catch (vectorError) {
+      console.error('Error fetching vector results:', vectorError);
+    }
+
+    // Then start the LLM search with streaming
     const eventSource = new EventSource(`/search-stream/${encodeURIComponent(searchQuery)}`);
     
     eventSource.onmessage = (event) => {

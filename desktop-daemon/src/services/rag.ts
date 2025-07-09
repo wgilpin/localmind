@@ -21,6 +21,18 @@ export type SearchProgressStatus =
 
 export type ProgressCallback = (status: SearchProgressStatus, message?: string) => void;
 
+export type VectorSearchResult = {
+    id: string;
+    title: string;
+    url?: string;
+    timestamp: number;
+};
+
+export type SearchResult = {
+    vectorResults: VectorSearchResult[];
+    llmResult?: string;
+};
+
 export class RagService {
     private ollamaService: OllamaService;
     private vectorStoreService: VectorStoreService;
@@ -58,6 +70,33 @@ export class RagService {
         return ragService;
     }
 
+    /**
+     * Gets immediate vector search results without LLM processing.
+     * @param query The user's query string.
+     * @returns A promise that resolves to an array of vector search results.
+     */
+    public async getVectorResults(query: string): Promise<VectorSearchResult[]> {
+        const queryEmbedding = await this.ollamaService.getEmbedding(query);
+        const k = 5;
+        const topKVectorIndices = await this.vectorStoreService.search(queryEmbedding, k);
+
+        if (topKVectorIndices.I.length === 0) {
+            return [];
+        }
+
+        const documentIdsToRetrieve = topKVectorIndices.I
+            .map(index => this.vectorIdToDocumentIdMap[index])
+            .filter(id => id);
+
+        const retrievedDocuments = await this.documentStoreService.getMany(documentIdsToRetrieve);
+
+        return retrievedDocuments.map(doc => ({
+            id: doc.id,
+            title: doc.title,
+            url: doc.url,
+            timestamp: doc.timestamp
+        }));
+    }
 
     /**
      * Searches for relevant documents and generates a completion based on the query and retrieved context.
