@@ -9,6 +9,8 @@ import { OllamaService } from './ollama';
 import { VectorStoreService } from './vectorStore';
 import { DocumentStoreService, Document } from './documentStore';
 
+const SEARCH_DISTANCE_CUTOFF = 60.0;
+
 export type SearchProgressStatus =
   | 'idle'
   | 'starting'
@@ -77,14 +79,19 @@ export class RagService {
      */
     public async getVectorResults(query: string): Promise<VectorSearchResult[]> {
         const queryEmbedding = await this.ollamaService.getEmbedding(query);
-        const k = 5;
-        const topKVectorIndices = await this.vectorStoreService.search(queryEmbedding, k);
+        const k = 10;
+        const searchResults = await this.vectorStoreService.search(queryEmbedding, k);
 
-        if (topKVectorIndices.I.length === 0) {
+        if (searchResults.I.length === 0) {
             return [];
         }
 
-        const documentIdsToRetrieve = topKVectorIndices.I
+        const filteredIndices = searchResults.I
+            .map((index, i) => ({ index, distance: searchResults.D[i] }))
+            .filter(item => item.distance <= SEARCH_DISTANCE_CUTOFF)
+            .map(item => item.index);
+
+        const documentIdsToRetrieve = filteredIndices
             .map(index => this.vectorIdToDocumentIdMap[index])
             .filter(id => id);
 
@@ -115,22 +122,28 @@ export class RagService {
             // 2. Use the VectorStoreService to search for the top-k (e.g., k=5) most similar document vectors.
             onProgress?.('searching', 'Searching knowledge base...');
             const k = 5;
-            const topKVectorIndices = await this.vectorStoreService.search(queryEmbedding, k);
+            const searchResults = await this.vectorStoreService.search(queryEmbedding, k);
 
             console.log(`=== RAG Search Debug ===`);
             console.log(`Query: "${query}"`);
-            console.log(`Vector indices found: ${topKVectorIndices.I.length}`);
-            console.log(`Indices: [${topKVectorIndices.I.join(', ')}]`);
+            console.log(`Vector indices found: ${searchResults.I.length}`);
+            console.log(`Distances: [${searchResults.D.join(', ')}]`);
+            console.log(`Indices: [${searchResults.I.join(', ')}]`);
             console.log(`=== End RAG Search Debug ===`);
 
             // Handle empty search results
-            if (topKVectorIndices.I.length === 0) {
+            if (searchResults.I.length === 0) {
                 onProgress?.('complete', 'No documents available in the knowledge base');
                 return 'No documents available in the knowledge base. Please add some documents first.';
             }
 
             // 3. Map vector indices to document IDs
-            const documentIdsToRetrieve = topKVectorIndices.I.map(index => this.vectorIdToDocumentIdMap[index]).filter(id => id);
+            const filteredIndices = searchResults.I
+                .map((index, i) => ({ index, distance: searchResults.D[i] }))
+                .filter(item => item.distance <= SEARCH_DISTANCE_CUTOFF)
+                .map(item => item.index);
+            
+            const documentIdsToRetrieve = filteredIndices.map(index => this.vectorIdToDocumentIdMap[index]).filter(id => id);
 
             // 4. Retrieve documents from the document store
             onProgress?.('retrieving', 'Retrieving relevant documents...');
