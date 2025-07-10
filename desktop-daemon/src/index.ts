@@ -106,17 +106,18 @@ async function startServer() {
     }
   });
 
-  app.get('/vector-search/:query', async (req: any, res: any) => {
+
+  app.get('/ranked-chunks/:query', async (req: any, res: any) => {
     try {
       const query = decodeURIComponent(req.params.query);
       if (!query) {
         return res.status(400).send('Query is required.');
       }
-      const vectorResults = await ragService.getVectorResults(query);
-      res.status(200).json({ vectorResults });
+      const rankedChunks = await ragService.getRankedChunks(query);
+      res.status(200).json({ rankedChunks });
     } catch (error) {
-      console.error('Error in vector search:', error);
-      res.status(500).json({ message: 'Failed to perform vector search.' });
+      console.error('Error in ranked chunks search:', error);
+      res.status(500).json({ message: 'Failed to perform ranked chunks search.' });
     }
   });
 

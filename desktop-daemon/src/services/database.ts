@@ -146,6 +146,21 @@ export class DatabaseService {
   }
 
   /**
+   * Retrieves vector mappings for a given array of vector IDs.
+   * @param vectorIds An array of vector IDs.
+   * @returns An array of vector mappings.
+   */
+  getVectorMappingsByIds(vectorIds: number[]): VectorMapping[] {
+    if (vectorIds.length === 0) {
+      return [];
+    }
+    const placeholders = vectorIds.map(() => '?').join(',');
+    const stmt = this.db.prepare(`SELECT vector_id, document_id FROM vector_mappings WHERE vector_id IN (${placeholders})`);
+    const results = stmt.all(...vectorIds) as { vector_id: number; document_id: string }[];
+    return results.map(row => ({ vectorId: row.vector_id, documentId: row.document_id }));
+  }
+
+  /**
    * Deletes a document and its associated vector mappings from the database.
    * @param documentId The ID of the document to delete.
    * @returns True if the document was deleted, false otherwise.

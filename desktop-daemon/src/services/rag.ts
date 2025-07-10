@@ -39,6 +39,16 @@ export type SearchResult = {
     llmResult?: string;
 };
 
+export type RetrievedChunk = {
+    chunkId: number;
+    documentId: string;
+    distance: number;
+    content: string;
+    title: string;
+    url: string;
+    timestamp: number;
+  };
+
 /**
  * RagService
  *
@@ -86,34 +96,91 @@ export class RagService {
     }
 
     /**
-     * Gets immediate vector search results without LLM processing.
+     * Searches for and re-ranks chunks to ensure relevance and diversity.
      * @param query The user's query string.
-     * @returns A promise that resolves to an array of vector search results.
+     * @returns A promise that resolves to an array of the most relevant text chunks.
      */
-    public async getVectorResults(query: string): Promise<VectorSearchResult[]> {
+    public async getRankedChunks(query: string): Promise<RetrievedChunk[]> {
+        // 1. Fetch a larger pool of candidate chunks (not documents)
+        const k = 100; // Retrieve more to re-rank
         const queryEmbedding = await this.ollamaService.getEmbedding(query);
-        const k = 10;
         const searchResults = await this.vectorStoreService.search(queryEmbedding, k);
 
         if (searchResults.I.length === 0) {
             return [];
         }
 
-        const filteredIndices = searchResults.I
-            .map((index, i) => ({ index, distance: searchResults.D[i] }))
-            .filter(item => item.distance <= SEARCH_DISTANCE_CUTOFF)
-            .map(item => item.index);
+        const candidates = searchResults.I
+            .map((index, i) => ({ chunkId: index, distance: searchResults.D[i] }))
+            .filter(item => item.distance <= SEARCH_DISTANCE_CUTOFF);
 
-        const documentIdsToRetrieve = this.databaseService.getDocumentIdsByVectorIds(filteredIndices);
+        if (candidates.length === 0) {
+            return [];
+        }
 
+        // 2. Group chunks by their parent document ID
+        const vectorIds = candidates.map(c => c.chunkId);
+        const mappings = this.databaseService.getVectorMappingsByIds(vectorIds);
+        
+        const candidatesWithDocIds = candidates.map(candidate => {
+            const mapping = mappings.find(m => m.vectorId === candidate.chunkId);
+            return {
+                ...candidate,
+                documentId: mapping ? mapping.documentId : 'unknown'
+            };
+        });
+
+        const docsWithChunks: Map<string, any[]> = new Map();
+        for (const chunk of candidatesWithDocIds) {
+            if (!docsWithChunks.has(chunk.documentId)) {
+                docsWithChunks.set(chunk.documentId, []);
+            }
+            docsWithChunks.get(chunk.documentId)!.push(chunk);
+        }
+
+        // 3. Calculate an aggregate score for each document
+        const docScores = [];
+        for (const [docId, chunks] of docsWithChunks.entries()) {
+            const bestChunk = chunks.reduce((prev, curr) => curr.distance < prev.distance ? curr : prev);
+            const numHits = chunks.length;
+            
+            // Scoring: lower is better (distance-based). Add a penalty for fewer hits.
+            const score = bestChunk.distance - (0.1 * Math.log(1 + numHits)); // Example heuristic
+            
+            docScores.push({ docId, score, bestChunk });
+        }
+
+        // 4. Sort documents by the new score and take the top N
+        docScores.sort((a, b) => a.score - b.score);
+        const finalTopChunksIds = docScores.slice(0, 5).map(item => item.bestChunk.chunkId); // Return best chunk from top 5 docs
+
+        // 5. Hydrate the chunk data with full document info for context/citation
+        const finalMappings = this.databaseService.getVectorMappingsByIds(finalTopChunksIds);
+        const documentIdsToRetrieve = [...new Set(finalMappings.map(m => m.documentId))];
         const retrievedDocuments = this.databaseService.getDocumentsByIds(documentIdsToRetrieve);
+        
+        const hydratedChunks = finalTopChunksIds.map(chunkId => {
+            const mapping = finalMappings.find(m => m.vectorId === chunkId);
+            if (!mapping) return null;
 
-        return retrievedDocuments.map(doc => ({
-            id: doc.id,
-            title: doc.title,
-            url: doc.url,
-            timestamp: doc.timestamp
-        }));
+            const document = retrievedDocuments.find(d => d.id === mapping.documentId);
+            if (!document) return null;
+
+            const candidate = candidates.find(c => c.chunkId === chunkId);
+            if (!candidate) return null;
+
+            return {
+                chunkId,
+                documentId: document.id,
+                distance: candidate.distance,
+                content: document.content, // This is the whole doc content, need to change to chunk content later
+                title: document.title,
+                url: document.url,
+                timestamp: document.timestamp
+            };
+        }).filter((chunk): chunk is RetrievedChunk => chunk !== null);
+
+        return hydratedChunks;
     }
 
     /**
@@ -126,40 +193,15 @@ export class RagService {
         try {
             onProgress?.('starting', 'Starting search...');
             
-            // 1. Get the embedding for the user's query using the OllamaService.
-            onProgress?.('embedding', 'Processing query...');
-            const queryEmbedding = await this.ollamaService.getEmbedding(query);
-
-            // 2. Use the VectorStoreService to search for the top-k (e.g., k=5) most similar document vectors.
-            onProgress?.('searching', 'Searching knowledge base...');
-            const k = 5;
-            const searchResults = await this.vectorStoreService.search(queryEmbedding, k);
-
-
-            // Handle empty search results
-            if (searchResults.I.length === 0) {
-                onProgress?.('complete', 'No documents available in the knowledge base');
-                return 'No documents available in the knowledge base. Please add some documents first.';
-            }
-
-            // 3. Map vector indices to document IDs
-            const filteredIndices = searchResults.I
-                .map((index, i) => ({ index, distance: searchResults.D[i] }))
-                .filter(item => item.distance <= SEARCH_DISTANCE_CUTOFF)
-                .map(item => item.index);
-            
-            const documentIdsToRetrieve = this.databaseService.getDocumentIdsByVectorIds(filteredIndices);
-
-            // 4. Retrieve documents from the document store
             onProgress?.('retrieving', 'Retrieving relevant documents...');
-            const retrievedDocuments = this.databaseService.getDocumentsByIds(documentIdsToRetrieve);
-
-            const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
+            const retrievedDocuments = await this.getRankedChunks(query);
 
             if (retrievedDocuments.length === 0) {
                 onProgress?.('complete', 'No relevant documents found');
                 return 'No relevant documents found.';
             }
+
+            const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
 
             // 5. Construct a detailed prompt for the completion model.
             // This prompt should include the retrieved document content as context and the original user query.

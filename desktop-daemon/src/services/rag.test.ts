@@ -108,45 +108,68 @@ describe('RagService (Integration Tests)', () => {
   });
 
   describe('search', () => {
-    it('should correctly execute the RAG pipeline for a given query', async () => {
+    it('should correctly execute the RAG pipeline with diversity ranking', async () => {
       const query = 'test query';
-      const queryEmbedding = [0.4, 0.5, 0.6];
+      const queryEmbedding = [0.1, 0.2, 0.3];
       const searchResults = {
-        I: [0, 1],
-        D: [0.9, 0.8]
+        I: [0, 1, 2, 3, 4],
+        D: [0.1, 0.2, 0.15, 0.3, 0.25]
       };
-      const documents: Document[] = [{
-        id: 'doc0-id',
-        content: 'content of doc1',
-        url: 'http://example.com/doc0',
-        title: 'Doc 0',
-        timestamp: Date.now()
+      const vectorMappings = [{
+        vectorId: 0,
+        documentId: 'doc-A'
       }, {
-        id: 'doc1-id',
-        content: 'content of doc2',
-        url: 'http://example.com/doc1',
-        title: 'Doc 1',
-        timestamp: Date.now()
+        vectorId: 1,
+        documentId: 'doc-A'
+      }, {
+        vectorId: 2,
+        documentId: 'doc-B'
+      }, {
+        vectorId: 3,
+        documentId: 'doc-B'
+      }, {
+        vectorId: 4,
+        documentId: 'doc-C'
+      }, ];
+      const documents = [{
+        id: 'doc-A',
+        content: 'content A',
+        title: 'Doc A',
+        url: '',
+        timestamp: 0
+      }, {
+        id: 'doc-B',
+        content: 'content B',
+        title: 'Doc B',
+        url: '',
+        timestamp: 0
+      }, {
+        id: 'doc-C',
+        content: 'content C',
+        title: 'Doc C',
+        url: '',
+        timestamp: 0
       }, ];
       const completion = 'generated completion';
 
       mockOllamaService.getEmbedding.mockResolvedValue(queryEmbedding);
       mockVectorStoreService.search.mockResolvedValue(searchResults);
-      mockDatabaseService.getDocumentIdsByVectorIds.mockReturnValue(['doc0-id', 'doc1-id']);
+      mockDatabaseService.getVectorMappingsByIds.mockReturnValue(vectorMappings);
       mockDatabaseService.getDocumentsByIds.mockReturnValue(documents);
       mockOllamaService.getCompletion.mockResolvedValue(completion);
 
       const result = await ragService.search(query);
 
       expect(mockOllamaService.getEmbedding).toHaveBeenCalledWith(query);
-      expect(mockVectorStoreService.search).toHaveBeenCalledWith(queryEmbedding, 5);
-      expect(mockDatabaseService.getDocumentIdsByVectorIds).toHaveBeenCalledWith([0, 1]);
-      expect(mockDatabaseService.getDocumentsByIds).toHaveBeenCalledWith(['doc0-id', 'doc1-id']);
+      expect(mockVectorStoreService.search).toHaveBeenCalledWith(queryEmbedding, 100);
+      expect(mockDatabaseService.getVectorMappingsByIds).toHaveBeenCalled();
+      expect(mockDatabaseService.getDocumentsByIds).toHaveBeenCalled();
 
       const receivedPrompt = mockOllamaService.getCompletion.mock.calls[0][0];
       expect(receivedPrompt).toContain(query);
-      expect(receivedPrompt).toContain('content of doc1');
-      expect(receivedPrompt).toContain('content of doc2');
+      expect(receivedPrompt).toContain('content A');
+      expect(receivedPrompt).toContain('content B');
+      expect(receivedPrompt).toContain('content C');
       expect(result).toBe(completion);
     });
 
@@ -159,13 +182,12 @@ describe('RagService (Integration Tests)', () => {
         I: [],
         D: []
       });
-      mockDatabaseService.getDocumentsByIds.mockReturnValue([]);
 
       const result = await ragService.search(query);
 
       expect(mockOllamaService.getEmbedding).toHaveBeenCalledWith(query);
-      expect(mockVectorStoreService.search).toHaveBeenCalledWith(queryEmbedding, 5);
-      expect(mockDatabaseService.getDocumentIdsByVectorIds).not.toHaveBeenCalled();
+      expect(mockVectorStoreService.search).toHaveBeenCalledWith(queryEmbedding, 100);
+      expect(mockDatabaseService.getVectorMappingsByIds).not.toHaveBeenCalled();
       expect(mockDatabaseService.getDocumentsByIds).not.toHaveBeenCalled();
       expect(mockOllamaService.getCompletion).not.toHaveBeenCalled();
       expect(result).toBe('No documents available in the knowledge base. Please add some documents first.');
@@ -205,4 +227,5 @@ describe('RagService (Integration Tests)', () => {
       expect(result).toBe(false);
     });
   });
+
 });
