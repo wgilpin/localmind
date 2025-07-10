@@ -1,5 +1,5 @@
 <script lang="ts">
-import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, statusMessages, type SearchStatus } from '$lib/stores';
+import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, statusMessages, retrievedDocuments, type SearchStatus } from '$lib/stores';
 
 let searchQuery = '';
 
@@ -12,6 +12,7 @@ async function handleSearch() {
     showResultsSection.set(true);
     searchResults.set('');
     vectorResults.set([]);
+    retrievedDocuments.set([]);
 
     // First, get immediate vector results
     try {
@@ -19,6 +20,7 @@ async function handleSearch() {
       if (vectorResponse.ok) {
         const vectorData = await vectorResponse.json();
         vectorResults.set(vectorData.vectorResults || []);
+        retrievedDocuments.set(vectorData.vectorResults.map((doc: { chunk_text: string; }) => ({ chunk_text: doc.chunk_text })) || []);
       }
     } catch (vectorError) {
       console.error('Error fetching vector results:', vectorError);

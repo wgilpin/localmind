@@ -2,9 +2,10 @@
   /**
    * Results component for displaying search results and progress.
    */
-  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress } from '../stores';
+  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, retrievedDocuments } from '../stores';
   import type { VectorSearchResult } from '../stores';
   import { marked } from 'marked';
+  import Documents from './Documents.svelte';
 
   let expandedResults: Set<string> = new Set();
   let documentContents: Map<string, string> = new Map();
@@ -112,49 +113,10 @@
       </div>
     {/if}
     
-    {#if $vectorResults.length > 0}
-      <div class="vector-results">
-        <h3>Related Documents</h3>
-        <div class="vector-results-list">
-          {#each $vectorResults as result}
-            <div
-              class="vector-result-item"
-              class:clickable={true}
-              class:expanded={expandedResults.has(result.id)}
-              on:click={() => handleResultClick(result)}
-              on:keydown={(e) => e.key === 'Enter' && handleResultClick(result)}
-              tabindex="0"
-              role="button"
-            >
-              <div class="result-header">
-                <div class="result-title">
-                  {result.title}
-                  {#if result.url && isValidUrl(result.url)}
-                    <span class="external-link-icon">🔗</span>
-                  {:else}
-                    <span class="expand-icon" class:expanded={expandedResults.has(result.id)}>
-                      {expandedResults.has(result.id) ? '▼' : '▶'}
-                    </span>
-                  {/if}
-                </div>
-                <button class="delete-button" on:click|stopPropagation={() => handleDeleteNote(result.id)}>
-                  &times;
-                </button>
-              </div>
-              <div class="result-meta">
-                {formatDate(result.timestamp)}
-              </div>
-              {#if expandedResults.has(result.id) && documentContents.has(result.id)}
-                <div class="result-content">
-                  {@html renderMarkdown(documentContents.get(result.id) || '')}
-                </div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </div>
+    {#if $retrievedDocuments.length > 0}
+      <Documents documents={$retrievedDocuments} />
     {/if}
-    
+
     {#if $searchResults && ($searchStatus === 'complete' || $searchStatus === 'error')}
       <div class="llm-result">
         <h3>AI Response</h3>

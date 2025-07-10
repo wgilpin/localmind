@@ -5,10 +5,16 @@ export type VectorSearchResult = {
     title: string;
     url?: string;
     timestamp: number;
+    chunk_text: string;
+};
+
+export type RetrievedDocument = {
+    chunk_text: string;
 };
 
 export const searchResults = writable('');
 export const vectorResults = writable<VectorSearchResult[]>([]);
+export const retrievedDocuments = writable<RetrievedDocument[]>([]);
 export const showResultsSection = writable(false);
 export const showNewNoteSection = writable(false);
 
