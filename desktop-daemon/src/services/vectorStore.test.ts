@@ -14,12 +14,11 @@ jest.mock('faiss-node', () => {
         search: jest.fn(),
         write: jest.fn(),
         ntotal: jest.fn(),
+        deleteVector: jest.fn(), // Add mock for deleteVector
     };
 
-    // Define a mock constructor function for Index
     const MockIndex = jest.fn().mockImplementation(() => mockIndexInstance);
 
-    // Attach the static 'read' method directly to the MockIndex constructor, casting to any to satisfy TypeScript
     (MockIndex as any).read = jest.fn().mockReturnValue(mockIndexInstance);
 
     return {
@@ -34,6 +33,44 @@ jest.mock('fs', () => ({
     mkdirSync: jest.fn(),
 }));
 
+// Mock the DatabaseService module
+jest.mock('./database', () => {
+    const actualModule = jest.requireActual('./database');
+    return {
+        ...actualModule,
+        DatabaseService: jest.fn().mockImplementation(() => {
+            const mockDb = {
+                prepare: jest.fn().mockReturnThis(),
+                run: jest.fn(),
+                get: jest.fn(),
+                all: jest.fn(),
+                transaction: jest.fn((cb) => {
+                    return jest.fn(() => cb());
+                }),
+                close: jest.fn(),
+            };
+            // Return a mock instance that behaves like DatabaseService but uses the mockDb
+            return {
+                insertDocument: jest.fn(),
+                insertVectorMappings: jest.fn(),
+                getDocumentById: jest.fn(),
+                getDocumentsByIds: jest.fn(),
+                getAllDocuments: jest.fn(),
+                getDocumentIdByVectorId: jest.fn(),
+                getDocumentIdsByVectorIds: jest.fn(),
+                getVectorIdsByDocumentId: jest.fn(),
+                getVectorMappingsByIds: jest.fn(),
+                deleteDocument: jest.fn(),
+                transaction: jest.fn((cb) => {
+                    return jest.fn(() => cb());
+                }),
+                close: jest.fn(),
+            };
+        }),
+    };
+});
+
+
 describe('VectorStoreService', () => {
     const testFilePath = 'test-index.faiss';
     let vectorStoreService: VectorStoreService;
@@ -43,19 +80,21 @@ describe('VectorStoreService', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
-        // Ensure that the mock Index is returned consistently
-        const { Index } = jest.requireMock('faiss-node'); // Only destructure Index
+        const { Index } = jest.requireMock('faiss-node');
         mockFaissIndex = {
             add: jest.fn(),
             search: jest.fn(),
             write: jest.fn(),
             ntotal: jest.fn(),
+            deleteVector: jest.fn(),
         };
-        (Index as any).mockImplementation(() => mockFaissIndex); // Cast Index to any for mockImplementation
-        (Index as any).read.mockImplementation(() => mockFaissIndex); // Access read as a static property of Index
+        (Index as any).mockImplementation(() => mockFaissIndex);
+        (Index as any).read.mockImplementation(() => mockFaissIndex);
 
         (fs.existsSync as jest.Mock).mockReturnValue(false);
-        mockDatabaseService = new DatabaseService('test-db.sqlite') as jest.Mocked<DatabaseService>;
+        
+        // Get the mocked DatabaseService instance created by the jest.mock above
+        mockDatabaseService = new DatabaseService('dummy-path') as jest.Mocked<DatabaseService>;
         mockOllamaService = new OllamaService() as jest.Mocked<OllamaService>;
         vectorStoreService = new VectorStoreService(testFilePath, mockDatabaseService, mockOllamaService);
     });
@@ -106,7 +145,7 @@ describe('VectorStoreService', () => {
         (fs.existsSync as jest.Mock).mockReturnValue(true);
         const {
             Index
-        } = jest.requireMock('faiss-node'); // Get Index mock
+        } = jest.requireMock('faiss-node');
         await vectorStoreService.load(testFilePath);
         expect((Index as any).read).toHaveBeenCalledWith(testFilePath);
     });
@@ -119,7 +158,7 @@ describe('VectorStoreService', () => {
         (fs.existsSync as jest.Mock).mockReturnValue(false);
         const {
             Index
-        } = jest.requireMock('faiss-node'); // Get Index mock
+        } = jest.requireMock('faiss-node');
         await vectorStoreService.load(testFilePath);
         expect((Index as any).read).not.toHaveBeenCalled();
     });

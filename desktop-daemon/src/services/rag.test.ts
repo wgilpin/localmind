@@ -21,7 +21,7 @@ import {
 // Mock the low-level services
 jest.mock('./ollama');
 jest.mock('./vectorStore');
-jest.mock('./database');
+jest.mock('./database'); // Keep this global mock
 
 describe('RagService (Integration Tests)', () => {
   let ragService: RagService;
@@ -35,37 +35,46 @@ describe('RagService (Integration Tests)', () => {
 
     // Initialize RagService with mocked dependencies
     mockOllamaService = new OllamaService() as jest.Mocked<OllamaService>;
-    mockDatabaseService = new DatabaseService('test-db.sqlite') as jest.Mocked<DatabaseService>;
     mockVectorStoreService = new VectorStoreService(
       'test-vector-store.faiss',
-      mockDatabaseService,
+      {} as any, // Dummy DatabaseService, as it's mocked globally
       mockOllamaService
     ) as jest.Mocked<VectorStoreService>;
     
-    // Mock the ntotal method for VectorStoreService
-    mockVectorStoreService.ntotal.mockReturnValue(0);
+    // Mock the ntotal method for VectorStoreService to return increasing values
+    let ntotalCount = 0;
+    mockVectorStoreService.ntotal.mockImplementation(() => {
+        const currentTotal = ntotalCount;
+        return currentTotal;
+    });
+    mockVectorStoreService.add.mockImplementation((embeddings: number[][]) => {
+        ntotalCount += embeddings.length;
+    });
 
-    // First, create the ragService, which will instantiate the mocked DatabaseService
     ragService = await RagService.create(
       mockOllamaService,
       mockVectorStoreService
     );
 
-    // Configure the transaction mock
+    // After RagService.create, the mocked DatabaseService constructor should have been called.
+    // Get the instance that RagService is actually using.
+    mockDatabaseService = (DatabaseService as jest.Mock).mock.instances[0] as jest.Mocked<DatabaseService>;
+    
+    // Configure the transaction mock on the retrieved instance
     mockDatabaseService.transaction.mockImplementation((cb) => {
       const runTransaction = jest.fn(cb);
-      const mockTransactionWrapper = (() => runTransaction()) as any;
-      mockTransactionWrapper.default = runTransaction;
-      mockTransactionWrapper.deferred = runTransaction;
-      mockTransactionWrapper.immediate = runTransaction;
-      mockTransactionWrapper.exclusive = runTransaction;
-      return mockTransactionWrapper;
+      return jest.fn(() => runTransaction());
     });
+
+    // Mock other DatabaseService methods on the retrieved instance
+    mockDatabaseService.getVectorMappingsByIds.mockReturnValue([]); // Default empty array for search test
+    mockDatabaseService.getDocumentsByIds.mockReturnValue([]); // Default empty array for search test
+    mockDatabaseService.deleteDocument.mockReturnValue(true); // Default for delete test
+    mockDatabaseService.getVectorIdsByDocumentId.mockReturnValue([]); // Default for delete test
   });
 
   describe('addDocuments', () => {
     it('should correctly call add methods on database and vector stores and getEmbeddings on Ollama service', async () => {
-      // Define the documents to be added
       const docsToAdd = [{
         content: 'test content 1',
         url: 'http://example.com/doc1',
@@ -76,14 +85,17 @@ describe('RagService (Integration Tests)', () => {
         title: 'Test Document 2',
       }, ];
       
-      const embeddings = [
-        [0.1, 0.2, 0.3],
-        [0.4, 0.5, 0.6]
+      const embeddingsDoc1 = [
+        [0.1, 0.2, 0.3], [0.11, 0.21, 0.31]
+      ];
+      const embeddingsDoc2 = [
+        [0.4, 0.5, 0.6], [0.41, 0.51, 0.61]
       ];
 
-      mockOllamaService.getEmbeddings.mockResolvedValueOnce(embeddings.slice(0, 1)).mockResolvedValueOnce(embeddings.slice(1, 2));
-      mockVectorStoreService.add.mockImplementation(() => {});
-
+      mockOllamaService.getEmbeddings
+        .mockResolvedValueOnce(embeddingsDoc1)
+        .mockResolvedValueOnce(embeddingsDoc2);
+      
       await ragService.addDocuments(docsToAdd);
 
       expect(mockOllamaService.getEmbeddings).toHaveBeenCalledTimes(2);
@@ -98,14 +110,13 @@ describe('RagService (Integration Tests)', () => {
         content: 'test content 2'
       }));
 
-      expect(mockVectorStoreService.add).toHaveBeenCalledWith(embeddings);
-      expect(mockDatabaseService.insertVectorMappings).toHaveBeenCalledWith([{
-        vectorId: 0,
-        documentId: expect.any(String)
-      }, {
-        vectorId: 1,
-        documentId: expect.any(String)
-      }]);
+      expect(mockVectorStoreService.add).toHaveBeenCalledWith([...embeddingsDoc1, ...embeddingsDoc2]);
+      expect(mockDatabaseService.insertVectorMappings).toHaveBeenCalledWith([
+        { vectorId: 0, documentId: expect.any(String) },
+        { vectorId: 1, documentId: expect.any(String) },
+        { vectorId: 2, documentId: expect.any(String) },
+        { vectorId: 3, documentId: expect.any(String) }
+      ]);
     });
   });
 
@@ -172,7 +183,7 @@ describe('RagService (Integration Tests)', () => {
       expect(receivedPrompt).toContain('content A');
       expect(receivedPrompt).toContain('content B');
       expect(receivedPrompt).toContain('content C');
-      expect(result).toBe(completion);
+      expect(result).toEqual({ response: completion, documents: expect.any(Array) });
     });
 
     it('should return a default message if no relevant documents are found', async () => {
@@ -192,7 +203,7 @@ describe('RagService (Integration Tests)', () => {
       expect(mockDatabaseService.getVectorMappingsByIds).not.toHaveBeenCalled();
       expect(mockDatabaseService.getDocumentsByIds).not.toHaveBeenCalled();
       expect(mockOllamaService.getCompletion).not.toHaveBeenCalled();
-      expect(result).toBe('No documents available in the knowledge base. Please add some documents first.');
+      expect(result).toEqual({ response: 'No relevant documents found.', documents: [] });
     });
   });
 

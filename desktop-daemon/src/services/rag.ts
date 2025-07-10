@@ -11,7 +11,7 @@ import { DatabaseService, Document } from './database';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
-import { DocumentStoreConfig } from '../config'; // Using DocumentStoreConfig for dbPath
+import { DocumentStoreConfig } from '../config';
 
 const SEARCH_DISTANCE_CUTOFF = 55.0;
 
@@ -173,7 +173,7 @@ export class RagService {
                 chunkId,
                 documentId: document.id,
                 distance: candidate.distance,
-                content: document.content, // This is the whole doc content, need to change to chunk content later
+                content: document.content,
                 title: document.title,
                 url: document.url,
                 timestamp: document.timestamp
@@ -187,9 +187,9 @@ export class RagService {
      * Searches for relevant documents and generates a completion based on the query and retrieved context.
      * @param query The user's query string.
      * @param onProgress Optional callback for progress updates.
-     * @returns A promise that resolves to the generated answer string.
+     * @returns A promise that resolves to an object containing the generated answer string and the retrieved documents.
      */
-    public async search(query: string, onProgress?: ProgressCallback): Promise<string> {
+    public async search(query: string, onProgress?: ProgressCallback): Promise<{ response: string, documents: RetrievedChunk[] }> {
         try {
             onProgress?.('starting', 'Starting search...');
             
@@ -198,7 +198,7 @@ export class RagService {
 
             if (retrievedDocuments.length === 0) {
                 onProgress?.('complete', 'No relevant documents found');
-                return 'No relevant documents found.';
+                return { response: 'No relevant documents found.', documents: [] };
             }
 
             const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
@@ -228,7 +228,7 @@ export class RagService {
 
             // 7. Return the generated answer.
             onProgress?.('complete', 'Search complete');
-            return finalAnswer;
+            return { response: finalAnswer, documents: retrievedDocuments };
         } catch (error) {
             onProgress?.('error', 'Search failed');
             throw error;
@@ -286,7 +286,7 @@ export class RagService {
         if (deletedFromDb) {
             if (vectorIds.length > 0) {
                 this.vectorStoreService.deleteVector(vectorIds);
-                await this.saveAllStores(); // Save the vector store after deletion
+                await this.saveAllStores();
             }
         }
     
