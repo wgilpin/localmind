@@ -20,6 +20,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.runtime.sendMessage({
       action: 'sendPageData',
       data: message.data
+    }, (response) => {
+      if (response && response.success) {
+        window.close(); // Close the popup on successful save
+      } else {
+        console.error('Save operation failed:', response ? response.error : 'No response');
+      }
     });
   }
 });
