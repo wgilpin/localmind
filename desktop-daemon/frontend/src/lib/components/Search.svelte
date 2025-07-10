@@ -3,6 +3,10 @@ import { searchResults, vectorResults, showResultsSection, searchStatus, searchP
 
 let searchQuery = '';
 
+/**
+ * Handles the search operation, first retrieving documents and then triggering the AI response stream.
+ * @returns {Promise<void>}
+ */
 async function handleSearch() {
   if (!searchQuery) return;
 
@@ -14,17 +18,19 @@ async function handleSearch() {
     vectorResults.set([]);
     retrievedDocuments.set([]);
 
-    // First, get immediate vector results
-    try {
-      const vectorResponse = await fetch(`/vector-search/${encodeURIComponent(searchQuery)}`);
-      if (vectorResponse.ok) {
-        const vectorData = await vectorResponse.json();
-        vectorResults.set(vectorData.vectorResults || []);
-        retrievedDocuments.set(vectorData.vectorResults.map((doc: { chunk_text: string; }) => ({ chunk_text: doc.chunk_text })) || []);
-      }
-    } catch (vectorError) {
-      console.error('Error fetching vector results:', vectorError);
+    // First, get documents from /search endpoint
+    searchProgress.set('Retrieving documents...');
+    const searchResponse = await fetch(`/search/${encodeURIComponent(searchQuery)}`);
+
+    if (!searchResponse.ok) {
+      throw new Error(`HTTP error! status: ${searchResponse.status}`);
     }
+
+    const searchData = await searchResponse.json();
+    vectorResults.set(searchData.vectorResults || []);
+    retrievedDocuments.set(searchData.vectorResults.map((doc: { chunk_text: string; }) => ({ chunk_text: doc.chunk_text })) || []);
+    
+    searchProgress.set('Documents retrieved. Waiting for AI response...');
 
     // Then start the LLM search with streaming
     const eventSource = new EventSource(`/search-stream/${encodeURIComponent(searchQuery)}`);
