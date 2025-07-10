@@ -109,6 +109,15 @@ export class DatabaseService {
   }
 
   /**
+   * Retrieves all documents from the database.
+   * @returns An array of all documents.
+   */
+  getAllDocuments(): Document[] {
+    const stmt = this.db.prepare(`SELECT * FROM documents`);
+    return stmt.all() as Document[];
+  }
+
+  /**
    * Retrieves the document ID for a given vector ID.
    * @param vectorId The ID of the vector.
    * @returns The document ID if found, otherwise undefined.

@@ -31,12 +31,16 @@ async function startServer() {
     fs.mkdirSync(dataDir, { recursive: true });
   }
   const ollamaService = new OllamaService(OllamaConfig);
-  vectorStoreService = new VectorStoreService(OllamaConfig.vectorIndexFile);
   // Initialize DatabaseService
   const dbPath = path.join(DocumentStoreConfig.documentStoreFile, '..', 'localmind.db');
   databaseService = new DatabaseService(dbPath);
+  vectorStoreService = new VectorStoreService(
+    OllamaConfig.vectorIndexFile,
+    databaseService,
+    ollamaService,
+  );
 
-  await vectorStoreService.load();
+  await vectorStoreService.init();
 
   ragService = await RagService.create(ollamaService, vectorStoreService);
 

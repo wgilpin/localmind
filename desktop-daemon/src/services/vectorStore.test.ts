@@ -3,6 +3,8 @@
  * @description Unit tests for the VectorStoreService.
  */
 import { VectorStoreService } from './vectorStore';
+import { DatabaseService } from './database';
+import { OllamaService } from './ollama';
 import * as fs from 'fs';
 
 // Mock the faiss-node library
@@ -33,13 +35,11 @@ jest.mock('fs', () => ({
 }));
 
 describe('VectorStoreService', () => {
-    const mockModelService: any = {
-        embed: jest.fn(async (text: string) => [parseFloat(text), parseFloat(text)]),
-        getEmbeddingVectorSize: jest.fn(() => 2),
-    };
     const testFilePath = 'test-index.faiss';
     let vectorStoreService: VectorStoreService;
     let mockFaissIndex: any;
+    let mockDatabaseService: jest.Mocked<DatabaseService>;
+    let mockOllamaService: jest.Mocked<OllamaService>;
 
     beforeEach(() => {
         jest.clearAllMocks();
@@ -55,7 +55,9 @@ describe('VectorStoreService', () => {
         (Index as any).read.mockImplementation(() => mockFaissIndex); // Access read as a static property of Index
 
         (fs.existsSync as jest.Mock).mockReturnValue(false);
-        vectorStoreService = new VectorStoreService(testFilePath);
+        mockDatabaseService = new DatabaseService('test-db.sqlite') as jest.Mocked<DatabaseService>;
+        mockOllamaService = new OllamaService() as jest.Mocked<OllamaService>;
+        vectorStoreService = new VectorStoreService(testFilePath, mockDatabaseService, mockOllamaService);
     });
 
     /**

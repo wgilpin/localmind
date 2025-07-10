@@ -271,6 +271,7 @@ export class RagService {
             }
             this.databaseService.insertVectorMappings(allMappings);
         })();
+        await this.saveAllStores();
     }
 
     /**

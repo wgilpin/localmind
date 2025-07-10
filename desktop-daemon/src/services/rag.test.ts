@@ -34,8 +34,13 @@ describe('RagService (Integration Tests)', () => {
     jest.clearAllMocks();
 
     // Initialize RagService with mocked dependencies
-    mockOllamaService = new OllamaService() as jest.Mocked < OllamaService > ;
-    mockVectorStoreService = new VectorStoreService('test-vector-store.faiss') as jest.Mocked < VectorStoreService > ;
+    mockOllamaService = new OllamaService() as jest.Mocked<OllamaService>;
+    mockDatabaseService = new DatabaseService('test-db.sqlite') as jest.Mocked<DatabaseService>;
+    mockVectorStoreService = new VectorStoreService(
+      'test-vector-store.faiss',
+      mockDatabaseService,
+      mockOllamaService
+    ) as jest.Mocked<VectorStoreService>;
     
     // Mock the ntotal method for VectorStoreService
     mockVectorStoreService.ntotal.mockReturnValue(0);
@@ -45,9 +50,6 @@ describe('RagService (Integration Tests)', () => {
       mockOllamaService,
       mockVectorStoreService
     );
-    
-    // Now, get the instance of DatabaseService that was created by RagService.create
-    mockDatabaseService = (DatabaseService as jest.Mock).mock.instances[0] as jest.Mocked<DatabaseService>;
 
     // Configure the transaction mock
     mockDatabaseService.transaction.mockImplementation((cb) => {

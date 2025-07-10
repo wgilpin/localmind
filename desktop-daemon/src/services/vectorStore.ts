@@ -1,6 +1,8 @@
 import { Index, MetricType } from 'faiss-node';
 import * as fs from 'fs';
+import { DatabaseService } from './database';
 import { OllamaConfig } from '../config';
+import { OllamaService } from './ollama';
 
 /**
  * Service for managing a FAISS vector store.
@@ -9,11 +11,41 @@ export class VectorStoreService {
   private index: Index;
   private readonly dimension: number;
   public filePath: string;
+  private databaseService: DatabaseService;
+  private ollamaService: OllamaService;
 
-  constructor(filePath: string) {
+  constructor(
+    filePath: string,
+    databaseService: DatabaseService,
+    ollamaService: OllamaService,
+  ) {
     this.dimension = OllamaConfig.embeddingDimension;
     this.index = new Index(this.dimension);
     this.filePath = filePath;
+    this.databaseService = databaseService;
+    this.ollamaService = ollamaService;
+  }
+
+  /**
+   * Initializes the vector store by loading the index from the specified file path.
+   * If the file does not exist, it creates a new empty index.
+   */
+  async init(): Promise<void> {
+    try {
+      if (fs.existsSync(this.filePath)) {
+        await this.load(this.filePath);
+      } else {
+        this.index = new Index(this.dimension);
+        console.log(
+          'No existing index file found. A new index has been created.',
+        );
+        await this.rebuildIndex();
+      }
+    } catch (error) {
+      console.error('Failed to initialize vector store:', error);
+      // Fallback to a new index if loading fails
+      this.index = new Index(this.dimension);
+    }
   }
 
   /**
@@ -90,6 +122,29 @@ export class VectorStoreService {
       console.error(`Error saving FAISS index to ${pathToSave}:`, error);
       throw error;
     }
+  }
+
+  async rebuildIndex(): Promise<void> {
+    console.log('Rebuilding index from database...');
+    const documents = this.databaseService.getAllDocuments();
+    if (documents.length === 0) {
+      console.log('No documents in database to rebuild index from.');
+      return;
+    }
+
+    const allEmbeddings: number[][] = [];
+    for (const doc of documents) {
+      const embeddings = await this.ollamaService.getEmbeddings([doc.content]);
+      allEmbeddings.push(...embeddings);
+    }
+
+    this.add(allEmbeddings);
+    await this.save();
+    console.log(
+      `Index rebuilt with ${this.ntotal()} vectors and saved to ${
+        this.filePath
+      }`,
+    );
   }
 
   /**
