@@ -18,6 +18,7 @@ export const vectorResults = writable<VectorSearchResult[]>([]);
 export const retrievedDocuments = writable<RetrievedDocument[]>([]);
 export const showResultsSection = writable(false);
 export const showNewNoteSection = writable(false);
+export const showSettingsSection = writable(false);
 
 export type SearchStatus = 
   | 'idle'

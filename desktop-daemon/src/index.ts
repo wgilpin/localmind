@@ -135,6 +135,31 @@ async function startServer() {
     }
   });
 
+  app.get('/models', async (req: any, res: any) => {
+    try {
+      const models = await ollamaService.listModels();
+      const currentModel = ollamaService.getCompletionModel();
+      res.status(200).json({ models, currentModel });
+    } catch (error) {
+      console.error('Error listing models:', error);
+      res.status(500).send('Failed to list models');
+    }
+  });
+
+  app.post('/models', async (req: any, res: any) => {
+    const { model } = req.body;
+    if (!model) {
+      return res.status(400).send('Missing model name');
+    }
+    try {
+      await ollamaService.setCompletionModel(model);
+      res.status(200).send('Completion model updated');
+    } catch (error) {
+      console.error('Error setting completion model:', error);
+      res.status(500).send('Failed to set completion model');
+    }
+  });
+
   app.listen(port, () => {
     console.log(`LocalMind Daemon listening at http://localhost:${port}`);
   });

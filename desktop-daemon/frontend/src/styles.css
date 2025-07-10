@@ -31,6 +31,23 @@ body {
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     width: 100%;
     max-width: 800px;
+    position: relative; /* Added for positioning settings button */
+}
+
+.settings-button {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: none;
+  border: none;
+  font-size: 2em;
+  cursor: pointer;
+  color: inherit; /* Inherit color from parent */
+  padding: 0; /* Remove default button padding */
+}
+
+.settings-button:hover {
+  color: var(--primary-color); /* Example hover effect */
 }
 
 h1, h2 {

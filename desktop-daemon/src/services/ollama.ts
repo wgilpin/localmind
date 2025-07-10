@@ -8,6 +8,7 @@ export class OllamaService {
   private ollamaApiUrl: string;
   private embeddingModel: string;
   private completionModel: string;
+  private availableModels: string[] = [];
 
   /**
    * Constructs an OllamaService instance.
@@ -17,9 +18,13 @@ export class OllamaService {
     this.ollamaApiUrl = config.ollamaApiUrl;
     this.embeddingModel = config.embeddingModel;
     this.completionModel = config.completionModel;
+    this.initializeModels();
+  }
 
-    this.pullModel(this.embeddingModel);
-    this.pullModel(this.completionModel);
+  private async initializeModels(): Promise<void> {
+    await this.pullModel(this.embeddingModel);
+    await this.pullModel(this.completionModel);
+    await this.listModels();
   }
 
   private async pullModel(modelName: string): Promise<void> {
@@ -31,6 +36,43 @@ export class OllamaService {
       console.error(`Error pulling model ${modelName}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Lists available models from the Ollama API.
+   * @returns A promise that resolves to an array of model names.
+   * @throws Error if the API request fails.
+   */
+  public async listModels(): Promise<string[]> {
+    try {
+      const response = await axios.get(`${this.ollamaApiUrl}/api/tags`);
+      if (response.data && Array.isArray(response.data.models)) {
+        this.availableModels = response.data.models.map((model: any) => model.name);
+        return this.availableModels;
+      }
+      throw new Error("Invalid response from Ollama API for listing models");
+    } catch (error) {
+      console.error("Error listing models:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Gets the currently configured completion model.
+   * @returns The name of the completion model.
+   */
+  public getCompletionModel(): string {
+    return this.completionModel;
+  }
+
+  /**
+   * Sets the completion model and pulls it if not available locally.
+   * @param modelName The name of the model to set as the completion model.
+   * @returns A promise that resolves when the model is set and pulled.
+   */
+  public async setCompletionModel(modelName: string): Promise<void> {
+    this.completionModel = modelName;
+    await this.pullModel(modelName);
   }
 
   /**
@@ -99,7 +141,7 @@ export class OllamaService {
       },
       { responseType: "stream" }
     );
-    console.timeLog("ollamaStreamTime", `ollama stream started for prompt: ${prompt}`);
+    console.timeLog("ollamaStreamTime", `ollama stream started`);
     let buffer = "";
     try {
       for await (const chunk of response.data) {
