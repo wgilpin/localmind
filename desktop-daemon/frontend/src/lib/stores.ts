@@ -9,7 +9,8 @@ export type VectorSearchResult = {
 };
 
 export type RetrievedDocument = {
-    chunk_text: string;
+    title: string;
+    content: string;
 };
 
 export const searchResults = writable('');

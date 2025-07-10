@@ -25,7 +25,7 @@ async function handleSearch() {
         const data = JSON.parse(event.data);
         
         if (data.status === 'retrieving' && data.documents) {
-          retrievedDocuments.set(data.documents.map((doc: any) => ({ chunk_text: doc.content })));
+          retrievedDocuments.set(data.documents.map((doc: any) => ({ title: doc.title, content: doc.content })));
           vectorResults.set(data.documents.map((doc: any) => ({
             id: doc.documentId,
             title: doc.title,

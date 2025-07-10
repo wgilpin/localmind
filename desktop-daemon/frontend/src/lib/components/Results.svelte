@@ -113,7 +113,7 @@
       </div>
     {/if}
     
-    {#if $retrievedDocuments.length > 0}
+    {#if $retrievedDocuments && Array.isArray($retrievedDocuments) && $retrievedDocuments.length > 0}
       <Documents documents={$retrievedDocuments} />
     {/if}
 
