@@ -1,5 +1,5 @@
 import axios from "axios";
-import { OllamaConfig } from "../config";
+import { OllamaConfig, saveConfig } from "../config";
 
 /**
  * Service for interacting with the Ollama API to get embeddings and completions.
@@ -72,6 +72,8 @@ export class OllamaService {
    */
   public async setCompletionModel(modelName: string): Promise<void> {
     this.completionModel = modelName;
+    OllamaConfig.completionModel = modelName; // Update the config object
+    saveConfig(); // Save the updated config
     await this.pullModel(modelName);
   }
 

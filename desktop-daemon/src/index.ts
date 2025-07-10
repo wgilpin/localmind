@@ -2,13 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
-import { OllamaConfig, DocumentStoreConfig, ServerConfig } from './config';
+import { OllamaConfig, DocumentStoreConfig, ServerConfig, loadConfig } from './config';
 import { OllamaService } from './services/ollama';
 import { VectorStoreService } from './services/vectorStore';
 import { DatabaseService } from './services/database';
 import { RagService } from './services/rag';
 
 const app = express();
+// Load config on server startup
+loadConfig();
 const port = ServerConfig.port;
 
 app.use(express.json());

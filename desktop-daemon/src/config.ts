@@ -1,29 +1,99 @@
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 
 const appDataDir = path.join(os.homedir(), '.localmind');
+const configFilePath = path.join(appDataDir, 'config.json');
 
 /**
- * Configuration for the Ollama service.
+ * Interface for Ollama service configuration.
  */
-export const OllamaConfig = {
-  ollamaApiUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
-  embeddingModel: 'mahonzhan/all-MiniLM-L6-v2',
-  embeddingDimension: 384,
-  completionModel: 'qwen3:0.6b',
-  vectorIndexFile: path.join(appDataDir, 'localmind.index'),
-};
+interface IOllamaConfig {
+  ollamaApiUrl: string;
+  embeddingModel: string;
+  embeddingDimension: number;
+  completionModel: string;
+  vectorIndexFile: string;
+}
 
 /**
- * Configuration for the Document Store service.
+ * Interface for Document Store service configuration.
  */
-export const DocumentStoreConfig = {
-  documentStoreFile: path.join(appDataDir, 'documents.json'),
-};
+interface IDocumentStoreConfig {
+  documentStoreFile: string;
+}
 
 /**
- * Configuration for the Server.
+ * Interface for Server configuration.
  */
-export const ServerConfig = {
-  port: process.env.PORT || 3000,
+interface IServerConfig {
+  port: number;
+}
+
+/**
+ * Default configuration values.
+ */
+const defaultConfig = {
+  ollama: {
+    ollamaApiUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
+    embeddingModel: 'mahonzhan/all-MiniLM-L6-v2',
+    embeddingDimension: 384,
+    completionModel: 'qwen3:0.6b',
+    vectorIndexFile: path.join(appDataDir, 'localmind.index'),
+  },
+  documentStore: {
+    documentStoreFile: path.join(appDataDir, 'documents.json'),
+  },
+  server: {
+    port: parseInt(process.env.PORT || '3000', 10), // Explicitly parse to number
+  },
 };
+
+export let OllamaConfig: IOllamaConfig;
+export let DocumentStoreConfig: IDocumentStoreConfig;
+export let ServerConfig: IServerConfig;
+
+/**
+ * Loads the configuration from a file or uses default values.
+ */
+export function loadConfig() {
+  if (fs.existsSync(configFilePath)) {
+    try {
+      const configData = JSON.parse(fs.readFileSync(configFilePath, 'utf-8'));
+      OllamaConfig = { ...defaultConfig.ollama, ...configData.ollama };
+      DocumentStoreConfig = { ...defaultConfig.documentStore, ...configData.documentStore };
+      ServerConfig = { ...defaultConfig.server, ...configData.server };
+    } catch (error) {
+      console.error('Error loading config file, using default config:', error);
+      OllamaConfig = defaultConfig.ollama;
+      DocumentStoreConfig = defaultConfig.documentStore;
+      ServerConfig = defaultConfig.server;
+    }
+  } else {
+    OllamaConfig = defaultConfig.ollama;
+    DocumentStoreConfig = defaultConfig.documentStore;
+    ServerConfig = defaultConfig.server;
+  }
+}
+
+/**
+ * Saves the current configuration to a file.
+ */
+export function saveConfig() {
+  try {
+    if (!fs.existsSync(appDataDir)) {
+      fs.mkdirSync(appDataDir, { recursive: true });
+    }
+    const configToSave = {
+      ollama: OllamaConfig,
+      documentStore: DocumentStoreConfig,
+      server: ServerConfig,
+    };
+    fs.writeFileSync(configFilePath, JSON.stringify(configToSave, null, 2));
+  } catch (error) {
+    console.error('Error saving config file:', error);
+  }
+}
+
+// Load config on initial import
+loadConfig();
