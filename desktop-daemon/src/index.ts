@@ -57,20 +57,6 @@ async function startServer() {
     }
   });
 
-  app.post('/search', async (req: any, res: any) => {
-    try {
-      const { query } = req.body;
-      if (!query) {
-        return res.status(400).send('Query is required.');
-      }
-      const result = await ragService.search(query);
-      res.status(200).json(result);
-    } catch (error) {
-      console.error('Error searching:', error);
-      res.status(500).json({ message: 'Failed to perform search.' });
-    }
-  });
-
   app.get('/documents/:id', async (req: any, res: any) => {
     try {
       const { id } = req.params;
@@ -138,11 +124,9 @@ async function startServer() {
     });
 
     try {
-      const { response, documents } = await ragService.search(query, (status, message) => {
-        res.write(`data: ${JSON.stringify({ status, message })}\n\n`);
+      await ragService.searchAndStream(query, (status, message, data) => {
+        res.write(`data: ${JSON.stringify({ status, message, ...data })}\n\n`);
       });
-      
-      res.write(`data: ${JSON.stringify({ status: 'result', result: response, documents })}\n\n`);
       res.end();
     } catch (error) {
       console.error('Error in search stream:', error);

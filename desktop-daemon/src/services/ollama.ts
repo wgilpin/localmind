@@ -81,6 +81,26 @@ export class OllamaService {
   }
 
   /**
+   * Gets a streaming completion for the given prompt from the configured completion model.
+   * @param prompt The prompt for which to get a completion.
+   * @returns An async generator that yields response chunks.
+   */
+  public async *getCompletionStream(prompt: string): AsyncGenerator<string> {
+    const response = await axios.post(`${this.ollamaApiUrl}/api/generate`, {
+        model: this.completionModel,
+        prompt: prompt,
+        stream: true,
+    }, { responseType: 'stream' });
+
+    for await (const chunk of response.data) {
+        const parsed = JSON.parse(chunk.toString());
+        if (parsed.response) {
+            yield parsed.response;
+        }
+    }
+  }
+
+  /**
    * Gets embeddings for an array of texts from the configured embedding model.
    * @param texts An array of texts to get embeddings for.
    * @returns A promise that resolves to a 2D array of numbers representing the embeddings.

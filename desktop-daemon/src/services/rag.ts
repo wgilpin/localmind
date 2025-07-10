@@ -25,7 +25,7 @@ export type SearchProgressStatus =
   | 'complete'
   | 'error';
 
-export type ProgressCallback = (status: SearchProgressStatus, message?: string) => void;
+export type ProgressCallback = (status: SearchProgressStatus, message?: string, data?: any) => void;
 
 export type VectorSearchResult = {
     id: string;
@@ -180,10 +180,12 @@ export class RagService {
             };
         }).filter((chunk): chunk is RetrievedChunk => chunk !== null);
 
+        console.log('getRankedChunks. Got '+hydratedChunks.length);
         return hydratedChunks;
     }
 
     /**
+     * @deprecated Use searchAndStream instead for better performance and user experience.
      * Searches for relevant documents and generates a completion based on the query and retrieved context.
      * @param query The user's query string.
      * @param onProgress Optional callback for progress updates.
@@ -224,16 +226,70 @@ export class RagService {
 
             // 6. Use the OllamaService's getCompletion method to get the final answer.
             onProgress?.('generating', 'Building response...');
+            console.log("Calling ollama");
             const finalAnswer = await this.ollamaService.getCompletion(trimmedPrompt);
+            console.log("ollama responded");
 
             // 7. Return the generated answer.
-            onProgress?.('complete', 'Search complete');
+            onProgress?.('complete', 'Search complete. Found: '+retrievedDocuments.length);
             return { response: finalAnswer, documents: retrievedDocuments };
         } catch (error) {
             onProgress?.('error', 'Search failed');
             throw error;
         }
     }
+
+    /**
+     * Searches for relevant documents and streams the AI response.
+     * @param query The user's query string.
+     * @param onProgress Callback for progress updates, including streaming the response.
+     */
+    public async searchAndStream(query: string, onProgress: ProgressCallback): Promise<void> {
+        try {
+            onProgress('starting', 'Starting search...');
+
+            onProgress('retrieving', 'Retrieving relevant documents...');
+            const retrievedDocuments = await this.getRankedChunks(query);
+            onProgress('retrieving', 'Retrieved documents.', { documents: retrievedDocuments });
+
+            if (retrievedDocuments.length === 0) {
+                onProgress('complete', 'No relevant documents found');
+                return;
+            }
+
+            const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
+            const prompt = `
+            You are a helpful AI assistant.
+            Answer the following question based on the provided context:
+
+            Question: ${query}
+
+            Context:
+            ${context}
+
+            Instructions:
+            Be concise.
+            Do not refer to the context or the provided information .
+            Constrain your answers very strongly to the provided material and if you do need to refer to you your built-in knowledge tell the user where you have done so.
+            `;
+            const trimmedPrompt = prompt.trim().replace(/ {2,}/g, ' ');
+
+            onProgress('generating', 'Building response...');
+            const stream = await this.ollamaService.getCompletionStream(trimmedPrompt);
+
+            let finalAnswer = '';
+            for await (const chunk of stream) {
+                finalAnswer += chunk;
+                onProgress('generating', 'Streaming response...', { chunk });
+            }
+            
+            onProgress('complete', 'Search complete.', { response: finalAnswer });
+        } catch (error) {
+            onProgress('error', 'Search failed');
+            console.error('Error in searchAndStream:', error);
+        }
+    }
+
     /**
      * Adds documents to the RAG system in a batch.
      * @param docs An array of documents to add, including title, content, and optional URL.
@@ -272,6 +328,7 @@ export class RagService {
             this.databaseService.insertVectorMappings(allMappings);
         })();
         await this.saveAllStores();
+        console.log('addDocuments: added ' + documentsToAdd.length + ' documents.')
     }
 
     /**
@@ -289,7 +346,8 @@ export class RagService {
                 await this.saveAllStores();
             }
         }
-    
+
+        console.log('deleteDocument: deleted '+documentId)
         return deletedFromDb;
     }
 

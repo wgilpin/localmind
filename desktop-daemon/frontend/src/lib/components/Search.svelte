@@ -4,7 +4,7 @@ import { searchResults, vectorResults, showResultsSection, searchStatus, searchP
 let searchQuery = '';
 
 /**
- * Handles the search operation, first retrieving documents and then triggering the AI response stream.
+ * Handles the search operation by connecting to the search-stream endpoint.
  * @returns {Promise<void>}
  */
 async function handleSearch() {
@@ -18,29 +18,23 @@ async function handleSearch() {
     vectorResults.set([]);
     retrievedDocuments.set([]);
 
-    // First, get documents from /search endpoint
-    searchProgress.set('Retrieving documents...');
-    const searchResponse = await fetch(`/search/${encodeURIComponent(searchQuery)}`);
-
-    if (!searchResponse.ok) {
-      throw new Error(`HTTP error! status: ${searchResponse.status}`);
-    }
-
-    const searchData = await searchResponse.json();
-    vectorResults.set(searchData.vectorResults || []);
-    retrievedDocuments.set(searchData.vectorResults.map((doc: { chunk_text: string; }) => ({ chunk_text: doc.chunk_text })) || []);
-    
-    searchProgress.set('Documents retrieved. Waiting for AI response...');
-
-    // Then start the LLM search with streaming
     const eventSource = new EventSource(`/search-stream/${encodeURIComponent(searchQuery)}`);
     
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         
-        if (data.status === 'result') {
-          searchResults.set(data.result || 'No results found.');
+        if (data.status === 'retrieving' && data.documents) {
+          retrievedDocuments.set(data.documents.map((doc: any) => ({ chunk_text: doc.content })));
+          vectorResults.set(data.documents.map((doc: any) => ({
+            id: doc.documentId,
+            title: doc.title,
+            url: doc.url,
+            timestamp: doc.timestamp
+          })));
+        } else if (data.status === 'generating' && data.chunk) {
+          searchResults.update(current => current + data.chunk);
+        } else if (data.status === 'complete') {
           searchStatus.set('complete');
           searchProgress.set(statusMessages.complete);
           eventSource.close();
