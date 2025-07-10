@@ -1,7 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
   const saveButton = document.getElementById('save-button');
+  const showNoteInputButton = document.getElementById('show-note-input-button');
   const addNoteButton = document.getElementById('add-note-button');
   const noteContentArea = document.getElementById('note-content');
+  const noteInputContainer = document.getElementById('note-input-container');
   const statusMessage = document.getElementById('status-message');
 
   saveButton.addEventListener('click', () => {
@@ -17,6 +19,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
     });
+  });
+
+  showNoteInputButton.addEventListener('click', () => {
+    noteInputContainer.classList.remove('hidden');
+    showNoteInputButton.style.display = 'none'; // Hide the "Add Note" button
+    saveButton.style.display = 'none'; // Hide the "Save Page" button
+    statusMessage.textContent = ''; // Clear previous messages
   });
 
   addNoteButton.addEventListener('click', () => {
