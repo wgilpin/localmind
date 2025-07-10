@@ -1,5 +1,5 @@
-import axios from 'axios';
-import { OllamaConfig } from '../config';
+import axios from "axios";
+import { OllamaConfig } from "../config";
 
 /**
  * Service for interacting with the Ollama API to get embeddings and completions.
@@ -17,7 +17,7 @@ export class OllamaService {
     this.ollamaApiUrl = config.ollamaApiUrl;
     this.embeddingModel = config.embeddingModel;
     this.completionModel = config.completionModel;
-    
+
     this.pullModel(this.embeddingModel);
     this.pullModel(this.completionModel);
   }
@@ -45,14 +45,17 @@ export class OllamaService {
         model: this.embeddingModel,
         prompt: text,
       };
-      
-      const response = await axios.post(`${this.ollamaApiUrl}/api/embeddings`, requestPayload);
+
+      const response = await axios.post(
+        `${this.ollamaApiUrl}/api/embeddings`,
+        requestPayload
+      );
       if (response.data && response.data.embedding) {
         return response.data.embedding;
       }
-      throw new Error('Invalid embedding response from Ollama API');
+      throw new Error("Invalid embedding response from Ollama API");
     } catch (error) {
-      console.error('Error getting embedding:', error);
+      console.error("Error getting embedding:", error);
       throw error;
     }
   }
@@ -73,9 +76,9 @@ export class OllamaService {
       if (response.data && response.data.response) {
         return response.data.response;
       }
-      throw new Error('Invalid completion response from Ollama API');
+      throw new Error("Invalid completion response from Ollama API");
     } catch (error) {
-      console.error('Error getting completion:', error);
+      console.error("Error getting completion:", error);
       throw error;
     }
   }
@@ -86,17 +89,39 @@ export class OllamaService {
    * @returns An async generator that yields response chunks.
    */
   public async *getCompletionStream(prompt: string): AsyncGenerator<string> {
-    const response = await axios.post(`${this.ollamaApiUrl}/api/generate`, {
+    const response = await axios.post(
+      `${this.ollamaApiUrl}/api/generate`,
+      {
         model: this.completionModel,
         prompt: prompt,
         stream: true,
-    }, { responseType: 'stream' });
+      },
+      { responseType: "stream" }
+    );
 
-    for await (const chunk of response.data) {
-        const parsed = JSON.parse(chunk.toString());
-        if (parsed.response) {
+    let buffer = "";
+    try {
+      for await (const chunk of response.data) {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.trim() === '') continue;
+          const parsed = JSON.parse(line);
+          if (parsed.response) {
             yield parsed.response;
+          }
         }
+      }
+      if (buffer.trim() !== '') {
+        const parsed = JSON.parse(buffer);
+        if (parsed.response) {
+          yield parsed.response;
+        }
+      }
+    } catch (error) {
+      console.log("Ollama error: " + error);
     }
   }
 
