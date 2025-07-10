@@ -89,6 +89,7 @@ export class OllamaService {
    * @returns An async generator that yields response chunks.
    */
   public async *getCompletionStream(prompt: string): AsyncGenerator<string> {
+    console.time("ollamaStreamTime");
     const response = await axios.post(
       `${this.ollamaApiUrl}/api/generate`,
       {
@@ -98,30 +99,32 @@ export class OllamaService {
       },
       { responseType: "stream" }
     );
-
+    console.timeLog("ollamaStreamTime", `ollama stream started for prompt: ${prompt}`);
     let buffer = "";
     try {
       for await (const chunk of response.data) {
         buffer += chunk.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (line.trim() === '') continue;
+          if (line.trim() === "") continue;
           const parsed = JSON.parse(line);
           if (parsed.response) {
+            console.timeLog("ollamaStreamTime", `ollama stream: ${parsed.response}`);
             yield parsed.response;
           }
         }
       }
-      if (buffer.trim() !== '') {
+      if (buffer.trim() !== "") {
         const parsed = JSON.parse(buffer);
         if (parsed.response) {
+          console.timeLog("ollamaStreamTime", `ollama stream: ${parsed.response}`);
           yield parsed.response;
         }
       }
     } catch (error) {
-      console.log("Ollama error: " + error);
+      console.timeLog("ollamaStreamTime", `Ollama error: ${error}`);
     }
   }
 
