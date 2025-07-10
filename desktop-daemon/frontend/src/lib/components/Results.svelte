@@ -2,8 +2,8 @@
   /**
    * Results component for displaying search results and progress.
    */
-  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, retrievedDocuments } from '../stores';
-  import type { VectorSearchResult } from '../stores';
+  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, retrievedDocuments, stopCurrentGeneration } from '../stores';
+  import type { VectorSearchResult, SearchStatus } from '../stores';
   import { marked } from 'marked';
   import Documents from './Documents.svelte';
 
@@ -102,14 +102,21 @@
   const formatDate = (timestamp: number): string => {
     return new Date(timestamp).toLocaleDateString();
   };
+
+  $: showStopButton = $searchStatus === 'starting' || $searchStatus === 'embedding' || $searchStatus === 'searching' || $searchStatus === 'retrieving' || $searchStatus === 'generating';
 </script>
 
 {#if $showResultsSection}
   <div id="results-container">
-    {#if $searchStatus !== 'idle' && $searchStatus !== 'complete'}
+    {#if $searchStatus !== 'idle' && $searchStatus !== 'complete' && $searchStatus !== 'stopped' && $searchStatus !== 'error'}
       <div class="progress-indicator">
         <div class="progress-spinner"></div>
         <div class="progress-text">{$searchProgress}</div>
+        {#if showStopButton}
+          <button class="stop-button" on:click={stopCurrentGeneration}>
+            <div class="stop-icon"></div>
+          </button>
+        {/if}
       </div>
     {/if}
     
@@ -117,7 +124,7 @@
       <Documents documents={$retrievedDocuments} />
     {/if}
 
-    {#if $searchResults && ($searchStatus === 'generating' || $searchStatus === 'complete' || $searchStatus === 'error')}
+    {#if $searchResults && ($searchStatus === 'generating' || $searchStatus === 'complete' || $searchStatus === 'error' || $searchStatus === 'stopped')}
       <div class="llm-result">
         <h3>AI Response</h3>
         <div class="search-result">{@html renderMarkdown($searchResults)}</div>
@@ -129,6 +136,10 @@
 {/if}
 
 <style>
+  #results-container {
+    position: relative; /* Needed for absolute positioning of the stop button */
+  }
+
   .progress-indicator {
     display: flex;
     align-items: center;
@@ -137,6 +148,7 @@
     background: #f8f9fa;
     border-radius: 8px;
     margin-bottom: 16px;
+    position: relative; /* For positioning the stop button */
   }
 
   .progress-spinner {
@@ -151,6 +163,7 @@
   .progress-text {
     color: #6c757d;
     font-size: 14px;
+    flex-grow: 1; /* Allow text to take available space */
   }
 
   @keyframes spin {
@@ -220,11 +233,6 @@
     opacity: 0.7;
   }
 
-  .result-meta {
-    font-size: 0.85em;
-    color: #555555;
-  }
-
   .expand-icon {
     font-size: 0.8em;
     opacity: 0.7;
@@ -250,6 +258,7 @@
 
   .llm-result {
     margin-top: 24px;
+    position: relative; /* For positioning the stop button */
   }
 
   .llm-result h3 {
@@ -342,5 +351,30 @@
 
   .delete-button:hover {
     color: #c82333;
+  }
+
+  .stop-button {
+    background-color: #dc3545; /* Red color for stop */
+    border: none;
+    border-radius: 50%; /* Make it circular */
+    width: 24px; /* Smaller size */
+    height: 24px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    transition: background-color 0.2s ease;
+    margin-left: auto; /* Push to the right within flex container */
+  }
+
+  .stop-button:hover {
+    background-color: #c82333;
+  }
+
+  .stop-icon {
+    width: 8px; /* Smaller square */
+    height: 8px;
+    background-color: white; /* White square for the stop symbol */
   }
 </style>

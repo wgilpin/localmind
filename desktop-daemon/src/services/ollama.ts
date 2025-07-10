@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosError, CanceledError } from "axios";
 import { OllamaConfig, saveConfig } from "../config";
 
 /**
@@ -9,6 +9,7 @@ export class OllamaService {
   private embeddingModel: string;
   private completionModel: string;
   private availableModels: string[] = [];
+  private streamAbortController: AbortController | null = null;
 
   /**
    * Constructs an OllamaService instance.
@@ -134,18 +135,27 @@ export class OllamaService {
    */
   public async *getCompletionStream(prompt: string): AsyncGenerator<string> {
     console.time("ollamaStreamTime");
-    const response = await axios.post(
-      `${this.ollamaApiUrl}/api/generate`,
-      {
-        model: this.completionModel,
-        prompt: prompt,
-        stream: true,
-      },
-      { responseType: "stream" }
-    );
-    console.timeLog("ollamaStreamTime", `ollama stream started`);
-    let buffer = "";
+    console.timeLog("ollamaStreamTime", `ollama first call`);
+
+    // Abort any existing stream
+    this.stopGeneration();
+
+    this.streamAbortController = new AbortController();
+    const signal = this.streamAbortController.signal;
+
     try {
+      const response = await axios.post(
+        `${this.ollamaApiUrl}/api/generate`,
+        {
+          model: this.completionModel,
+          prompt: prompt,
+          stream: true,
+          keep_alive: 600, // seconds I hope
+        },
+        { responseType: "stream", signal }
+      );
+      console.timeLog("ollamaStreamTime", `ollama stream started`);
+      let buffer = "";
       for await (const chunk of response.data) {
         buffer += chunk.toString();
         const lines = buffer.split("\n");
@@ -168,7 +178,24 @@ export class OllamaService {
         }
       }
     } catch (error) {
-      console.timeLog("ollamaStreamTime", `Ollama error: ${error}`);
+      if (axios.isCancel(error)) {
+        console.timeLog("ollamaStreamTime", "Ollama stream cancelled by user.");
+      } else {
+        console.timeLog("ollamaStreamTime", `Ollama error: ${error}`);
+      }
+    } finally {
+      this.streamAbortController = null;
+      console.timeEnd("ollamaStreamTime");
+    }
+  }
+
+  /**
+   * Aborts any ongoing streaming completion.
+   */
+  public stopGeneration(): void {
+    if (this.streamAbortController) {
+      this.streamAbortController.abort();
+      this.streamAbortController = null;
     }
   }
 

@@ -21,6 +21,7 @@ app.use(express.static(path.join(__dirname, '..', 'frontend', 'build')));
 let ragService: RagService;
 let databaseService: DatabaseService;
 let vectorStoreService: VectorStoreService;
+let ollamaService: OllamaService; // Declare ollamaService at a higher scope
 
 async function startServer() {
   console.log('=== startServer Debug ===');
@@ -31,7 +32,7 @@ async function startServer() {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
-  const ollamaService = new OllamaService(OllamaConfig);
+  ollamaService = new OllamaService(OllamaConfig); // Assign to the higher-scoped variable
   const dbPath = path.join(DocumentStoreConfig.documentStoreFile, '..', 'localmind.db');
   databaseService = new DatabaseService(dbPath);
   vectorStoreService = new VectorStoreService(
@@ -134,6 +135,16 @@ async function startServer() {
       console.error('Error in search stream:', error);
       res.write(`data: ${JSON.stringify({ status: 'error', message: 'Search failed' })}\n\n`);
       res.end();
+    }
+  });
+
+  app.post('/stop-generation', (req: any, res: any) => {
+    try {
+      ollamaService.stopGeneration();
+      res.status(200).send('Generation stopped.');
+    } catch (error) {
+      console.error('Error stopping generation:', error);
+      res.status(500).send('Failed to stop generation.');
     }
   });
 

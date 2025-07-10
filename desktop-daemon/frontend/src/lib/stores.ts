@@ -28,10 +28,14 @@ export type SearchStatus =
   | 'retrieving'
   | 'generating'
   | 'complete'
-  | 'error';
+  | 'error'
+  | 'stopped'; // Added 'stopped' status
 
 export const searchStatus = writable<SearchStatus>('idle');
 export const searchProgress = writable<string>('');
+
+// Store for the EventSource instance
+export const currentEventSource = writable<EventSource | null>(null);
 
 export const statusMessages: Record<SearchStatus, string> = {
   idle: '',
@@ -41,5 +45,30 @@ export const statusMessages: Record<SearchStatus, string> = {
   retrieving: 'Retrieving relevant documents...',
   generating: 'Building response...',
   complete: 'Search complete',
-  error: 'Search failed'
+  error: 'Search failed',
+  stopped: 'Search stopped by user' // Message for 'stopped' status
 };
+
+/**
+ * Sends a request to the backend to stop any ongoing generation.
+ */
+export async function stopCurrentGeneration() {
+  if (currentEventSource) {
+    currentEventSource.update(es => {
+      if (es) {
+        es.close();
+      }
+      return null;
+    });
+  }
+  try {
+    const response = await fetch('/stop-generation', { method: 'POST' });
+    if (!response.ok) {
+      console.error('Failed to stop generation on backend.');
+    }
+    searchStatus.set('stopped');
+    searchProgress.set(statusMessages.stopped);
+  } catch (error) {
+    console.error('Error sending stop signal:', error);
+  }
+}
