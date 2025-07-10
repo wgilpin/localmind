@@ -23,12 +23,22 @@
     {
       "label": "Build All",
       "dependsOn": [
+        "Prepare Ollama Environment",
         "npm: build-frontend",
         "npm: build-daemon"
       ],
       "group": {
         "kind": "build",
         "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Prepare Ollama Environment",
+      "type": "shell",
+      "command": "bash prepare_ollama_env.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     }

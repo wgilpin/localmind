@@ -3,12 +3,11 @@
 
 echo "--- Starting LocalMind Server (Dev Mode) ---"
 
+# Prepare Ollama environment
+bash prepare_ollama_env.sh
+
 # Navigate to the daemon directory
 cd desktop-daemon
-
-# Install dependencies (if needed)
-echo "Installing dependencies..."
-npm install
 
 # Start the server in dev mode
 echo "Launching server with auto-reloading..."

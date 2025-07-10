@@ -218,8 +218,12 @@ export class RagService {
 
             Instructions:
             Be concise.
-            Do not refer to the context or the provided information .
+            Do not refer to the context. Do not refer to the provided information. Do not refer to the user or the user's request.
             Constrain your answers very strongly to the provided material and if you do need to refer to you your built-in knowledge tell the user where you have done so.
+            Never mention the context. The user is not reading the context.
+            Never mention the user.
+            Never mention the prompt. The user can't see the prompt.
+            Never mention the prompt.
             `;
 
             const trimmedPrompt = prompt.trim().replace(/ {2,}/g, ' ');

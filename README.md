@@ -52,17 +52,22 @@ The project is structured as a monorepo with two main components:
 
 ## Running the application
 
-### Start the server
+### Start the Application
 
-To start the server, run the following command from the `desktop-daemon` directory:
+To start both the Ollama environment and the LocalMind server, run the following command from the project root directory:
 
 ```bash
-npm run dev
+./start_dev.sh
 ```
 
-### Start the frontend
+This script will:
+1. Ensure Ollama is running and set `OLLAMA_NUM_PARALLEL=2` to enable concurrent model loading (preventing delays when switching between embedding and language models).
+2. Install Node.js dependencies for the desktop daemon.
+3. Start the LocalMind server in development mode with auto-reloading.
 
-To start the frontend, run the following command from the `desktop-daemon/frontend` directory:
+### Start the Frontend (if running separately)
+
+If you need to start the frontend independently (e.g., for frontend-only development), run the following command from the `desktop-daemon/frontend` directory:
 
 ```bash
 npm run dev

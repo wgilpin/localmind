@@ -1,13 +1,29 @@
 import axios from 'axios';
 import { OllamaService } from './ollama';
+import { OllamaConfig, saveConfig } from '../config';
 
 jest.mock('axios');
+jest.mock('../config', () => {
+  const actualConfig = jest.requireActual('../config');
+  return {
+    ...actualConfig,
+    OllamaConfig: { ...actualConfig.OllamaConfig }, // Ensure OllamaConfig is a mutable copy
+    saveConfig: jest.fn(),
+  };
+});
 
 describe('OllamaService', () => {
   let ollamaService: OllamaService;
   const mockedAxios = axios as jest.Mocked<typeof axios>;
 
+  let originalOllamaConfig: typeof OllamaConfig;
+  let originalSaveConfig: typeof saveConfig;
+
   beforeEach(async () => {
+    // Save original config and saveConfig function
+    originalOllamaConfig = { ...OllamaConfig };
+    originalSaveConfig = saveConfig;
+
     // Mock for the initial listModels call during OllamaService construction
     mockedAxios.get.mockResolvedValue({
       data: { models: [{ name: 'test-model-1' }, { name: 'test-model-2' }] },
@@ -24,6 +40,13 @@ describe('OllamaService', () => {
     // Ensure mocks are cleared after service initialization for subsequent tests
     mockedAxios.post.mockClear();
     mockedAxios.get.mockClear();
+  });
+
+  afterEach(() => {
+    // Restore original config and saveConfig function
+    Object.assign(OllamaConfig, originalOllamaConfig);
+    Object.assign(saveConfig, originalSaveConfig);
+    jest.clearAllMocks();
   });
 
   describe('getEmbedding', () => {
