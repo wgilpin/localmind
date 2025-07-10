@@ -117,7 +117,7 @@
       <Documents documents={$retrievedDocuments} />
     {/if}
 
-    {#if $searchResults && ($searchStatus === 'complete' || $searchStatus === 'error')}
+    {#if $searchResults && ($searchStatus === 'generating' || $searchStatus === 'complete' || $searchStatus === 'error')}
       <div class="llm-result">
         <h3>AI Response</h3>
         <div class="search-result">{@html renderMarkdown($searchResults)}</div>
