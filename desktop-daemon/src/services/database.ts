@@ -188,6 +188,23 @@ export class DatabaseService {
   }
 
   /**
+   * Updates an existing document's title and content.
+   * @param id The ID of the document to update.
+   * @param title The new title for the document.
+   * @param content The new content for the document.
+   * @returns True if the document was updated, false otherwise.
+   */
+  updateDocument(id: string, title: string, content: string): boolean {
+    const stmt = this.db.prepare(`
+      UPDATE documents
+      SET title = ?, content = ?, timestamp = ?
+      WHERE id = ?
+    `);
+    const result = stmt.run(title, content, Date.now(), id);
+    return result.changes > 0;
+  }
+
+  /**
    * Retrieves a paginated list of recent documents, ordered by timestamp descending.
    * @param limit The maximum number of documents to retrieve.
    * @param offset The number of documents to skip.

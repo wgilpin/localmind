@@ -133,6 +133,27 @@ async function startServer() {
     }
   });
 
+  app.put("/notes/:id", async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      const { title, content } = req.body;
+
+      if (!id || !title || !content) {
+        return res.status(400).json({ message: "ID, title, and content are required." });
+      }
+
+      const updated = databaseService.updateDocument(id, title, content);
+      if (updated) {
+        res.status(200).json({ message: "Note updated successfully." });
+      } else {
+        res.status(404).json({ message: "Note not found or could not be updated." });
+      }
+    } catch (error) {
+      console.error("Error updating note:", error);
+      res.status(500).json({ message: "Failed to update note." });
+    }
+  });
+
   app.get("/ranked-chunks/:query", async (req: any, res: any) => {
     try {
       const query = decodeURIComponent(req.params.query);
