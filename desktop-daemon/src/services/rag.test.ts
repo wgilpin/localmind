@@ -40,26 +40,10 @@ describe('RagService (Integration Tests)', () => {
       {} as any, // Dummy DatabaseService, as it's mocked globally
       mockOllamaService
     ) as jest.Mocked<VectorStoreService>;
-    
-    // Mock the ntotal method for VectorStoreService to return increasing values
-    let ntotalCount = 0;
-    mockVectorStoreService.ntotal.mockImplementation(() => {
-        const currentTotal = ntotalCount;
-        return currentTotal;
-    });
-    mockVectorStoreService.add.mockImplementation((embeddings: number[][]) => {
-        ntotalCount += embeddings.length;
-    });
 
-    ragService = await RagService.create(
-      mockOllamaService,
-      mockVectorStoreService
-    );
+    // Initialize mockDatabaseService directly
+    mockDatabaseService = new DatabaseService('test.db') as jest.Mocked<DatabaseService>;
 
-    // After RagService.create, the mocked DatabaseService constructor should have been called.
-    // Get the instance that RagService is actually using.
-    mockDatabaseService = (DatabaseService as jest.Mock).mock.instances[0] as jest.Mocked<DatabaseService>;
-    
     // Configure the transaction mock on the retrieved instance
     mockDatabaseService.transaction.mockImplementation((cb) => {
       const runTransaction = jest.fn(cb);
@@ -71,6 +55,22 @@ describe('RagService (Integration Tests)', () => {
     mockDatabaseService.getDocumentsByIds.mockReturnValue([]); // Default empty array for search test
     mockDatabaseService.deleteDocument.mockReturnValue(true); // Default for delete test
     mockDatabaseService.getVectorIdsByDocumentId.mockReturnValue([]); // Default for delete test
+    
+    // Mock the ntotal method for VectorStoreService to return increasing values
+    let ntotalCount = 0;
+    mockVectorStoreService.ntotal.mockImplementation(() => {
+        const currentTotal = ntotalCount;
+        return currentTotal;
+    });
+    mockVectorStoreService.add.mockImplementation((embeddings: number[][]) => {
+        ntotalCount += embeddings.length;
+    });
+
+    ragService = new RagService(
+      mockOllamaService,
+      mockVectorStoreService,
+      mockDatabaseService
+    );
   });
 
   describe('addDocuments', () => {

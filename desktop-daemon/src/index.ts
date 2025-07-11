@@ -56,7 +56,7 @@ async function startServer() {
 
   await vectorStoreService.init();
 
-  ragService = await RagService.create(ollamaService, vectorStoreService);
+  ragService = new RagService(ollamaService, vectorStoreService, databaseService);
 
   app.post("/documents", async (req: any, res: any) => {
     try {

@@ -23,15 +23,9 @@ export class OllamaService {
   }
 
   private async initializeModels(): Promise<void> {
-    console.log(`[DEBUG] Initializing models with URL: ${this.ollamaApiUrl}`);
-    console.log(`[DEBUG] Embedding model: ${this.embeddingModel}`);
-    console.log(`[DEBUG] Completion model: ${this.completionModel}`);
-    
     // Test basic connectivity first
     try {
-      console.log(`[DEBUG] Testing Ollama connectivity...`);
       const healthCheck = await axios.get(`${this.ollamaApiUrl}/api/tags`);
-      console.log(`[DEBUG] Ollama is accessible, found ${healthCheck.data.models?.length || 0} models`);
     } catch (error) {
       console.error(`[DEBUG] Ollama connectivity test failed:`, error);
       throw new Error(`Cannot connect to Ollama at ${this.ollamaApiUrl}`);
@@ -59,20 +53,17 @@ export class OllamaService {
    */
   private async preloadModels(): Promise<void> {
     try {
-      console.log(`Preloading embedding model: ${this.embeddingModel}`);
       await axios.post(`${this.ollamaApiUrl}/api/embeddings`, {
         model: this.embeddingModel,
         prompt: "test", // Use minimal text for embedding
         keep_alive: -1,
       });
-      console.log(`Preloading completion model: ${this.completionModel}`);
       await axios.post(`${this.ollamaApiUrl}/api/generate`, {
         model: this.completionModel,
         prompt: "test", // Use a minimal prompt
         stream: false,
         keep_alive: -1,
       });
-      console.log("Models preloaded successfully.");
     } catch (error) {
       console.error("Error preloading models:", error);
     }
@@ -175,9 +166,6 @@ export class OllamaService {
   public async *getCompletionStream(prompt: string): AsyncGenerator<string> {
     console.time("ollamaStreamTime");
     console.timeLog("ollamaStreamTime", `ollama first call`);
-    console.log(`[DEBUG] getCompletionStream called with prompt length: ${prompt.length}`);
-    console.log(`[DEBUG] Using API URL: ${this.ollamaApiUrl}`);
-    console.log(`[DEBUG] Using completion model: ${this.completionModel}`);
 
     // Abort any existing stream
     this.stopGeneration();
@@ -208,7 +196,6 @@ export class OllamaService {
           if (line.trim() === "") continue;
           const parsed = JSON.parse(line);
           if (parsed.response) {
-            console.timeLog("ollamaStreamTime", `ollama stream: ${parsed.response}`);
             yield parsed.response;
           }
         }
@@ -216,7 +203,6 @@ export class OllamaService {
       if (buffer.trim() !== "") {
         const parsed = JSON.parse(buffer);
         if (parsed.response) {
-          console.timeLog("ollamaStreamTime", `ollama stream: ${parsed.response}`);
           yield parsed.response;
         }
       }
@@ -225,15 +211,7 @@ export class OllamaService {
         console.timeLog("ollamaStreamTime", "Ollama stream cancelled by user.");
       } else {
         const axiosError = error as AxiosError;
-        console.error(`[DEBUG] Ollama stream error details:`, {
-          message: axiosError.message,
-          status: axiosError.response?.status,
-          statusText: axiosError.response?.statusText,
-          url: axiosError.config?.url,
-          method: axiosError.config?.method,
-          data: axiosError.response?.data
-        });
-        console.timeLog("ollamaStreamTime", `Ollama error: ${error}`);
+        console.error(`Ollama stream error:`, axiosError.message);
       }
     } finally {
       this.streamAbortController = null;

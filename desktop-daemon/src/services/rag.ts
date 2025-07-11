@@ -10,8 +10,6 @@ import { VectorStoreService } from './vectorStore';
 import { DatabaseService, Document } from './database';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { v4 as uuidv4 } from 'uuid';
-import * as path from 'path';
-import { DocumentStoreConfig } from '../config';
 
 const SEARCH_DISTANCE_CUTOFF = 55.0;
 
@@ -67,32 +65,19 @@ export class RagService {
      * @param ollamaService The OllamaService instance.
      * @param vectorStoreService The VectorStoreService instance.
      * @param databaseService The DatabaseService instance.
-     * @param textSplitter The RecursiveCharacterTextSplitter instance.
      */
-    private constructor(
+    public constructor(
         ollamaService: OllamaService,
         vectorStoreService: VectorStoreService,
-        databaseService: DatabaseService,
-        textSplitter: RecursiveCharacterTextSplitter
+        databaseService: DatabaseService
     ) {
         this.ollamaService = ollamaService;
         this.vectorStoreService = vectorStoreService;
         this.databaseService = databaseService;
-        this.textSplitter = textSplitter;
-    }
-
-    public static async create(
-        ollamaService: OllamaService,
-        vectorStoreService: VectorStoreService,
-    ): Promise<RagService> {
-        const dbPath = path.join(DocumentStoreConfig.documentStoreFile, '..', 'localmind.db');
-        const databaseService = new DatabaseService(dbPath);
-        const textSplitter = new RecursiveCharacterTextSplitter({
+        this.textSplitter = new RecursiveCharacterTextSplitter({
             chunkSize: 1000,
             chunkOverlap: 200,
         });
-        const ragService = new RagService(ollamaService, vectorStoreService, databaseService, textSplitter);
-        return ragService;
     }
 
     /**
