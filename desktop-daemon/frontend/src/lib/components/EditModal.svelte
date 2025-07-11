@@ -7,17 +7,14 @@
     let editedTitle: string = '';
     let editedContent: string = '';
     let modalElement: HTMLElement; // Reference to the modal content div
+    let previousDocumentId: string | null = null;
 
-    // This reactive block will only run when 'showModal' changes or 'document' changes.
-    // When the modal becomes visible and a document is provided, initialize the edited fields.
-    // This should prevent immediate overwrites during typing.
-    $: if (showModal && document) {
+    $: if (showModal && document && document.id !== previousDocumentId) {
         editedTitle = document.title;
         editedContent = document.content;
+        previousDocumentId = document.id;
     } else if (!showModal) {
-        // Optionally reset fields when modal closes, though not strictly necessary for this bug
-        editedTitle = '';
-        editedContent = '';
+        previousDocumentId = null;
     }
 
     const dispatch = createEventDispatcher();
@@ -44,7 +41,7 @@
         // Add event listener to the document for Escape key
         window.addEventListener('keydown', handleKeydown);
         // Focus the modal when it opens
-        if (modalElement) {
+        if (showModal && modalElement) {
             modalElement.focus();
         }
     });

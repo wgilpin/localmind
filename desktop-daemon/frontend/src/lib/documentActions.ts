@@ -1,4 +1,4 @@
-import { vectorResults, recentNotes } from './stores';
+import { vectorResults, recentNotes, retrievedDocuments } from './stores';
 import type { VectorSearchResult } from './stores';
 
 /**
@@ -44,9 +44,10 @@ export async function updateNote(noteId: string, data: { title: string, content:
         });
         if (response.ok) {
             // Update vectorResults store
+            // Update vectorResults store (only title, as VectorSearchResult does not have content)
             vectorResults.update(currentResults =>
                 currentResults.map(note =>
-                    note.id === noteId ? { ...note, title: data.title, content: data.content } : note
+                    note.id === noteId ? { ...note, title: data.title } : note
                 )
             );
             // Update recentNotes store
@@ -56,6 +57,12 @@ export async function updateNote(noteId: string, data: { title: string, content:
                     note.id === noteId ? { ...note, title: data.title, content: data.content } : note
                 ),
             }));
+            // Update retrievedDocuments store
+            retrievedDocuments.update(currentDocs =>
+                currentDocs.map(doc =>
+                    doc.id === noteId ? { ...doc, title: data.title, content: data.content } : doc
+                )
+            );
         } else {
             console.error('Failed to update note:', response.statusText);
         }

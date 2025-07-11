@@ -16,3 +16,4 @@ userData/
 # Global patterns for SvelteKit
 **/.svelte-kit/
 **/build/
+desktop-daemon/package-lock.json
