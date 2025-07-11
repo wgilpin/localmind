@@ -11,30 +11,39 @@
 
 <style>
   #container {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: auto auto 1fr; /* Header, Search, and then flexible content area */
     height: 100vh;
+    overflow: hidden; /* Prevent overall scrollbar */
   }
 
   .header {
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    background-color: var(--color-background); /* Ensure it has a background */
+    background-color: var(--color-background);
     padding: 1rem;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
     display: flex;
     align-items: center;
     justify-content: space-between;
+    z-index: 100; /* Ensure header is above scrolling content */
+  }
+
+  .search-section {
+    padding: 1rem;
+    background-color: var(--color-background); /* Ensure search has a background */
+    z-index: 90; /* Below header */
   }
 
   .content-area {
-    flex-grow: 1;
-    overflow-y: auto;
+    overflow-y: auto; /* Only this area will scroll */
+    padding: 1rem; /* Add padding to the scrollable area */
   }
 
   h1 {
     margin: 0;
+  }
+
+  h2 {
+    margin-top: 0; /* Adjust heading margin for better spacing */
   }
 
   .settings-button {
@@ -44,26 +53,22 @@
     cursor: pointer;
     color: var(--color-text);
   }
-
-  section {
-    padding: 1rem;
-  }
 </style>
 
 <div id="container">
-  <div class="header">
+  <header class="header">
     <h1>LocalMind</h1>
     <button class="settings-button" on:click={() => showSettingsSection.set(true)}>
       ⚙️
     </button>
-  </div>
+  </header>
 
-  <section>
+  <section class="search-section">
     <h2>Search</h2>
     <Search />
   </section>
 
-  <div class="content-area">
+  <main class="content-area">
     {#if $showSettingsSection}
       <section id="settings-section">
         <h2>Settings</h2>
@@ -85,6 +90,6 @@
         <RecentNotes />
       </section>
     {/if}
-  </div>
+  </main>
 </div>
 <FAB />

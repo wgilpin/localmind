@@ -87,8 +87,6 @@
 <style>
   .recent-notes-container {
     padding: 1rem;
-    max-height: calc(100vh - 150px); /* Adjust based on fixed header height */
-    overflow-y: auto;
   }
 
   .loading-message {
