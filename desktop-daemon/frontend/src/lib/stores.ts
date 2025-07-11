@@ -20,6 +20,20 @@ export const showResultsSection = writable(false);
 export const showNewNoteSection = writable(false);
 export const showSettingsSection = writable(false);
 
+export type Document = {
+    id: string;
+    content: string;
+    url?: string;
+    title: string;
+    timestamp: number;
+};
+
+export const recentNotes = writable<{
+    notes: Document[];
+    page: number;
+    hasMore: boolean;
+}>({ notes: [], page: 0, hasMore: true });
+
 export type SearchStatus = 
   | 'idle'
   | 'starting'

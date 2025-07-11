@@ -76,7 +76,6 @@ async function startServer() {
           // youtube titles can start with a number in brackets - remove it
           title = title.replace(/^\([^)]*\)\s*/, '');
 
-          title = `YouTube: ${title}`;
         } catch (youtubeError) {
           console.warn(
             `Could not fetch YouTube transcript for ${url}:`,
@@ -147,6 +146,18 @@ async function startServer() {
       res
         .status(500)
         .json({ message: "Failed to perform ranked chunks search." });
+    }
+  });
+
+  app.get("/recent-notes", async (req: any, res: any) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 10;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const recentNotes = databaseService.getRecentDocuments(limit, offset);
+      res.status(200).json(recentNotes);
+    } catch (error) {
+      console.error("Error fetching recent notes:", error);
+      res.status(500).json({ message: "Failed to fetch recent notes." });
     }
   });
 

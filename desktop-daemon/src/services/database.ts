@@ -188,6 +188,21 @@ export class DatabaseService {
   }
 
   /**
+   * Retrieves a paginated list of recent documents, ordered by timestamp descending.
+   * @param limit The maximum number of documents to retrieve.
+   * @param offset The number of documents to skip.
+   * @returns An array of recent Documents.
+   */
+  getRecentDocuments(limit: number, offset: number): Document[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM documents
+      ORDER BY timestamp DESC
+      LIMIT ? OFFSET ?
+    `);
+    return stmt.all(limit, offset) as Document[];
+  }
+
+  /**
    * Begins a database transaction.
    * @param fn The function to execute within the transaction.
    */
