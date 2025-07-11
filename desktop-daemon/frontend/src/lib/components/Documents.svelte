@@ -1,11 +1,30 @@
 <script lang="ts">
-	export let documents: Array<{ title: string; content: string;[key: string]: any }> = [];
+	import { createEventDispatcher } from 'svelte';
+
+	export let documents: Array<{ id: string; title: string; content: string;[key: string]: any }> = [];
 	let expanded: { [key: number]: boolean } = {};
 
 	$: safeDocuments = Array.isArray(documents) ? documents : [];
 
 	function toggle(index: number) {
 		expanded[index] = !expanded[index];
+	}
+
+	const dispatch = createEventDispatcher();
+
+	function handleDelete(docId: string) {
+		dispatch('delete', docId);
+	}
+
+	function handleEdit(docId: string) {
+		dispatch('edit', docId);
+	}
+
+	function handleKeydown(event: KeyboardEvent, index: number) {
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			toggle(index);
+		}
 	}
 </script>
 
@@ -14,8 +33,24 @@
 		<div class="cards-container">
 			{#each safeDocuments as doc, i}
 				<div class="card">
-					<div class="card-header" on:click={() => toggle(i)}>
+					<div
+						class="card-header"
+						on:click={() => toggle(i)}
+						on:keydown={(e) => handleKeydown(e, i)}
+						role="button"
+						tabindex="0"
+					>
 						<h3>{doc.title}</h3>
+						{#if expanded[i]}
+							<div class="card-header-actions">
+								<button class="icon-button" on:click|stopPropagation={() => handleEdit(doc.id)} title="Edit">
+									✏️
+								</button>
+								<button class="icon-button delete-button" on:click|stopPropagation={() => handleDelete(doc.id)} title="Delete">
+									🗑️
+								</button>
+							</div>
+						{/if}
 						<span class="arrow" class:expanded={expanded[i]}></span>
 					</div>
 					{#if expanded[i]}
@@ -57,8 +92,14 @@
 		align-items: center;
 		cursor: pointer;
 	}
+	.card-header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
 	h3 {
 		margin: 0;
+		flex-grow: 1; /* Allow title to take available space */
 	}
 	.arrow {
 		width: 0;
@@ -73,5 +114,22 @@
 	}
 	.card-content {
 		margin-top: 1rem;
+	}
+	.icon-button {
+		background: none;
+		border: none;
+		font-size: 1.2em;
+		cursor: pointer;
+		padding: 0.2em;
+		transition: transform 0.2s ease;
+	}
+	.icon-button:hover {
+		transform: scale(1.1);
+	}
+	.delete-button {
+		color: #dc3545; /* Red color for delete */
+	}
+	.delete-button:hover {
+		color: #c82333;
 	}
 </style>

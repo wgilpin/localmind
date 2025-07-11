@@ -3,12 +3,17 @@
    * Results component for displaying search results and progress.
    */
   import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, retrievedDocuments, stopCurrentGeneration } from '../stores';
-  import type { VectorSearchResult, SearchStatus } from '../stores';
+  import type { VectorSearchResult, SearchStatus, RetrievedDocument } from '../stores';
   import { marked } from 'marked';
   import Documents from './Documents.svelte';
+  import EditModal from './EditModal.svelte';
+  import { deleteNote, updateNote } from '../documentActions';
 
   let expandedResults: Set<string> = new Set();
   let documentContents: Map<string, string> = new Map();
+
+  let showEditModal = false;
+  let documentToEdit: RetrievedDocument | null = null;
 
   /**
    * Converts markdown text to HTML using marked library.
@@ -54,33 +59,6 @@
   };
 
   /**
-   * Handles deleting a note.
-   * @param noteId The ID of the note to delete
-   */
-  const handleDeleteNote = async (noteId: string) => {
-    if (confirm('Are you sure you want to delete this note and its vector entries?')) {
-      try {
-        const response = await fetch(`/notes/${noteId}`, {
-          method: 'DELETE',
-        });
-        if (response.ok) {
-          // Remove the deleted note from the vectorResults store
-          vectorResults.update(currentResults => currentResults.filter(note => note.id !== noteId));
-          // Also remove from expandedResults and documentContents if present
-          expandedResults.delete(noteId);
-          expandedResults = new Set(expandedResults);
-          documentContents.delete(noteId);
-          documentContents = new Map(documentContents);
-        } else {
-          console.error('Failed to delete note:', response.statusText);
-        }
-      } catch (error) {
-        console.error('Error deleting note:', error);
-      }
-    }
-  };
-
-  /**
    * Checks if a string is a valid HTTP/HTTPS URL.
    * @param string The string to check
    * @returns True if the string is a valid HTTP/HTTPS URL
@@ -103,6 +81,26 @@
     return new Date(timestamp).toLocaleDateString();
   };
 
+  function handleDelete(event: CustomEvent<string>) {
+    deleteNote(event.detail);
+  }
+
+  function handleEdit(event: CustomEvent<string>) {
+    const docId = event.detail;
+    const doc = ($retrievedDocuments as RetrievedDocument[]).find(d => d.id === docId);
+    if (doc) {
+      documentToEdit = doc;
+      showEditModal = true;
+    }
+  }
+
+  async function handleSaveEdit(event: CustomEvent<{ id: string; title: string; content: string }>) {
+    const { id, title, content } = event.detail;
+    await updateNote(id, { title, content });
+    showEditModal = false;
+    documentToEdit = null; // Clear the document to edit
+  }
+
   $: showStopButton = $searchStatus === 'starting' || $searchStatus === 'embedding' || $searchStatus === 'searching' || $searchStatus === 'retrieving' || $searchStatus === 'generating';
 </script>
 
@@ -121,7 +119,7 @@
     {/if}
     
     {#if $retrievedDocuments && Array.isArray($retrievedDocuments) && $retrievedDocuments.length > 0}
-      <Documents documents={$retrievedDocuments} />
+      <Documents documents={$retrievedDocuments} on:delete={handleDelete} on:edit={handleEdit} />
     {/if}
 
     {#if $searchResults && ($searchStatus === 'generating' || $searchStatus === 'complete' || $searchStatus === 'error' || $searchStatus === 'stopped')}
@@ -133,6 +131,15 @@
       <div class="no-results">No results found.</div>
     {/if}
   </div>
+
+  {#if showEditModal}
+    <EditModal
+      showModal={showEditModal}
+      document={documentToEdit}
+      on:save={handleSaveEdit}
+      on:close={() => (showEditModal = false)}
+    />
+  {/if}
 {/if}
 
 <style>
@@ -171,90 +178,7 @@
     100% { transform: rotate(360deg); }
   }
 
-  .vector-results {
-    margin-bottom: 24px;
-  }
-
-  .vector-results h3 {
-    margin: 0 0 16px 0;
-    color: #333;
-    font-size: 1.2em;
-  }
-
-  .vector-results-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .vector-result-item {
-    padding: 12px 16px;
-    border: 1px solid #e0d4b6;
-    border-radius: 8px;
-    background: #f5deb3;
-    color: #4A4A4A;
-    transition: all 0.2s ease;
-    position: relative; /* Added for positioning the delete button */
-  }
-
-  .vector-result-item.clickable {
-    cursor: pointer;
-  }
-
-  .vector-result-item.clickable:hover {
-    background: #faf0e6;
-    border-color: #d2b48c;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  }
-
-  .vector-result-item:focus {
-    outline: 2px solid #d2b48c;
-    outline-offset: 2px;
-  }
-
-  .result-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 4px;
-  }
-
-  .result-title {
-    font-weight: 600;
-    color: #333;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .external-link-icon {
-    font-size: 0.9em;
-    opacity: 0.7;
-  }
-
-  .expand-icon {
-    font-size: 0.8em;
-    opacity: 0.7;
-    transition: transform 0.2s ease;
-  }
-
-  .expand-icon.expanded {
-    transform: rotate(0deg);
-  }
-
-  .result-content {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid #e9ecef;
-    font-size: 0.9em;
-    line-height: 1.5;
-  }
-
-  .vector-result-item.expanded {
-    border-color: #d2b48c;
-    background: #faf0e6;
-  }
+  /* Removed unused CSS selectors */
 
   .llm-result {
     margin-top: 24px;
@@ -336,21 +260,6 @@
     text-align: center;
     padding: 40px;
     color: #6c757d;
-  }
-
-  .delete-button {
-    background: none;
-    border: none;
-    color: #dc3545; /* Red color for delete */
-    font-size: 1.5em;
-    cursor: pointer;
-    padding: 0;
-    line-height: 1;
-    margin-left: auto; /* Push to the right */
-  }
-
-  .delete-button:hover {
-    color: #c82333;
   }
 
   .stop-button {

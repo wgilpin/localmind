@@ -9,6 +9,7 @@ export type VectorSearchResult = {
 };
 
 export type RetrievedDocument = {
+    id: string; // Added id property
     title: string;
     content: string;
 };
