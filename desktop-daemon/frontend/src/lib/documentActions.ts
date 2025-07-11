@@ -6,6 +6,10 @@ import type { VectorSearchResult } from './stores';
  * @param noteId The ID of the note to delete.
  */
 export async function deleteNote(noteId: string): Promise<void> {
+    if (!noteId) {
+        console.error('Cannot delete note: ID is missing.');
+        return;
+    }
     if (confirm('Are you sure you want to delete this note and its vector entries?')) {
         try {
             const response = await fetch(`/notes/${noteId}`, {
