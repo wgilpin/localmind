@@ -120,8 +120,8 @@ describe('RagService (Integration Tests)', () => {
     });
   });
 
-  describe('search', () => {
-    it('should correctly execute the RAG pipeline with diversity ranking', async () => {
+  describe('searchAndStream', () => {
+    it('should correctly execute the RAG pipeline with diversity ranking and stream response', async () => {
       const query = 'test query';
       const queryEmbedding = [0.1, 0.2, 0.3];
       const searchResults = {
@@ -163,30 +163,41 @@ describe('RagService (Integration Tests)', () => {
         url: '',
         timestamp: 0
       }, ];
-      const completion = 'generated completion';
+      const completionChunks = ['generated', ' ', 'completion'];
 
       mockOllamaService.getEmbedding.mockResolvedValue(queryEmbedding);
       mockVectorStoreService.search.mockResolvedValue(searchResults);
       mockDatabaseService.getVectorMappingsByIds.mockReturnValue(vectorMappings);
       mockDatabaseService.getDocumentsByIds.mockReturnValue(documents);
-      mockOllamaService.getCompletion.mockResolvedValue(completion);
+      
+      // Mock getCompletionStream to return an async iterator
+      mockOllamaService.getCompletionStream.mockImplementation(async function*() {
+        for (const chunk of completionChunks) {
+          yield chunk;
+        }
+      });
 
-      const result = await ragService.search(query);
+      const onProgressMock = jest.fn();
+      await ragService.searchAndStream(query, onProgressMock);
 
       expect(mockOllamaService.getEmbedding).toHaveBeenCalledWith(query);
       expect(mockVectorStoreService.search).toHaveBeenCalledWith(queryEmbedding, 100);
       expect(mockDatabaseService.getVectorMappingsByIds).toHaveBeenCalled();
       expect(mockDatabaseService.getDocumentsByIds).toHaveBeenCalled();
+      expect(mockOllamaService.getCompletionStream).toHaveBeenCalled();
 
-      const receivedPrompt = mockOllamaService.getCompletion.mock.calls[0][0];
-      expect(receivedPrompt).toContain(query);
-      expect(receivedPrompt).toContain('content A');
-      expect(receivedPrompt).toContain('content B');
-      expect(receivedPrompt).toContain('content C');
-      expect(result).toEqual({ response: completion, documents: expect.any(Array) });
+      // Verify progress callbacks
+      expect(onProgressMock).toHaveBeenCalledWith('starting', 'Starting search...');
+      expect(onProgressMock).toHaveBeenCalledWith('retrieving', 'Retrieving relevant documents...');
+      expect(onProgressMock).toHaveBeenCalledWith('retrieving', 'Retrieved documents.', expect.objectContaining({ documents: expect.any(Array) }));
+      expect(onProgressMock).toHaveBeenCalledWith('generating', 'Building response...');
+      expect(onProgressMock).toHaveBeenCalledWith('generating', 'Streaming response...', { chunk: 'generated' });
+      expect(onProgressMock).toHaveBeenCalledWith('generating', 'Streaming response...', { chunk: ' ' });
+      expect(onProgressMock).toHaveBeenCalledWith('generating', 'Streaming response...', { chunk: 'completion' });
+      expect(onProgressMock).toHaveBeenCalledWith('complete', 'Search complete.', { response: completionChunks.join('') });
     });
 
-    it('should return a default message if no relevant documents are found', async () => {
+    it('should call onProgress with "complete" and "No relevant documents found" if no relevant documents are found', async () => {
       const query = 'test query';
       const queryEmbedding = [0.4, 0.5, 0.6];
 
@@ -196,14 +207,31 @@ describe('RagService (Integration Tests)', () => {
         D: []
       });
 
-      const result = await ragService.search(query);
+      const onProgressMock = jest.fn();
+      await ragService.searchAndStream(query, onProgressMock);
 
       expect(mockOllamaService.getEmbedding).toHaveBeenCalledWith(query);
       expect(mockVectorStoreService.search).toHaveBeenCalledWith(queryEmbedding, 100);
       expect(mockDatabaseService.getVectorMappingsByIds).not.toHaveBeenCalled();
       expect(mockDatabaseService.getDocumentsByIds).not.toHaveBeenCalled();
-      expect(mockOllamaService.getCompletion).not.toHaveBeenCalled();
-      expect(result).toEqual({ response: 'No relevant documents found.', documents: [] });
+      expect(mockOllamaService.getCompletionStream).not.toHaveBeenCalled();
+      
+      expect(onProgressMock).toHaveBeenCalledWith('starting', 'Starting search...');
+      expect(onProgressMock).toHaveBeenCalledWith('retrieving', 'Retrieving relevant documents...');
+      expect(onProgressMock).toHaveBeenCalledWith('complete', 'No relevant documents found');
+    });
+
+    it('should call onProgress with "error" if an error occurs during searchAndStream', async () => {
+      const query = 'test query';
+      const error = new Error('Test error');
+
+      mockOllamaService.getEmbedding.mockRejectedValue(error);
+
+      const onProgressMock = jest.fn();
+      await ragService.searchAndStream(query, onProgressMock);
+
+      expect(onProgressMock).toHaveBeenCalledWith('starting', 'Starting search...');
+      expect(onProgressMock).toHaveBeenCalledWith('error', 'Search failed');
     });
   });
 

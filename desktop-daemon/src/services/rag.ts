@@ -170,65 +170,6 @@ export class RagService {
     }
 
     /**
-     * @deprecated Use searchAndStream instead for better performance and user experience.
-     * Searches for relevant documents and generates a completion based on the query and retrieved context.
-     * @param query The user's query string.
-     * @param onProgress Optional callback for progress updates.
-     * @returns A promise that resolves to an object containing the generated answer string and the retrieved documents.
-     */
-    public async search(query: string, onProgress?: ProgressCallback): Promise<{ response: string, documents: RetrievedChunk[] }> {
-        try {
-            onProgress?.('starting', 'Starting search...');
-            
-            onProgress?.('retrieving', 'Retrieving relevant documents...');
-            const retrievedDocuments = await this.getRankedChunks(query);
-
-            if (retrievedDocuments.length === 0) {
-                onProgress?.('complete', 'No relevant documents found');
-                return { response: 'No relevant documents found.', documents: [] };
-            }
-
-            const context = retrievedDocuments.map(doc => doc.content).join("\n\n");
-
-            // 5. Construct a detailed prompt for the completion model.
-            // This prompt should include the retrieved document content as context and the original user query.
-            const prompt = `
-            You are a helpful AI assistant.
-            Answer the following question based on the provided context:
-
-            Question: ${query}
-
-            Context:
-            ${context}
-
-            Instructions:
-            Be concise.
-            Do not refer to the context. Do not refer to the provided information. Do not refer to the user or the user's request.
-            Constrain your answers very strongly to the provided material and if you do need to refer to you your built-in knowledge tell the user where you have done so.
-            Never mention the context. The user is not reading the context.
-            Never mention the user.
-            Never mention the prompt. The user can't see the prompt.
-            Never mention the prompt.
-            `;
-
-            const trimmedPrompt = prompt.trim().replace(/ {2,}/g, ' ');
-
-            // 6. Use the OllamaService's getCompletion method to get the final answer.
-            onProgress?.('generating', 'Building response...');
-            console.log("Calling ollama");
-            const finalAnswer = await this.ollamaService.getCompletion(trimmedPrompt);
-            console.log("ollama responded");
-
-            // 7. Return the generated answer.
-            onProgress?.('complete', 'Search complete. Found: '+retrievedDocuments.length);
-            return { response: finalAnswer, documents: retrievedDocuments };
-        } catch (error) {
-            onProgress?.('error', 'Search failed');
-            throw error;
-        }
-    }
-
-    /**
      * Searches for relevant documents and streams the AI response.
      * @param query The user's query string.
      * @param onProgress Callback for progress updates, including streaming the response.
@@ -258,8 +199,14 @@ export class RagService {
 
             Instructions:
             Be concise.
-            Do not refer to the context or the provided information .
+            Do not refer to the context. Do not refer to the provided information. Do not refer to the user or the user's request.
             Constrain your answers very strongly to the provided material and if you do need to refer to you your built-in knowledge tell the user where you have done so.
+            Some of the provided material may not be relevant. If it's irrelevant, ignore it and do not refer to it.
+            Never mention the context. The user is not reading the context.
+            Never mention the user.
+            Never mention the prompt. The user can't see the prompt.
+            Never mention the prompt.
+            Do not explain your thinking or reasoning, only provide the answer.
             `;
             const trimmedPrompt = prompt.trim().replace(/ {2,}/g, ' ');
 
