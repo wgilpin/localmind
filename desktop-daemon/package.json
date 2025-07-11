@@ -27,7 +27,8 @@
     "langchain": "^0.2.10",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "youtube-transcript": "^1.2.1"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.8",
