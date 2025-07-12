@@ -17,3 +17,4 @@ userData/
 **/.svelte-kit/
 **/build/
 desktop-daemon/package-lock.json
+uv.lock
