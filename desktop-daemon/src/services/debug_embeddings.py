@@ -37,9 +37,9 @@ def get_embedding(text: str) -> np.ndarray:
         print(f"Error getting embedding from Ollama API: {e}")
         raise
 
-def get_document_content_by_vector_ids(vector_ids: list[int]) -> dict[int, str]:
+def get_document_titles_by_vector_ids(vector_ids: list[int]) -> dict[int, str]:
     """
-    Retrieves document content from the SQLite database based on vector IDs.
+    Retrieves document titles from the SQLite database based on vector IDs.
     """
     conn = None
     try:
@@ -55,15 +55,15 @@ def get_document_content_by_vector_ids(vector_ids: list[int]) -> dict[int, str]:
         if not doc_ids:
             return {}
 
-        # Then, get content from documents table
+        # Then, get title from documents table
         doc_placeholders = ','.join('?' for _ in doc_ids)
-        cursor.execute(f"SELECT id, content FROM documents WHERE id IN ({doc_placeholders})", doc_ids)
+        cursor.execute(f"SELECT id, title FROM documents WHERE id IN ({doc_placeholders})", doc_ids)
         documents = cursor.fetchall()
 
-        doc_content_map = {doc[0]: doc[1] for doc in documents}
+        doc_title_map = {doc[0]: doc[1] for doc in documents}
         
-        # Map vector_id to content
-        result_map = {mapping[0]: doc_content_map.get(mapping[1], "Content not found") for mapping in vector_mappings}
+        # Map vector_id to title
+        result_map = {mapping[0]: doc_title_map.get(mapping[1], "Title not found") for mapping in vector_mappings}
         return result_map
 
     except sqlite3.Error as e:
@@ -105,18 +105,18 @@ def main():
     # The search method returns distances and labels (the original IDs)
     distances, labels = index.search(query_vector_batch, K)
 
-    # 3. Retrieve original text from SQLite
+    # 3. Retrieve original titles from SQLite
     result_vector_ids = labels[0].tolist()
-    id_to_text_mapping = get_document_content_by_vector_ids(result_vector_ids)
+    id_to_title_mapping = get_document_titles_by_vector_ids(result_vector_ids)
 
     # 4. Display results
     print("\n--- Search Results ---")
     for i in range(K):
         result_id = labels[0][i]
         distance = distances[0][i]
-        original_text = id_to_text_mapping.get(result_id, "Content not found for this ID.")
+        original_title = id_to_title_mapping.get(result_id, "Title not found")
         print(f"ID: {result_id}, Distance: {distance:.4f}")
-        print(f"  Text: \"{original_text}\"")
+        print(f"  Title: \"{original_title}\"")
 
 
 if __name__ == "__main__":
