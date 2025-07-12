@@ -4,9 +4,9 @@ import fs from "fs";
 import path from "path";
 import {
   OllamaConfig,
-  DocumentStoreConfig,
   ServerConfig,
   loadConfig,
+  appDataDir, // Imported appDataDir
 } from "./config";
 import { OllamaService } from "./services/ollama";
 import { VectorStoreService } from "./services/vectorStore";
@@ -43,8 +43,7 @@ async function startServer() {
   }
   ollamaService = new OllamaService(OllamaConfig); // Assign to the higher-scoped variable
   const dbPath = path.join(
-    DocumentStoreConfig.documentStoreFile,
-    "..",
+    appDataDir, // Changed from DocumentStoreConfig.documentStoreFile
     "localmind.db"
   );
   databaseService = new DatabaseService(dbPath);

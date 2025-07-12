@@ -2,7 +2,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-const appDataDir = path.join(os.homedir(), '.localmind');
+export const appDataDir = path.join(os.homedir(), '.localmind'); // Exported appDataDir
 const configFilePath = path.join(appDataDir, 'config.json');
 
 /**
@@ -14,13 +14,6 @@ interface IOllamaConfig {
   embeddingDimension: number;
   completionModel: string;
   vectorIndexFile: string;
-}
-
-/**
- * Interface for Document Store service configuration.
- */
-interface IDocumentStoreConfig {
-  documentStoreFile: string;
 }
 
 /**
@@ -41,16 +34,12 @@ const defaultConfig = {
     completionModel: 'qwen3:0.6b',
     vectorIndexFile: path.join(appDataDir, 'localmind.index'),
   },
-  documentStore: {
-    documentStoreFile: path.join(appDataDir, 'documents.json'),
-  },
   server: {
     port: parseInt(process.env.PORT || '3000', 10), // Explicitly parse to number
   },
 };
 
 export let OllamaConfig: IOllamaConfig;
-export let DocumentStoreConfig: IDocumentStoreConfig;
 export let ServerConfig: IServerConfig;
 
 /**
@@ -61,17 +50,14 @@ export function loadConfig() {
     try {
       const configData = JSON.parse(fs.readFileSync(configFilePath, 'utf-8'));
       OllamaConfig = { ...defaultConfig.ollama, ...configData.ollama };
-      DocumentStoreConfig = { ...defaultConfig.documentStore, ...configData.documentStore };
       ServerConfig = { ...defaultConfig.server, ...configData.server };
     } catch (error) {
       console.error('Error loading config file, using default config:', error);
       OllamaConfig = defaultConfig.ollama;
-      DocumentStoreConfig = defaultConfig.documentStore;
       ServerConfig = defaultConfig.server;
     }
   } else {
     OllamaConfig = defaultConfig.ollama;
-    DocumentStoreConfig = defaultConfig.documentStore;
     ServerConfig = defaultConfig.server;
   }
 }
@@ -86,7 +72,6 @@ export function saveConfig() {
     }
     const configToSave = {
       ollama: OllamaConfig,
-      documentStore: DocumentStoreConfig,
       server: ServerConfig,
     };
     fs.writeFileSync(configFilePath, JSON.stringify(configToSave, null, 2));
