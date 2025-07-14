@@ -91,7 +91,15 @@ export class RagService {
         const queryEmbedding = await this.ollamaService.getEmbedding(query);
         const searchResults = await this.vectorStoreService.search(queryEmbedding, k);
 
+        console.log(`=== Search Debug: Raw Results ===`);
+        console.log(`Total raw matches: ${searchResults.I.length}`);
+        searchResults.I.forEach((index, i) => {
+            console.log(`  Raw ${i}: chunkId=${index}, distance=${searchResults.D[i]}`);
+        });
+        console.log(`=================================`);
+
         if (searchResults.I.length === 0) {
+            console.log('No results found in vector search');
             return [];
         }
 
@@ -99,7 +107,11 @@ export class RagService {
             .map((index, i) => ({ chunkId: index, distance: searchResults.D[i] }))
             .filter(item => item.distance <= SEARCH_DISTANCE_CUTOFF);
 
+        console.log(`=== Search Debug: Candidates after cutoff ===`);
+        console.log(`Candidates passing distance cutoff (${SEARCH_DISTANCE_CUTOFF}): ${candidates.length}`);
+        
         if (candidates.length === 0) {
+            console.log('No candidates passed distance cutoff');
             return [];
         }
 
@@ -139,6 +151,13 @@ export class RagService {
         docScores.sort((a, b) => a.score - b.score);
         const finalTopChunksIds = docScores.slice(0, 5).map(item => item.bestChunk.chunkId); // Return best chunk from top 5 docs
 
+        console.log(`=== Search Debug: Final Document Selection ===`);
+        console.log(`Top ${docScores.length} documents selected:`);
+        docScores.slice(0, 5).forEach((item, idx) => {
+            console.log(`  ${idx + 1}. docId=${item.docId}, score=${item.score.toFixed(2)}, bestDistance=${item.bestChunk.distance}`);
+        });
+        console.log(`=================================`);
+
         // 5. Hydrate the chunk data with full document info for context/citation
         const finalMappings = this.databaseService.getVectorMappingsByIds(finalTopChunksIds);
         const documentIdsToRetrieve = [...new Set(finalMappings.map(m => m.documentId))];
@@ -153,6 +172,11 @@ export class RagService {
 
             const candidate = candidates.find(c => c.chunkId === chunkId);
             if (!candidate) return null;
+
+            console.log(`=== Search Debug: Final Chunk ===`);
+            console.log(`  Document: "${document.title}" (id=${document.id})`);
+            console.log(`  Distance: ${candidate.distance}`);
+            console.log(`=================================`);
 
             return {
                 chunkId,
