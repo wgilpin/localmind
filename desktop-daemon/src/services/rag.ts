@@ -8,8 +8,8 @@
 import { OllamaService } from './ollama';
 import { VectorStoreService } from './vectorStore';
 import { DatabaseService, Document } from './database';
-import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { v4 as uuidv4 } from 'uuid';
+import { cleanText } from '../utils/textProcessor';
 
 const SEARCH_DISTANCE_CUTOFF = 55.0;
 
@@ -58,7 +58,6 @@ export class RagService {
     private ollamaService: OllamaService;
     private vectorStoreService: VectorStoreService;
     private databaseService: DatabaseService;
-    private textSplitter: RecursiveCharacterTextSplitter;
 
     /**
      * Constructs a new RagService instance.
@@ -74,10 +73,56 @@ export class RagService {
         this.ollamaService = ollamaService;
         this.vectorStoreService = vectorStoreService;
         this.databaseService = databaseService;
-        this.textSplitter = new RecursiveCharacterTextSplitter({
-            chunkSize: 1000,
-            chunkOverlap: 200,
-        });
+    }
+
+    /**
+     * Splits a document into chunks using a sentence-based sliding window.
+     * Each chunk is centered around a sentence and expanded outwards until
+     * the chunk_size is reached, without breaking sentences.
+     * @param text The input text to chunk.
+     * @param chunkSize The desired size of each chunk.
+     * @returns An array of text chunks.
+     */
+    private chunkDocument(text: string, chunkSize: number = 512): string[] {
+        const sentences = cleanText(text).split(/(?<=[.!?])\s+/).filter(s => s.trim() !== '');
+
+        if (sentences.length === 0) {
+            return [];
+        }
+
+        const chunks: string[] = [];
+        for (let i = 0; i < sentences.length; i++) {
+            let currentChunk = sentences[i];
+            let left = i - 1;
+            let right = i + 1;
+
+            while (currentChunk.length < chunkSize) {
+                let expanded = false;
+                if (left >= 0) {
+                    const newChunk = sentences[left] + " " + currentChunk;
+                    if (newChunk.length <= chunkSize) {
+                        currentChunk = newChunk;
+                        left--;
+                        expanded = true;
+                    }
+                }
+                if (right < sentences.length && currentChunk.length < chunkSize) {
+                    const newChunk = currentChunk + " " + sentences[right];
+                    if (newChunk.length <= chunkSize) {
+                        currentChunk = newChunk;
+                        right++;
+                        expanded = true;
+                    }
+                }
+                
+                if (!expanded) {
+                    break; 
+                }
+            }    
+            chunks.push(currentChunk);
+            // console.log(`Chunk ${i}: ${currentChunk}`); // For debugging, match Python output
+        }
+        return chunks;
     }
 
     /**
@@ -265,7 +310,7 @@ export class RagService {
             const newDocument: Document = { ...doc, id: uuidv4(), url: doc.url || '', timestamp: Date.now() };
             documentsToAdd.push(newDocument);
 
-            const chunks = await this.textSplitter.splitText(newDocument.content);
+            const chunks = this.chunkDocument(newDocument.content);
             if (chunks.length === 0) continue;
 
             const embeddings: number[][] = await this.ollamaService.getEmbeddings(chunks);

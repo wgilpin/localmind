@@ -55,7 +55,11 @@ async function startServer() {
 
   await vectorStoreService.init();
 
-  ragService = new RagService(ollamaService, vectorStoreService, databaseService);
+  ragService = new RagService(
+    ollamaService,
+    vectorStoreService,
+    databaseService
+  );
 
   app.post("/documents", async (req: any, res: any) => {
     try {
@@ -70,11 +74,11 @@ async function startServer() {
       if (url && url.includes("youtube.com/watch")) {
         try {
           const transcript = await YoutubeTranscript.fetchTranscript(url);
-          content = transcript.map((t: { text: any }) => t.text).join(" ");
-
+          if (transcript.length > 0) {
+            content = transcript.map((t: { text: any }) => t.text).join(" ");
+          }
           // youtube titles can start with a number in brackets - remove it
-          title = title.replace(/^\([^)]*\)\s*/, '');
-
+          title = title.replace(/^\([^)]*\)\s*/, "");
         } catch (youtubeError) {
           console.warn(
             `Could not fetch YouTube transcript for ${url}:`,
@@ -138,14 +142,18 @@ async function startServer() {
       const { title, content } = req.body;
 
       if (!id || !title || !content) {
-        return res.status(400).json({ message: "ID, title, and content are required." });
+        return res
+          .status(400)
+          .json({ message: "ID, title, and content are required." });
       }
 
       const updated = databaseService.updateDocument(id, title, content);
       if (updated) {
         res.status(200).json({ message: "Note updated successfully." });
       } else {
-        res.status(404).json({ message: "Note not found or could not be updated." });
+        res
+          .status(404)
+          .json({ message: "Note not found or could not be updated." });
       }
     } catch (error) {
       console.error("Error updating note:", error);
