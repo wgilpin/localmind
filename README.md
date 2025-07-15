@@ -1,6 +1,6 @@
 # LocalMind
 
-LocalMind is a project that allows you to store and search your notes locally. It consists of a desktop daemon that manages the data and a Chrome extension for interacting with it. It leverages a Retrieval-Augmented Generation (RAG) architecture with Ollama to provide intelligent search and summarization capabilities.
+LocalMind is a project that allows you to store and s intelligently earch your notes and bookmarks locally. It consists of a desktop daemon that manages the data and a Chrome extension for interacting with it. It leverages a Retrieval-Augmented Generation (RAG) architecture with Ollama to provide intelligent search and summarization capabilities.
 
 ## Overview
 
