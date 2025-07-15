@@ -1,6 +1,6 @@
 # LocalMind
 
-LocalMind is a project that allows you to store and search your notes locally. It consists of a desktop daemon that manages the data and a Chrome extension for interacting with it.
+LocalMind is a project that allows you to store and search your notes locally. It consists of a desktop daemon that manages the data and a Chrome extension for interacting with it. It leverages a Retrieval-Augmented Generation (RAG) architecture with Ollama to provide intelligent search and summarization capabilities.
 
 ## Overview
 
@@ -15,6 +15,29 @@ The project is structured as a monorepo with two main components:
 
 - Node.js (v18 or higher)
 - npm
+- Ollama
+
+### Ollama Installation
+
+Ollama is required to run the large language models locally.
+
+**Windows:**
+
+1.  Download the installer from the [Ollama website](https://ollama.com/download).
+2.  Run the downloaded `.exe` file and follow the installation instructions.
+
+**macOS:**
+
+1.  Download the Ollama app from the [Ollama website](https://ollama.com/download).
+2.  Unzip the downloaded file and drag `Ollama.app` to your Applications folder.
+
+**Linux:**
+
+Run the following command in your terminal:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
 
 ### Desktop Daemon
 
@@ -71,3 +94,4 @@ If you need to start the frontend independently (e.g., for frontend-only develop
 
 ```bash
 npm run dev
+```
