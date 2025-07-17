@@ -13,17 +13,24 @@ interface BookmarkNode {
   name: string;
   children?: BookmarkNode[];
 }
+/**
+ * Defines the structure for a bookmark entry with its URL and title.
+ */
+interface BookmarkEntry {
+  url: string;
+  title: string;
+}
 
 /**
  * Indexes a new URL using the RAG service.
  */
-async function indexUrl(url: string, ragService: RagService, statusCallback: (status: string, message: string, data?: any) => void): Promise<void> {
+async function indexUrl(url: string, ragService: RagService, statusCallback: (status: string, message: string, data?: any) => void, title?: string): Promise<void> {
   console.log(`✅ Indexing new bookmark: ${url}`);
   statusCallback('info', `Indexing: ${url}`);
   try {
     // In a real scenario, you'd fetch content for the URL before adding.
     // For now, we'll just use the URL as content for demonstration.
-    await ragService.addDocuments([{ title: url, content: url, url: url }]);
+    await ragService.addDocuments([{ title: title??url, content: url, url: url }]);
   } catch (error: unknown) {
     console.error(`Error indexing URL ${url}:`, error);
     statusCallback('error', `Failed to index: ${url}`, { error: (error as Error).message });
@@ -69,38 +76,38 @@ function getBookmarksPath(): string {
 }
 
 /**
- * Recursively extracts URLs from a bookmark tree node.
+ * Recursively extracts URLs and their titles from a bookmark tree node.
  */
-function extractUrlsFromNode(node: BookmarkNode, urls: Set<string>): void {
+function extractBookmarksFromNode(node: BookmarkNode, bookmarks: BookmarkEntry[]): void {
   if (node.type === 'url' && node.url) {
-    urls.add(node.url);
+    bookmarks.push({ url: node.url, title: node.name });
   }
   if (node.children) {
     for (const child of node.children) {
-      extractUrlsFromNode(child, urls);
+      extractBookmarksFromNode(child, bookmarks);
     }
   }
 }
 
 /**
- * Parses the Bookmarks file and returns a set of all URLs.
+ * Parses the Bookmarks file and returns an array of BookmarkEntry objects.
  */
-function getAllBookmarkUrls(filePath: string): Set<string> {
+function getAllBookmarks(filePath: string): BookmarkEntry[] {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     const bookmarksJson = JSON.parse(content);
-    const allUrls = new Set<string>();
+    const allBookmarks: BookmarkEntry[] = [];
 
     const roots = bookmarksJson.roots;
     if (roots) {
       for (const rootKey in roots) {
-        extractUrlsFromNode(roots[rootKey], allUrls);
+        extractBookmarksFromNode(roots[rootKey], allBookmarks);
       }
     }
-    return allUrls;
+    return allBookmarks;
   } catch (error) {
     console.error(`Could not read or parse bookmarks file: ${error}`);
-    return new Set();
+    return [];
   }
 }
 
@@ -114,8 +121,8 @@ async function monitorBookmarks(ragService: RagService, databaseService: Databas
     return;
   }
 
-  let knownUrls = getAllBookmarkUrls(bookmarksPath);
-  console.log(`Monitoring initialized. Found ${knownUrls.size} bookmarks.`);
+  let knownBookmarks = getAllBookmarks(bookmarksPath);
+  console.log(`Monitoring initialized. Found ${knownBookmarks.length} bookmarks.`);
 
   // Initial scan and sync with the database
   statusCallback('info', 'Updating Bookmarks: Initial scan...');
@@ -123,13 +130,14 @@ async function monitorBookmarks(ragService: RagService, databaseService: Databas
   const existingUrlsInDb = new Set(existingDocuments.map(doc => doc.url).filter(Boolean) as string[]);
 
   // Find bookmarks from file that are not in DB
-  const urlsToAdd = new Set([...knownUrls].filter(url => !existingUrlsInDb.has(url)));
-  for (const url of urlsToAdd) {
-    await indexUrl(url, ragService, statusCallback);
+  const bookmarksToAdd = knownBookmarks.filter(bookmark => !existingUrlsInDb.has(bookmark.url));
+  for (const bookmark of bookmarksToAdd) {
+    await indexUrl(bookmark.url, ragService, statusCallback, bookmark.title);
   }
 
   // Find bookmarks in DB that are no longer in file
-  const urlsToRemove = new Set([...existingUrlsInDb].filter(url => !knownUrls.has(url)));
+  const currentUrls = new Set(knownBookmarks.map(b => b.url));
+  const urlsToRemove = new Set([...existingUrlsInDb].filter(url => !currentUrls.has(url)));
   for (const url of urlsToRemove) {
     await deindexUrl(url, ragService, databaseService, statusCallback);
   }
@@ -149,26 +157,29 @@ async function monitorBookmarks(ragService: RagService, databaseService: Databas
         console.log('\nBookmarks file changed. Checking for updates...');
         statusCallback('info', 'Bookmarks file changed. Checking for updates...');
         
-        const currentUrls = getAllBookmarkUrls(bookmarksPath);
-        if (currentUrls.size === 0) {
+        const currentBookmarks = getAllBookmarks(bookmarksPath);
+        if (currentBookmarks.length === 0) {
           statusCallback('warn', 'Could not read current bookmarks or file is empty.');
           return; // Avoid processing on read error
         }
 
+        const currentUrlsSet = new Set(currentBookmarks.map(b => b.url));
+        const knownUrlsSet = new Set(knownBookmarks.map(b => b.url));
+
         // Find added bookmarks (in current but not in known)
-        const newUrls = new Set([...currentUrls].filter(url => !knownUrls.has(url)));
-        for (const url of newUrls) {
-          await indexUrl(url, ragService, statusCallback);
+        const newBookmarks = currentBookmarks.filter(bookmark => !knownUrlsSet.has(bookmark.url));
+        for (const bookmark of newBookmarks) {
+          await indexUrl(bookmark.url, ragService, statusCallback, bookmark.title);
         }
 
         // Find deleted bookmarks (in known but not in current)
-        const deletedUrls = new Set([...knownUrls].filter(url => !currentUrls.has(url)));
+        const deletedUrls = [...knownUrlsSet].filter(url => !currentUrlsSet.has(url));
         for (const url of deletedUrls) {
           await deindexUrl(url, ragService, databaseService, statusCallback);
         }
                 
         // Update the state
-        knownUrls = currentUrls;
+        knownBookmarks = currentBookmarks;
         statusCallback('info', 'Bookmark sync complete.');
       }, 500); // 500ms debounce window
     }
