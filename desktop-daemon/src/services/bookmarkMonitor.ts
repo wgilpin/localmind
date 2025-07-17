@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { RagService } from './rag';
 import { DatabaseService } from './database';
+import { extractContentFromUrl } from '../utils/contentExtractor';
 
 /**
  * Type definitions for bookmarks.
@@ -28,9 +29,14 @@ async function indexUrl(url: string, ragService: RagService, statusCallback: (st
   console.log(`✅ Indexing new bookmark: ${url}`);
   statusCallback('info', `Indexing: ${url}`);
   try {
-    // In a real scenario, you'd fetch content for the URL before adding.
-    // For now, we'll just use the URL as content for demonstration.
-    await ragService.addDocuments([{ title: title??url, content: url, url: url }]);
+    statusCallback('info', `Fetching content for: ${url}`);
+    const content = await extractContentFromUrl(url);
+    const store_title = title || url;
+    if (!title) {
+      console.warn(`No title provided for URL: ${url}. Using URL as title.`);
+    }
+    console.log(`Storing title: ${store_title} from URL: ${url} with content length: ${content.length}`);
+    await ragService.addDocuments([{ title: store_title, content: content, url: url }]);
   } catch (error: unknown) {
     console.error(`Error indexing URL ${url}:`, error);
     statusCallback('error', `Failed to index: ${url}`, { error: (error as Error).message });
