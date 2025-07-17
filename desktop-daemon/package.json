@@ -25,6 +25,7 @@
     "express": "^5.1.0",
     "faiss-node": "^0.5.1",
     "langchain": "^0.2.10",
+    "open": "^10.2.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
     "uuid": "^11.1.0",

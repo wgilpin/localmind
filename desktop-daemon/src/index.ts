@@ -1,3 +1,4 @@
+import open from 'open';
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -300,6 +301,7 @@ async function startServer() {
 
   app.listen(port, () => {
     console.log(`LocalMind Daemon listening at http://localhost:${port}`);
+    open(`http://localhost:${port}`); // open the frontend in the default browser
   });
 }
 
