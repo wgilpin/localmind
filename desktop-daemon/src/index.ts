@@ -13,6 +13,7 @@ import { VectorStoreService } from "./services/vectorStore";
 import { DatabaseService } from "./services/database";
 import { RagService } from "./services/rag";
 import { YoutubeTranscript } from "youtube-transcript";
+import { startBookmarkMonitor } from "./services/bookmarkMonitor";
 
 const app = express();
 // Load config on server startup
@@ -60,6 +61,47 @@ async function startServer() {
     vectorStoreService,
     databaseService
   );
+
+  // Keep track of connected clients for status updates
+  const clients: { id: number, res: any }[] = [];
+  let clientIdCounter = 0;
+
+  // SSE endpoint for status updates
+  app.get("/status-stream", (req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+    });
+
+    const id = clientIdCounter++;
+    clients.push({ id, res });
+
+    req.on("close", () => {
+      console.log(`Client ${id} disconnected from status stream.`);
+      clients.splice(clients.findIndex(client => client.id === id), 1);
+    });
+
+    // Send a "connected" event immediately
+    res.write(`data: ${JSON.stringify({ status: "connected", message: "Connected to status stream." })}\n\n`);
+  });
+
+  // Function to send status updates to all connected clients
+  const sendStatusUpdate = (status: string, message: string, data?: any) => {
+    clients.forEach(client => {
+      try {
+        client.res.write(`data: ${JSON.stringify({ status, message, ...data })}\n\n`);
+      } catch (error: unknown) { // Cast error to unknown
+        console.error(`Error sending status to client ${client.id}:`, error);
+        // Client might have disconnected unexpectedly, remove them
+        clients.splice(clients.findIndex(c => c.id === client.id), 1);
+      }
+    });
+  };
+
+  // Start the bookmark monitor
+  startBookmarkMonitor(ragService, databaseService, sendStatusUpdate);
 
   app.post("/documents", async (req: any, res: any) => {
     try {

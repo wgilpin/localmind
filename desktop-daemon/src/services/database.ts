@@ -95,6 +95,16 @@ export class DatabaseService {
   }
 
   /**
+   * Retrieves a single document by its URL.
+   * @param url The URL of the document to retrieve.
+   * @returns The Document if found, otherwise undefined.
+   */
+  getDocumentByUrl(url: string): Document | undefined {
+    const stmt = this.db.prepare(`SELECT * FROM documents WHERE url = ?`);
+    return stmt.get(url) as Document | undefined;
+  }
+
+  /**
    * Retrieves multiple documents by their IDs.
    * @param ids An array of document IDs to retrieve.
    * @returns An array of found Documents.
