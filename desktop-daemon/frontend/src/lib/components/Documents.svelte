@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 
-	export let documents: Array<{ id: string; title: string; content: string;[key: string]: any }> = [];
+	export let documents: Array<{ id: string; title: string; content: string; url?: string;[key: string]: any }> = [];
 	let expanded: { [key: number]: boolean } = {};
 
 	$: safeDocuments = Array.isArray(documents) ? documents : [];
@@ -18,6 +18,12 @@
 
 	function handleEdit(docId: string) {
 		dispatch('edit', docId);
+	}
+
+	function handleOpenUrl(url: string | undefined) {
+		if (url) {
+			window.open(url, '_blank');
+		}
 	}
 
 	function handleKeydown(event: KeyboardEvent, index: number) {
@@ -43,6 +49,15 @@
 						<h3>{doc.title}</h3>
 						{#if expanded[i]}
 							<div class="card-header-actions">
+								{#if doc.url}
+									<button class="icon-button" on:click|stopPropagation={() => handleOpenUrl(doc.url)} title="Open URL">
+										<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-external-link">
+											<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+											<polyline points="15 3 21 3 21 9"></polyline>
+											<line x1="10" y1="14" x2="21" y2="3"></line>
+										</svg>
+									</button>
+								{/if}
 								<button class="icon-button" on:click|stopPropagation={() => handleEdit(doc.id)} title="Edit">
 									✏️
 								</button>
@@ -131,5 +146,12 @@
 	}
 	.delete-button:hover {
 		color: #c82333;
+	}
+
+	/* Style for SVG icons within buttons */
+	.icon-button svg {
+		width: 1.2em; /* Match font-size of other icons */
+		height: 1.2em; /* Match font-size of other icons */
+		vertical-align: middle; /* Align with text-based icons */
 	}
 </style>

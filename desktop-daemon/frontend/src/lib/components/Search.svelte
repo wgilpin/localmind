@@ -30,7 +30,7 @@
           const data = JSON.parse(event.data);
           
           if (data.status === 'retrieving' && data.documents) {
-            retrievedDocuments.set(data.documents.map((doc: any) => ({ title: doc.title, content: doc.content })));
+            retrievedDocuments.set(data.documents.map((doc: any) => ({ title: doc.title, content: doc.content, url: doc.url })));
             vectorResults.set(data.documents.map((doc: any) => ({
               id: doc.documentId,
               title: doc.title,

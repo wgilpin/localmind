@@ -333,7 +333,6 @@ export class RagService {
             this.databaseService.insertVectorMappings(allMappings);
         })();
         await this.saveAllStores();
-        console.log('addDocuments: added ' + documentsToAdd.length + ' documents.')
     }
 
     /**

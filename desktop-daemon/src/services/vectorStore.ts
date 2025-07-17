@@ -117,7 +117,6 @@ export class VectorStoreService {
     const pathToSave = path || this.filePath;
     try {
       await this.index.write(pathToSave);
-      console.log(`FAISS index saved to ${pathToSave}`);
     } catch (error) {
       console.error(`Error saving FAISS index to ${pathToSave}:`, error);
       throw error;
