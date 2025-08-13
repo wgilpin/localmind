@@ -6,7 +6,7 @@
  * to process user queries and generate informed responses.
  */
 import { OllamaService } from './ollama';
-import { VectorStoreService } from './vectorStore';
+import { ChromaStoreService } from './chromaStore';
 import { DatabaseService, Document } from './database';
 import { v4 as uuidv4 } from 'uuid';
 import { cleanText } from '../utils/textProcessor';
@@ -56,7 +56,7 @@ export type RetrievedChunk = {
  */
 export class RagService {
     private ollamaService: OllamaService;
-    private vectorStoreService: VectorStoreService;
+    private vectorStoreService: ChromaStoreService;
     private databaseService: DatabaseService;
 
     /**
@@ -67,7 +67,7 @@ export class RagService {
      */
     public constructor(
         ollamaService: OllamaService,
-        vectorStoreService: VectorStoreService,
+        vectorStoreService: ChromaStoreService,
         databaseService: DatabaseService
     ) {
         this.ollamaService = ollamaService;
@@ -327,11 +327,14 @@ export class RagService {
 
         this.databaseService.transaction(() => {
             documentsToAdd.forEach(doc => this.databaseService.insertDocument(doc));
-            if (allEmbeddings.length > 0) {
-                this.vectorStoreService.add(allEmbeddings);
-            }
             this.databaseService.insertVectorMappings(allMappings);
         })();
+        
+        // Add vectors to ChromaDB with proper mappings
+        if (allEmbeddings.length > 0) {
+            await this.vectorStoreService.saveWithMappings(allEmbeddings, allMappings);
+            await this.vectorStoreService.updateVectorCount();
+        }
         await this.saveAllStores();
     }
 
@@ -347,6 +350,7 @@ export class RagService {
         if (deletedFromDb) {
             if (vectorIds.length > 0) {
                 this.vectorStoreService.deleteVector(vectorIds);
+                await this.vectorStoreService.processPendingDeletions();
                 await this.saveAllStores();
             }
         }
@@ -359,6 +363,6 @@ export class RagService {
      * Saves all stores to disk.
      */
     public async saveAllStores(): Promise<void> {
-        await this.vectorStoreService.save(this.vectorStoreService.getFilePath());
+        await this.vectorStoreService.save();
     }
 }

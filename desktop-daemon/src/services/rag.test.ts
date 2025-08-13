@@ -11,8 +11,8 @@ import {
   OllamaService
 } from './ollama';
 import {
-  VectorStoreService
-} from './vectorStore';
+  ChromaStoreService
+} from './chromaStore';
 import {
   DatabaseService,
   Document
@@ -20,13 +20,13 @@ import {
 
 // Mock the low-level services
 jest.mock('./ollama');
-jest.mock('./vectorStore');
+jest.mock('./chromaStore');
 jest.mock('./database'); // Keep this global mock
 
 describe('RagService (Integration Tests)', () => {
   let ragService: RagService;
   let mockOllamaService: jest.Mocked < OllamaService > ;
-  let mockVectorStoreService: jest.Mocked < VectorStoreService > ;
+  let mockVectorStoreService: jest.Mocked < ChromaStoreService > ;
   let mockDatabaseService: jest.Mocked < DatabaseService > ;
 
   beforeEach(async () => {
@@ -35,11 +35,11 @@ describe('RagService (Integration Tests)', () => {
 
     // Initialize RagService with mocked dependencies
     mockOllamaService = new OllamaService() as jest.Mocked<OllamaService>;
-    mockVectorStoreService = new VectorStoreService(
-      'test-vector-store.faiss',
+    mockVectorStoreService = new ChromaStoreService(
+      'test-chromadb',
       {} as any, // Dummy DatabaseService, as it's mocked globally
       mockOllamaService
-    ) as jest.Mocked<VectorStoreService>;
+    ) as jest.Mocked<ChromaStoreService>;
 
     // Initialize mockDatabaseService directly
     mockDatabaseService = new DatabaseService('test.db') as jest.Mocked<DatabaseService>;
@@ -56,15 +56,20 @@ describe('RagService (Integration Tests)', () => {
     mockDatabaseService.deleteDocument.mockReturnValue(true); // Default for delete test
     mockDatabaseService.getVectorIdsByDocumentId.mockReturnValue([]); // Default for delete test
     
-    // Mock the ntotal method for VectorStoreService to return increasing values
+    // Mock the ntotal method for ChromaStoreService to return increasing values
     let ntotalCount = 0;
     mockVectorStoreService.ntotal.mockImplementation(() => {
         const currentTotal = ntotalCount;
         return currentTotal;
     });
-    mockVectorStoreService.add.mockImplementation((embeddings: number[][]) => {
+    // Mock the new ChromaStore-specific methods
+    mockVectorStoreService.saveWithMappings = jest.fn().mockImplementation(async (embeddings: number[][], mappings: any[]) => {
         ntotalCount += embeddings.length;
     });
+    mockVectorStoreService.updateVectorCount = jest.fn().mockResolvedValue(undefined);
+    mockVectorStoreService.processPendingDeletions = jest.fn().mockResolvedValue(undefined);
+    mockVectorStoreService.save = jest.fn().mockResolvedValue(undefined);
+    mockVectorStoreService.getFilePath = jest.fn().mockReturnValue('test-chromadb');
 
     ragService = new RagService(
       mockOllamaService,
@@ -110,7 +115,12 @@ describe('RagService (Integration Tests)', () => {
         content: 'test content 2'
       }));
 
-      expect(mockVectorStoreService.add).toHaveBeenCalledWith([...embeddingsDoc1, ...embeddingsDoc2]);
+      expect(mockVectorStoreService.saveWithMappings).toHaveBeenCalledWith(
+        [...embeddingsDoc1, ...embeddingsDoc2],
+        expect.arrayContaining([
+          expect.objectContaining({ vectorId: expect.any(Number), documentId: expect.any(String) })
+        ])
+      );
       expect(mockDatabaseService.insertVectorMappings).toHaveBeenCalledWith([
         { vectorId: 0, documentId: expect.any(String) },
         { vectorId: 1, documentId: expect.any(String) },
@@ -296,7 +306,12 @@ describe('RagService (Integration Tests)', () => {
       await ragService.addDocuments(docsToAdd);
 
       expect(mockOllamaService.getEmbeddings).toHaveBeenCalledWith(['This is a single sentence.']);
-      expect(mockVectorStoreService.add).toHaveBeenCalledWith(embeddings);
+      expect(mockVectorStoreService.saveWithMappings).toHaveBeenCalledWith(
+        embeddings,
+        expect.arrayContaining([
+          expect.objectContaining({ vectorId: expect.any(Number), documentId: expect.any(String) })
+        ])
+      );
     });
 
     it('should create sliding window chunks for multiple sentences', async () => {
@@ -403,7 +418,12 @@ describe('RagService (Integration Tests)', () => {
       await ragService.addDocuments(docsToAdd);
 
       expect(mockOllamaService.getEmbeddings).toHaveBeenCalledTimes(1);
-      expect(mockVectorStoreService.add).toHaveBeenCalledWith(embeddings);
+      expect(mockVectorStoreService.saveWithMappings).toHaveBeenCalledWith(
+        embeddings,
+        expect.arrayContaining([
+          expect.objectContaining({ vectorId: expect.any(Number), documentId: expect.any(String) })
+        ])
+      );
     });
 
     it('should create overlapping chunks with sliding window', async () => {

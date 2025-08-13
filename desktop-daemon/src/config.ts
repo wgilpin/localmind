@@ -14,6 +14,7 @@ interface IOllamaConfig {
   embeddingDimension: number;
   completionModel: string;
   vectorIndexFile: string;
+  chromaDbPath: string;
 }
 
 /**
@@ -33,6 +34,7 @@ const defaultConfig = {
     embeddingDimension: 384,
     completionModel: 'qwen3:0.6b',
     vectorIndexFile: path.join(appDataDir, 'localmind.index'),
+    chromaDbPath: path.join(appDataDir, 'chromadb'),
   },
   server: {
     port: parseInt(process.env.PORT || '3000', 10), // Explicitly parse to number

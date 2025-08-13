@@ -12,6 +12,8 @@ npm install
 
 # Set OLLAMA_NUM_PARALLEL for concurrent model loading
 export OLLAMA_NUM_PARALLEL=2
+export OLLAMA_KEEP_ALIVE=-1
+export OLLAMA_MAX_LOADED_MODELS=2
 
 # Check if Ollama is running and start it if not (cross-platform)
 echo "Checking Ollama service status..."

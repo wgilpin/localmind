@@ -10,7 +10,7 @@ import {
   appDataDir, // Imported appDataDir
 } from "./config";
 import { OllamaService } from "./services/ollama";
-import { VectorStoreService } from "./services/vectorStore";
+import { ChromaStoreService } from "./services/chromaStore";
 import { DatabaseService } from "./services/database";
 import { RagService } from "./services/rag";
 import { YoutubeTranscript } from "youtube-transcript";
@@ -28,7 +28,7 @@ app.use(express.static(path.join(__dirname, "..", "frontend", "build")));
 
 let ragService: RagService;
 let databaseService: DatabaseService;
-let vectorStoreService: VectorStoreService;
+let vectorStoreService: ChromaStoreService;
 let ollamaService: OllamaService; // Declare ollamaService at a higher scope
 
 async function startServer() {
@@ -39,9 +39,9 @@ async function startServer() {
   );
   console.log("=== End startServer Debug ===");
 
-  const dataDir = path.dirname(OllamaConfig.vectorIndexFile);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+  const chromaDir = OllamaConfig.chromaDbPath;
+  if (!fs.existsSync(chromaDir)) {
+    fs.mkdirSync(chromaDir, { recursive: true });
   }
   ollamaService = new OllamaService(OllamaConfig); // Assign to the higher-scoped variable
   const dbPath = path.join(
@@ -49,8 +49,8 @@ async function startServer() {
     "localmind.db"
   );
   databaseService = new DatabaseService(dbPath);
-  vectorStoreService = new VectorStoreService(
-    OllamaConfig.vectorIndexFile,
+  vectorStoreService = new ChromaStoreService(
+    OllamaConfig.chromaDbPath,
     databaseService,
     ollamaService
   );
