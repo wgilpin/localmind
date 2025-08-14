@@ -21,3 +21,6 @@ uv.lock
 *.pyc
 *.sqlite
 desktop-daemon/chroma.log
+
+*.bin
+*.sqlite3

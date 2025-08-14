@@ -164,8 +164,6 @@ export class ChromaStoreService {
       include: ['metadatas', 'distances'] as any,
     });
 
-    console.log('ChromaDB query results:', JSON.stringify(results, null, 2));
-
     // The metadatas property is a double array, so we need to flatten it.
     const metadatas = (results.metadatas ?? []).flat();
     const distances = (results.distances ?? []).flat();
