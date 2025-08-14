@@ -102,6 +102,13 @@ class BookmarkSampler:
             print(f"Error fetching {url}: {e}")
             return None
     
+    def has_meaningful_title(self, title: str) -> bool:
+        """Check if a bookmark title has more than 3 words"""
+        if not title or not title.strip():
+            return False
+        words = title.strip().split()
+        return len(words) > 3
+    
     def sample_bookmarks_with_content(self, sample_size: int = 200, fetch_content: bool = True) -> List[Dict[str, Any]]:
         all_bookmarks = self.get_all_bookmarks()
         print(f"Found {len(all_bookmarks)} total bookmarks")
@@ -121,13 +128,16 @@ class BookmarkSampler:
                     break
                     
                 content = self.fetch_content(bookmark['url'])
-                if content and len(content) > 200:  # Only keep if we got meaningful content
+                if content and len(content) > 200:  # Keep if we got meaningful content
                     bookmark['content'] = content
+                    bookmarks_with_content.append(bookmark)
+                elif self.has_meaningful_title(bookmark.get('name', '')):  # Fallback: keep if title has 3+ words
+                    bookmark['content'] = None  # Mark that content couldn't be retrieved
                     bookmarks_with_content.append(bookmark)
         else:
             bookmarks_with_content = sampled[:sample_size]
         
-        print(f"Successfully sampled {len(bookmarks_with_content)} bookmarks with content")
+        print(f"Successfully sampled {len(bookmarks_with_content)} bookmarks")
         return bookmarks_with_content
     
     def save_samples(self, samples: List[Dict[str, Any]], output_path: str = "data/sampled_bookmarks.json"):
