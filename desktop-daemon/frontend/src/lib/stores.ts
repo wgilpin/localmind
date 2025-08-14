@@ -52,6 +52,11 @@ export const searchProgress = writable<string>('');
 // Store for the EventSource instance
 export const currentEventSource = writable<EventSource | null>(null);
 
+// Store for search cutoff management
+export const currentSearchCutoff = writable<number>(40.0);
+export const defaultSearchCutoff = 40.0;
+export const maxSearchCutoff = 100.0; // Max cutoff of 100 (representing 100%)
+
 export const statusMessages: Record<SearchStatus, string> = {
   idle: '',
   starting: 'Starting search...',
@@ -63,6 +68,29 @@ export const statusMessages: Record<SearchStatus, string> = {
   error: 'Search failed',
   stopped: 'Search stopped by user' // Message for 'stopped' status
 };
+
+/**
+ * Resets the search cutoff to the default value.
+ */
+export function resetSearchCutoff() {
+  currentSearchCutoff.set(defaultSearchCutoff);
+}
+
+/**
+ * Increases the search cutoff by 5, up to the maximum.
+ * @returns The new cutoff value, or null if already at maximum
+ */
+export function increaseSearchCutoff(): number | null {
+  let newCutoff: number | null = null;
+  currentSearchCutoff.update(current => {
+    if (current >= maxSearchCutoff) {
+      return current; // Already at max
+    }
+    newCutoff = Math.min(current + 5, maxSearchCutoff);
+    return newCutoff;
+  });
+  return newCutoff;
+}
 
 /**
  * Sends a request to the backend to stop any ongoing generation.

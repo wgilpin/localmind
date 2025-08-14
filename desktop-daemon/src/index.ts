@@ -211,7 +211,8 @@ async function startServer() {
       if (!query) {
         return res.status(400).send("Query is required.");
       }
-      const rankedChunks = await ragService.getRankedChunks(query);
+      const cutoff = req.query.cutoff ? parseFloat(req.query.cutoff) : undefined;
+      const rankedChunks = await ragService.getRankedChunks(query, cutoff);
       res.status(200).json({ rankedChunks });
     } catch (error) {
       console.error("Error in ranked chunks search:", error);

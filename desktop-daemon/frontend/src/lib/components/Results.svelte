@@ -2,12 +2,15 @@
   /**
    * Results component for displaying search results and progress.
    */
-  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, retrievedDocuments, stopCurrentGeneration } from '../stores';
+  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, retrievedDocuments, stopCurrentGeneration, currentSearchCutoff, maxSearchCutoff } from '../stores';
   import type { VectorSearchResult, SearchStatus, RetrievedDocument } from '../stores';
   import { marked } from 'marked';
   import Documents from './Documents.svelte';
   import EditModal from './EditModal.svelte';
   import { deleteNote, updateNote } from '../documentActions';
+  import { createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher();
 
   let expandedResults: Set<string> = new Set();
   let documentContents: Map<string, string> = new Map();
@@ -94,6 +97,10 @@
     }
   }
 
+  function handleMoreSearch() {
+    dispatch('moreSearch');
+  }
+
   async function handleSaveEdit(event: CustomEvent<{ id: string; title: string; content: string }>) {
     const { id, title, content } = event.detail;
     await updateNote(id, { title, content });
@@ -120,6 +127,15 @@
     
     {#if $retrievedDocuments && Array.isArray($retrievedDocuments) && $retrievedDocuments.length > 0}
       <Documents documents={$retrievedDocuments} on:delete={handleDelete} on:edit={handleEdit} />
+    {/if}
+    
+    <!-- Show More button when search is complete and cutoff < max, regardless of whether results exist -->
+    {#if $searchStatus === 'complete' && $currentSearchCutoff < maxSearchCutoff}
+      <div class="more-button-container">
+        <button class="more-button" on:click={handleMoreSearch}>
+          More...
+        </button>
+      </div>
     {/if}
 
     {#if $searchResults && ($searchStatus === 'generating' || $searchStatus === 'complete' || $searchStatus === 'error' || $searchStatus === 'stopped')}
@@ -285,5 +301,35 @@
     width: 8px; /* Smaller square */
     height: 8px;
     background-color: white; /* White square for the stop symbol */
+  }
+
+  .more-button-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 16px;
+    margin-bottom: 16px;
+  }
+
+  .more-button {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    color: #495057;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+  }
+
+  .more-button:hover {
+    background-color: #e9ecef;
+    border-color: #adb5bd;
+    color: #212529;
+  }
+
+  .more-button:active {
+    background-color: #dee2e6;
+    transform: translateY(1px);
   }
 </style>

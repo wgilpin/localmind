@@ -7,6 +7,14 @@
   import RecentNotes from '$lib/components/RecentNotes.svelte';
   import { showResultsSection, showNewNoteSection, showSettingsSection, searchStatus } from '$lib/stores';
   import Settings from '$lib/components/Settings.svelte';
+
+  let searchComponent;
+
+  function handleMoreSearch() {
+    if (searchComponent && searchComponent.handleMoreSearch) {
+      searchComponent.handleMoreSearch();
+    }
+  }
 </script>
 
 <style>
@@ -65,7 +73,7 @@
 
   <section class="search-section">
     <h2>Search</h2>
-    <Search />
+    <Search bind:this={searchComponent} />
   </section>
 
   <main class="content-area">
@@ -77,7 +85,7 @@
     {:else if $showResultsSection}
       <section id="results-section">
         <h2>Results</h2>
-        <Results />
+        <Results on:moreSearch={handleMoreSearch} />
       </section>
     {:else if $showNewNoteSection}
       <section id="new-note-section">

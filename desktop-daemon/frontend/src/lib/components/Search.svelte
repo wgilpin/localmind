@@ -1,6 +1,6 @@
 <script lang="ts">
   // @ts-nocheck
-  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, statusMessages, retrievedDocuments, currentEventSource, stopCurrentGeneration, type SearchStatus } from '$lib/stores';
+  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, statusMessages, retrievedDocuments, currentEventSource, stopCurrentGeneration, currentSearchCutoff, resetSearchCutoff, increaseSearchCutoff, type SearchStatus } from '$lib/stores';
   import { get } from 'svelte/store';
 
   let searchQuery = '';
@@ -13,6 +13,9 @@
     if (!searchQuery) return;
 
     try {
+      // Reset cutoff to default when main search is triggered
+      resetSearchCutoff();
+      
       searchStatus.set('retrieving');
       searchProgress.set('Retrieving relevant documents...');
       showResultsSection.set(true);
@@ -21,7 +24,8 @@
       retrievedDocuments.set([]);
 
       // Fetch ranked chunks without generating AI answer
-      const response = await fetch(`/ranked-chunks/${encodeURIComponent(searchQuery)}`);
+      const cutoff = get(currentSearchCutoff);
+      const response = await fetch(`/ranked-chunks/${encodeURIComponent(searchQuery)}?cutoff=${cutoff}`);
       const data = await response.json();
       
       if (data.rankedChunks && data.rankedChunks.length > 0) {
@@ -107,6 +111,56 @@
       currentEventSource.set(null);
     }
   }
+
+  /**
+   * Handles the "More..." search operation by increasing cutoff and rerunning search.
+   * @returns {Promise<void>}
+   */
+  async function handleMoreSearch() {
+    if (!searchQuery) return;
+
+    const newCutoff = increaseSearchCutoff();
+    if (newCutoff === null) return; // Already at maximum
+
+    try {
+      searchStatus.set('retrieving');
+      searchProgress.set('Retrieving more documents...');
+      
+      // Clear current results to show we're updating
+      vectorResults.set([]);
+      retrievedDocuments.set([]);
+
+      // Fetch ranked chunks with new cutoff
+      const response = await fetch(`/ranked-chunks/${encodeURIComponent(searchQuery)}?cutoff=${newCutoff}`);
+      const data = await response.json();
+      
+      if (data.rankedChunks && data.rankedChunks.length > 0) {
+        retrievedDocuments.set(data.rankedChunks.map((doc: any) => ({ 
+          title: doc.title, 
+          content: doc.content, 
+          url: doc.url 
+        })));
+        vectorResults.set(data.rankedChunks.map((doc: any) => ({
+          id: doc.documentId,
+          title: doc.title,
+          url: doc.url,
+          timestamp: doc.timestamp
+        })));
+        searchStatus.set('complete');
+        searchProgress.set('More documents retrieved successfully.');
+      } else {
+        searchStatus.set('complete');
+        searchProgress.set('No additional documents found.');
+      }
+    } catch (error) {
+      console.error('Error during more search:', error);
+      searchStatus.set('error');
+      searchProgress.set('Error retrieving more documents.');
+    }
+  }
+
+  // Export the handleMoreSearch function so it can be called from Results component
+  export { handleMoreSearch };
 </script>
 
 <div class="flex space-x-2">

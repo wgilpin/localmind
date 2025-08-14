@@ -128,9 +128,10 @@ export class RagService {
     /**
      * Searches for and re-ranks chunks to ensure relevance and diversity.
      * @param query The user's query string.
+     * @param cutoff Optional distance cutoff threshold (defaults to SEARCH_DISTANCE_CUTOFF).
      * @returns A promise that resolves to an array of the most relevant text chunks.
      */
-    public async getRankedChunks(query: string): Promise<RetrievedChunk[]> {
+    public async getRankedChunks(query: string, cutoff?: number): Promise<RetrievedChunk[]> {
         // 1. Fetch a larger pool of candidate chunks (not documents)
         const k = 100; // Retrieve more to re-rank
         const queryEmbedding = await this.ollamaService.getEmbedding(query);
@@ -141,12 +142,13 @@ export class RagService {
             return [];
         }
 
+        const effectiveCutoff = cutoff !== undefined ? cutoff : SEARCH_DISTANCE_CUTOFF;
         const candidates = searchResults.I
             .map((index, i) => ({ chunkId: index, distance: searchResults.D[i] }))
-            .filter(item => item.distance <= SEARCH_DISTANCE_CUTOFF);
+            .filter(item => item.distance <= effectiveCutoff);
 
         console.log(`=== Search Debug: Candidates after cutoff ===`);
-        console.log(`Candidates passing distance cutoff (${SEARCH_DISTANCE_CUTOFF}): ${candidates.length}`);
+        console.log(`Candidates passing distance cutoff (${effectiveCutoff}): ${candidates.length}`);
         
         if (candidates.length === 0) {
             console.log('No candidates passed distance cutoff');
