@@ -139,7 +139,6 @@ class ExcludeFilter:
             
             if self.should_exclude_bookmark(title, url):
                 excluded_count += 1
-                print(f"SKIP: Excluding bookmark: {title} ({url})")
             else:
                 filtered_bookmarks.append(bookmark)
         

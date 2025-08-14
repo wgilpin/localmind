@@ -9,7 +9,8 @@
       "Bash(ollama pull:*)",
       "Bash(npm run build:*)",
       "Bash(python test_exclude_filter.py:*)",
-      "Bash(python test:*)"
+      "Bash(python test:*)",
+      "Bash(nvidia-smi:*)"
     ],
     "deny": [],
     "ask": [],

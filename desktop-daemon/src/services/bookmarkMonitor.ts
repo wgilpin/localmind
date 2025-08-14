@@ -108,7 +108,6 @@ function extractBookmarksFromNode(node: BookmarkNode, bookmarks: BookmarkEntry[]
   } else if (node.type === 'folder' && node.children) {
     // Check if this folder should be excluded
     if (shouldExcludeFolder(node.name)) {
-      console.log(`SKIP: Excluding bookmark folder: "${node.name}" and all its contents`);
       return; // Skip this entire folder and all its children
     }
     

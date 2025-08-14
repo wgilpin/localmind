@@ -9,6 +9,7 @@ from tqdm import tqdm
 from bs4 import BeautifulSoup
 import ollama
 from exclude_filter import ExcludeFilter
+from query_generator import QueryGenerator
 
 class IntegratedSampler:
     """Samples bookmarks and generates queries incrementally, saving after each step"""
@@ -22,6 +23,7 @@ class IntegratedSampler:
         self.model = model
         self.ollama_client = ollama.Client()
         self.exclude_filter = ExcludeFilter()
+        self.query_generator = QueryGenerator(model=model)
         
     def should_exclude_folder(self, folder_name: str) -> bool:
         """Check if a folder name should be excluded based on the exclude list."""
@@ -50,7 +52,6 @@ class IntegratedSampler:
                 elif item['type'] == 'folder':
                     # Check if this folder should be excluded
                     if self.should_exclude_folder(item['name']):
-                        print(f"SKIP: Excluding bookmark folder: \"{item['name']}\" and all its contents")
                         continue  # Skip this entire folder and all its children
                     
                     # Process children if folder is not excluded
@@ -168,7 +169,8 @@ Generate exactly {num_queries} queries:"""
                 if len(cleaned_queries) >= num_queries:
                     break
             
-            return cleaned_queries[:num_queries]
+            # USE THE WORKING QUERY GENERATOR INSTEAD
+            return self.query_generator.generate_queries_for_bookmark(bookmark, max_queries)
             
         except Exception as e:
             print(f"Error generating queries for bookmark {bookmark.get('id')}: {e}")
