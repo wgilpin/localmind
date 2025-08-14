@@ -37,6 +37,7 @@ describe('OllamaService', () => {
       completionModel: 'test-completion-model',
       vectorIndexFile: 'mock-vector-index-file.bin',
       chromaDbPath: 'mock-chromadb-path',
+      excludeFolders: [],
     });
     // Ensure mocks are cleared after service initialization for subsequent tests
     mockedAxios.post.mockClear();

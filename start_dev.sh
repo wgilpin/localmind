@@ -6,6 +6,13 @@ echo "--- Starting LocalMind Server (Dev Mode) ---"
 # Prepare Ollama environment
 bash prepare_ollama_env.sh
 
+# Build frontend
+echo "Building frontend..."
+cd desktop-daemon/frontend
+npm install
+npm run build
+cd ../..
+
 # Navigate to the daemon directory
 cd desktop-daemon
 

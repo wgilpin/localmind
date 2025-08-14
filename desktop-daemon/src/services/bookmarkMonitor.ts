@@ -4,6 +4,7 @@ import os from 'os';
 import { RagService } from './rag';
 import { DatabaseService } from './database';
 import { extractContentFromUrl } from '../utils/contentExtractor';
+import { shouldExcludeBookmark } from '../utils/excludeFilter';
 
 /**
  * Type definitions for bookmarks.
@@ -26,6 +27,13 @@ interface BookmarkEntry {
  * Indexes a new URL using the RAG service.
  */
 async function indexUrl(url: string, ragService: RagService, statusCallback: (status: string, message: string, data?: any) => void, title?: string): Promise<void> {
+  // Check if URL should be excluded
+  if (shouldExcludeBookmark(title || '', url)) {
+    console.log(`⏭️  Skipping excluded bookmark: ${url}`);
+    statusCallback('info', `Skipping excluded: ${url}`);
+    return;
+  }
+
   console.log(`✅ Indexing new bookmark: ${url}`);
   statusCallback('info', `Indexing: ${url}`);
   try {
@@ -135,8 +143,11 @@ async function monitorBookmarks(ragService: RagService, databaseService: Databas
   const existingDocuments = databaseService.getAllDocuments();
   const existingUrlsInDb = new Set(existingDocuments.map(doc => doc.url).filter(Boolean) as string[]);
 
-  // Find bookmarks from file that are not in DB
-  const bookmarksToAdd = knownBookmarks.filter(bookmark => !existingUrlsInDb.has(bookmark.url));
+  // Find bookmarks from file that are not in DB, excluding those that should be filtered
+  const bookmarksToAdd = knownBookmarks.filter(bookmark => 
+    !existingUrlsInDb.has(bookmark.url) && 
+    !shouldExcludeBookmark(bookmark.title, bookmark.url)
+  );
   for (const bookmark of bookmarksToAdd) {
     await indexUrl(bookmark.url, ragService, statusCallback, bookmark.title);
   }
@@ -172,8 +183,11 @@ async function monitorBookmarks(ragService: RagService, databaseService: Databas
         const currentUrlsSet = new Set(currentBookmarks.map(b => b.url));
         const knownUrlsSet = new Set(knownBookmarks.map(b => b.url));
 
-        // Find added bookmarks (in current but not in known)
-        const newBookmarks = currentBookmarks.filter(bookmark => !knownUrlsSet.has(bookmark.url));
+        // Find added bookmarks (in current but not in known), excluding those that should be filtered
+        const newBookmarks = currentBookmarks.filter(bookmark => 
+          !knownUrlsSet.has(bookmark.url) && 
+          !shouldExcludeBookmark(bookmark.title, bookmark.url)
+        );
         for (const bookmark of newBookmarks) {
           await indexUrl(bookmark.url, ragService, statusCallback, bookmark.title);
         }

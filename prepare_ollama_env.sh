@@ -45,12 +45,8 @@ if ! command -v chroma &> /dev/null; then
     echo "ChromaDB not found. Installing ChromaDB..."
     pip install chromadb
 else
-    echo "ChromaDB found. Version:"
+    echo "ChromaDB is already installed. Version:"
     chroma --version 2>/dev/null || echo "Could not get ChromaDB version"
-    
-    # Update ChromaDB to ensure compatibility with JS client v3.0.11
-    echo "Updating ChromaDB to latest version for API v2 compatibility..."
-    pip install --upgrade chromadb --pre  # Include pre-release versions for latest API
 fi
 
 # Start ChromaDB server

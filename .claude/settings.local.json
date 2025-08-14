@@ -3,9 +3,14 @@
     "allow": [
       "Bash(npm install:*)",
       "Bash(npm test:*)",
-      "WebFetch(domain:docs.trychroma.com)"
+      "WebFetch(domain:docs.trychroma.com)",
+      "Bash(mkdir:*)",
+      "Bash(ollama show:*)",
+      "Bash(ollama pull:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "defaultMode": "acceptEdits"
   }
 }

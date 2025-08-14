@@ -15,6 +15,7 @@ interface IOllamaConfig {
   completionModel: string;
   vectorIndexFile: string;
   chromaDbPath: string;
+  excludeFolders: string[];
 }
 
 /**
@@ -35,6 +36,25 @@ const defaultConfig = {
     completionModel: 'qwen3:0.6b',
     vectorIndexFile: path.join(appDataDir, 'localmind.index'),
     chromaDbPath: path.join(appDataDir, 'chromadb'),
+    excludeFolders: [
+      'node_modules',
+      '.git',
+      '.svn',
+      '.hg',
+      'target',
+      'build',
+      'dist',
+      '.next',
+      '.nuxt',
+      'coverage',
+      '.nyc_output',
+      '.cache',
+      'tmp',
+      'temp',
+      'logs',
+      '.DS_Store',
+      'Thumbs.db'
+    ],
   },
   server: {
     port: parseInt(process.env.PORT || '3000', 10), // Explicitly parse to number
