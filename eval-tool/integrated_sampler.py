@@ -324,16 +324,16 @@ Generate exactly {num_queries} queries:"""
                 # Generate queries immediately - stop on error
                 try:
                     title = bookmark.get('name', '') or bookmark.get('url', bookmark_id)
-                    print(f"Generating queries for: {title}")
+                    pbar.write(f"Generating queries for: {title}")
                     bookmark_queries = self.generate_queries_for_bookmark(bookmark)
                     if bookmark_queries:
                         queries[bookmark_id] = bookmark_queries
                     else:
-                        print(f"Warning: No queries generated for: {title}")
+                        pbar.write(f"Warning: No queries generated for: {title}")
                 except Exception as e:
-                    print(f"\nStopping due to query generation error: {e}")
-                    print(f"Successfully processed {added} bookmarks before error.")
-                    print(f"Current total: {len(samples)} samples with {sum(len(q) for q in queries.values())} queries")
+                    pbar.write(f"\nStopping due to query generation error: {e}")
+                    pbar.write(f"Successfully processed {added} bookmarks before error.")
+                    pbar.write(f"Current total: {len(samples)} samples with {sum(len(q) for q in queries.values())} queries")
                     return list(samples.values()), queries
                 
                 # Save incrementally

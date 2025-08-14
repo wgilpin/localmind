@@ -44,7 +44,6 @@ class BookmarkSampler:
                 elif item['type'] == 'folder':
                     # Check if this folder should be excluded
                     if self.should_exclude_folder(item['name']):
-                        print(f"SKIP: Excluding bookmark folder: \"{item['name']}\" and all its contents")
                         continue  # Skip this entire folder and all its children
                     
                     # Process children if folder is not excluded
