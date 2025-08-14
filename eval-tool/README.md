@@ -5,6 +5,7 @@ A command-line tool for evaluating ChromaDB search performance on Chrome bookmar
 ## Features
 
 - Samples bookmarks from Chrome's bookmarks file
+- **Automatic exclusion filtering**: Respects LocalMind exclude list for consistent filtering
 - Fetches actual page content for bookmarks
 - Generates search queries using Ollama LLM (qwen3:4b)
 - Creates a separate ChromaDB instance for evaluation
@@ -109,6 +110,15 @@ python main.py evaluate [--samples data/sampled_bookmarks.json] [--queries data/
 - **Query Generation Models**: `qwen3:4b` default
 - **Sample Size**: 200 bookmarks (default)  
 - **Top-K Results**: 20 (default)
+- **Exclude List**: Automatically loaded from LocalMind config (`~/.localmind/config.json`) or uses defaults
+
+### Exclude List
+
+The tool automatically filters out bookmarks that match patterns in the LocalMind exclude list:
+- Default excludes: `node_modules`, `.git`, `build`, `dist`, `coverage`, `tmp`, etc.
+- Loads from LocalMind configuration if available
+- Filters based on both URL paths and bookmark titles
+- Provides clear logging of excluded bookmarks
 
 ## Examples
 

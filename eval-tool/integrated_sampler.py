@@ -8,6 +8,7 @@ from datetime import datetime
 from tqdm import tqdm
 from bs4 import BeautifulSoup
 import ollama
+from exclude_filter import ExcludeFilter
 
 class IntegratedSampler:
     """Samples bookmarks and generates queries incrementally, saving after each step"""
@@ -20,7 +21,17 @@ class IntegratedSampler:
         self.bookmarks_path = Path(bookmarks_path)
         self.model = model
         self.ollama_client = ollama.Client()
+        self.exclude_filter = ExcludeFilter()
         
+    def should_exclude_folder(self, folder_name: str) -> bool:
+        """Check if a folder name should be excluded based on the exclude list."""
+        if not folder_name or not self.exclude_filter.get_exclude_folders():
+            return False
+        
+        lower_folder_name = folder_name.lower()
+        return any(exclude_pattern.lower() == lower_folder_name 
+                  for exclude_pattern in self.exclude_filter.get_exclude_folders())
+
     def extract_bookmarks_from_folder(self, folder: Dict, bookmarks: List[Dict] = None) -> List[Dict]:
         if bookmarks is None:
             bookmarks = []
@@ -37,6 +48,12 @@ class IntegratedSampler:
                     }
                     bookmarks.append(bookmark)
                 elif item['type'] == 'folder':
+                    # Check if this folder should be excluded
+                    if self.should_exclude_folder(item['name']):
+                        print(f"SKIP: Excluding bookmark folder: \"{item['name']}\" and all its contents")
+                        continue  # Skip this entire folder and all its children
+                    
+                    # Process children if folder is not excluded
                     self.extract_bookmarks_from_folder(item, bookmarks)
         
         return bookmarks
@@ -51,7 +68,7 @@ class IntegratedSampler:
         for root in ['bookmark_bar', 'other', 'synced']:
             if root in data['roots']:
                 self.extract_bookmarks_from_folder(data['roots'][root], all_bookmarks)
-            
+        
         return all_bookmarks
     
     def fetch_content(self, url: str, timeout: int = 10) -> Optional[str]:

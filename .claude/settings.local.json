@@ -7,7 +7,9 @@
       "Bash(mkdir:*)",
       "Bash(ollama show:*)",
       "Bash(ollama pull:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(python test_exclude_filter.py:*)",
+      "Bash(python test:*)"
     ],
     "deny": [],
     "ask": [],

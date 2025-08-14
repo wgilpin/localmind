@@ -13,6 +13,12 @@ interface IOllamaConfig {
   embeddingModel: string;
   embeddingDimension: number;
   completionModel: string;
+}
+
+/**
+ * Interface for indexing and document processing configuration.
+ */
+interface IIndexingConfig {
   vectorIndexFile: string;
   chromaDbPath: string;
   excludeFolders: string[];
@@ -34,6 +40,8 @@ const defaultConfig = {
     embeddingModel: 'mahonzhan/all-MiniLM-L6-v2',
     embeddingDimension: 384,
     completionModel: 'qwen3:0.6b',
+  },
+  indexing: {
     vectorIndexFile: path.join(appDataDir, 'localmind.index'),
     chromaDbPath: path.join(appDataDir, 'chromadb'),
     excludeFolders: [
@@ -62,6 +70,7 @@ const defaultConfig = {
 };
 
 export let OllamaConfig: IOllamaConfig;
+export let IndexingConfig: IIndexingConfig;
 export let ServerConfig: IServerConfig;
 
 /**
@@ -72,14 +81,17 @@ export function loadConfig() {
     try {
       const configData = JSON.parse(fs.readFileSync(configFilePath, 'utf-8'));
       OllamaConfig = { ...defaultConfig.ollama, ...configData.ollama };
+      IndexingConfig = { ...defaultConfig.indexing, ...configData.indexing };
       ServerConfig = { ...defaultConfig.server, ...configData.server };
     } catch (error) {
       console.error('Error loading config file, using default config:', error);
       OllamaConfig = defaultConfig.ollama;
+      IndexingConfig = defaultConfig.indexing;
       ServerConfig = defaultConfig.server;
     }
   } else {
     OllamaConfig = defaultConfig.ollama;
+    IndexingConfig = defaultConfig.indexing;
     ServerConfig = defaultConfig.server;
   }
 }
@@ -94,6 +106,7 @@ export function saveConfig() {
     }
     const configToSave = {
       ollama: OllamaConfig,
+      indexing: IndexingConfig,
       server: ServerConfig,
     };
     fs.writeFileSync(configFilePath, JSON.stringify(configToSave, null, 2));

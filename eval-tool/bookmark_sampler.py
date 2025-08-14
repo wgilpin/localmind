@@ -6,6 +6,7 @@ import os
 import requests
 from datetime import datetime
 from tqdm import tqdm
+from exclude_filter import ExcludeFilter
 
 class BookmarkSampler:
     def __init__(self, bookmarks_path: str = None):
@@ -14,7 +15,17 @@ class BookmarkSampler:
             local_app_data = os.getenv('LOCALAPPDATA')
             bookmarks_path = Path(local_app_data) / 'Google' / 'Chrome' / 'User Data' / 'Default' / 'Bookmarks'
         self.bookmarks_path = Path(bookmarks_path)
+        self.exclude_filter = ExcludeFilter()
         
+    def should_exclude_folder(self, folder_name: str) -> bool:
+        """Check if a folder name should be excluded based on the exclude list."""
+        if not folder_name or not self.exclude_filter.get_exclude_folders():
+            return False
+        
+        lower_folder_name = folder_name.lower()
+        return any(exclude_pattern.lower() == lower_folder_name 
+                  for exclude_pattern in self.exclude_filter.get_exclude_folders())
+
     def extract_bookmarks_from_folder(self, folder: Dict, bookmarks: List[Dict] = None) -> List[Dict]:
         if bookmarks is None:
             bookmarks = []
@@ -31,6 +42,12 @@ class BookmarkSampler:
                     }
                     bookmarks.append(bookmark)
                 elif item['type'] == 'folder':
+                    # Check if this folder should be excluded
+                    if self.should_exclude_folder(item['name']):
+                        print(f"SKIP: Excluding bookmark folder: \"{item['name']}\" and all its contents")
+                        continue  # Skip this entire folder and all its children
+                    
+                    # Process children if folder is not excluded
                     self.extract_bookmarks_from_folder(item, bookmarks)
         
         return bookmarks
@@ -52,7 +69,7 @@ class BookmarkSampler:
         # Extract from synced bookmarks
         if 'synced' in data['roots']:
             self.extract_bookmarks_from_folder(data['roots']['synced'], all_bookmarks)
-            
+        
         return all_bookmarks
     
     def fetch_content(self, url: str, timeout: int = 10) -> str:

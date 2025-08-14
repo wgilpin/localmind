@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import {
   OllamaConfig,
+  IndexingConfig,
   ServerConfig,
   loadConfig,
   appDataDir, // Imported appDataDir
@@ -39,7 +40,7 @@ async function startServer() {
   );
   console.log("=== End startServer Debug ===");
 
-  const chromaDir = OllamaConfig.chromaDbPath;
+  const chromaDir = IndexingConfig.chromaDbPath;
   if (!fs.existsSync(chromaDir)) {
     fs.mkdirSync(chromaDir, { recursive: true });
   }
@@ -50,7 +51,7 @@ async function startServer() {
   );
   databaseService = new DatabaseService(dbPath);
   vectorStoreService = new ChromaStoreService(
-    OllamaConfig.chromaDbPath,
+    IndexingConfig.chromaDbPath,
     databaseService,
     ollamaService
   );

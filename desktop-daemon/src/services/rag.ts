@@ -10,7 +10,6 @@ import { ChromaStoreService } from './chromaStore';
 import { DatabaseService, Document } from './database';
 import { v4 as uuidv4 } from 'uuid';
 import { cleanText } from '../utils/textProcessor';
-import { shouldExcludeBookmark } from '../utils/excludeFilter';
 
 const SEARCH_DISTANCE_CUTOFF = 50.0;
 
@@ -308,12 +307,6 @@ export class RagService {
         let currentVectorIndex = this.vectorStoreService.ntotal();
 
         for (const doc of docs) {
-            // Check if document should be excluded
-            if (shouldExcludeBookmark(doc.title, doc.url || '')) {
-                console.log(`⏭️  Skipping excluded document: ${doc.title} (${doc.url})`);
-                continue;
-            }
-
             const newDocument: Document = { ...doc, id: uuidv4(), url: doc.url || '', timestamp: Date.now() };
             documentsToAdd.push(newDocument);
 

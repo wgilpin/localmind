@@ -1,10 +1,10 @@
 import { shouldExcludeUrl, shouldExcludeBookmark } from './excludeFilter';
-import { OllamaConfig } from '../config';
+import { IndexingConfig } from '../config';
 
 describe('excludeFilter', () => {
   beforeEach(() => {
     // Set up test exclude folders
-    OllamaConfig.excludeFolders = ['node_modules', '.git', 'build', 'dist'];
+    IndexingConfig.excludeFolders = ['node_modules', '.git', 'build', 'dist'];
   });
 
   describe('shouldExcludeUrl', () => {
@@ -56,13 +56,13 @@ describe('excludeFilter', () => {
 
   describe('configuration edge cases', () => {
     it('should handle empty exclude folders list', () => {
-      OllamaConfig.excludeFolders = [];
+      IndexingConfig.excludeFolders = [];
       expect(shouldExcludeUrl('https://github.com/user/repo/node_modules/package')).toBe(false);
       expect(shouldExcludeBookmark('node_modules info', 'https://example.com')).toBe(false);
     });
 
     it('should handle undefined exclude folders', () => {
-      (OllamaConfig as any).excludeFolders = undefined;
+      (IndexingConfig as any).excludeFolders = undefined;
       expect(shouldExcludeUrl('https://github.com/user/repo/node_modules/package')).toBe(false);
       expect(shouldExcludeBookmark('node_modules info', 'https://example.com')).toBe(false);
     });
