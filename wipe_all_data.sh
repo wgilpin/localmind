@@ -1,16 +1,28 @@
 #!/bin/bash
+# This script is for development purposes only.
+# It will wipe all data, including documents, notes, and the vector index.
 
-echo "WARNING: This script will permanently delete all LocalMind database files."
-echo "This includes the main database and any test databases/indexes."
-echo "Type 'YES' to continue:"
-read CONFIRMATION
+# Stop on error
+set -e
 
-if [ "$CONFIRMATION" = "YES" ]; then
-    echo "Deleting database files..."
-    rm -f ~/.localmind/localmind.db
-    rm -f desktop-daemon/test-db.sqlite
-    rm -f desktop-daemon/test-index.faiss
-    echo "All specified database files have been deleted."
-else
-    echo "Operation cancelled. No files were deleted."
+echo "This will permanently delete all user data and ChromaDB."
+read -p "Are you sure you want to continue? [y/N] " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]
+then
+    exit 1
 fi
+
+echo "Stopping services..."
+# Add commands to stop your services if they are running
+# For example: pkill -f "ts-node" or similar
+
+echo "Deleting user data..."
+rm -rf "$HOME/.localmind"
+echo "User data deleted."
+
+echo "Uninstalling node modules..."
+rm -rf desktop-daemon/node_modules
+echo "Node modules uninstalled."
+
+echo "All data has been wiped."

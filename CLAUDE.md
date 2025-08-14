@@ -97,3 +97,5 @@ Configuration loaded from `desktop-daemon/src/config.ts`:
 - **Better-SQLite3**: Database operations
 - **FAISS-node**: Vector similarity search
 - **LangChain**: Text processing utilities
+- Before making major architectural changes, such as swapping one vectorDB provider for another, stop and ask the user to confirm
+- the app is started by either of two scripts, @start_dev.sh for dev or @start_all.sh for prod build

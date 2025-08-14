@@ -62,7 +62,7 @@ describe('RagService (Integration Tests)', () => {
         const currentTotal = ntotalCount;
         return currentTotal;
     });
-    // Mock the new ChromaStore-specific methods
+    // Mock the ChromaDB-specific methods
     mockVectorStoreService.saveWithMappings = jest.fn().mockImplementation(async (embeddings: number[][], mappings: any[]) => {
         ntotalCount += embeddings.length;
     });

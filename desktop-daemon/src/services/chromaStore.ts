@@ -1,4 +1,4 @@
-import { ChromaClient, Collection } from 'chromadb';
+import { ChromaClient, Collection, OpenAIEmbeddingFunction } from 'chromadb';
 import { DatabaseService } from './database';
 import { OllamaService } from './ollama';
 import { OllamaConfig } from '../config';
@@ -13,6 +13,7 @@ export class ChromaStoreService {
   private ollamaService: OllamaService;
   private persistDirectory: string;
   private pendingVectors?: number[][];
+  private embeddingFunction: OpenAIEmbeddingFunction;
 
   constructor(
     persistDirectory: string,
@@ -22,8 +23,15 @@ export class ChromaStoreService {
     this.persistDirectory = persistDirectory;
     this.databaseService = databaseService;
     this.ollamaService = ollamaService;
+    
+    // Create a dummy embedding function (we handle embeddings externally with Ollama)
+    this.embeddingFunction = new OpenAIEmbeddingFunction({
+      openai_api_key: "dummy-key",
+      openai_model: "text-embedding-ada-002"
+    });
+    
     this.client = new ChromaClient({
-      path: persistDirectory
+      path: 'http://localhost:8000'
     });
   }
 
@@ -31,17 +39,35 @@ export class ChromaStoreService {
     try {
       console.log('Initializing ChromaDB...');
       
+      // Check ChromaDB server version for compatibility
+      try {
+        const version = await this.client.version();
+        console.log('ChromaDB server version:', version);
+      } catch (versionError) {
+        console.warn('Could not get ChromaDB server version:', versionError);
+      }
+      
+      // Test basic connection with heartbeat
+      try {
+        const heartbeat = await this.client.heartbeat();
+        console.log('ChromaDB heartbeat response:', heartbeat);
+      } catch (heartbeatError) {
+        console.warn('ChromaDB heartbeat failed:', heartbeatError);
+      }
+      
       const collections = await this.client.listCollections();
       const existingCollection = collections.find(c => c.name === this.collectionName);
       
       if (existingCollection) {
         this.collection = await this.client.getCollection({
           name: this.collectionName,
+          embeddingFunction: this.embeddingFunction
         });
         console.log(`ChromaDB collection '${this.collectionName}' loaded.`);
       } else {
         this.collection = await this.client.createCollection({
           name: this.collectionName,
+          embeddingFunction: this.embeddingFunction,
           metadata: { 
             dimension: OllamaConfig.embeddingDimension.toString() 
           }
@@ -133,18 +159,21 @@ export class ChromaStoreService {
     console.log(`=== End ChromaDB Search Debug ===`);
     
     const results = await this.collection.query({
-      queryEmbeddings: [queryVector],
-      nResults: effectiveK,
+      query_embeddings: [queryVector],
+      n_results: effectiveK,
+      include: ['metadatas', 'distances'] as any,
     });
+
+    console.log('ChromaDB query results:', JSON.stringify(results, null, 2));
+
+    // The metadatas property is a double array, so we need to flatten it.
+    const metadatas = (results.metadatas ?? []).flat();
+    const distances = (results.distances ?? []).flat();
+
+    // Extract vector IDs from metadata for result mapping
+    const vectorIds = metadatas.map((m: any) => m?.vectorId ?? 0);
     
-    const ids = results.ids[0] || [];
-    const distances = results.distances?.[0] || [];
-    const metadatas = results.metadatas?.[0] || [];
-    
-    // Extract vector IDs from metadata to maintain compatibility with FAISS interface
-    const vectorIds = metadatas.map((m: any) => m?.vectorId || 0);
-    
-    return { 
+    return {
       I: vectorIds,
       D: distances as number[]
     };

@@ -85,8 +85,18 @@ To start both the Ollama environment and the LocalMind server, run the following
 
 This script will:
 1. Ensure Ollama is running and set `OLLAMA_NUM_PARALLEL=2` to enable concurrent model loading (preventing delays when switching between embedding and language models).
-2. Install Node.js dependencies for the desktop daemon.
-3. Start the LocalMind server in development mode with auto-reloading.
+2. Check for and install ChromaDB if not present (`pip install chromadb`).
+3. Start ChromaDB server at `http://localhost:8000` with persistent data storage in `~/.localmind/chromadb`.
+4. Install Node.js dependencies for the desktop daemon.
+5. Start the LocalMind server in development mode with auto-reloading.
+
+### How Vector Search Works
+
+- **ChromaDB Server**: Automatically started by the startup script, runs at `http://localhost:8000`
+- **Data Persistence**: Vector embeddings and metadata stored in `~/.localmind/chromadb` directory
+- **Similarity Calculation**: ChromaDB's `collection.query()` method performs cosine similarity search
+- **Connection**: LocalMind app connects to ChromaDB server using the JavaScript client
+- **Auto-Management**: Server startup and health checks handled automatically by the preparation script
 
 ### Start the Frontend (if running separately)
 

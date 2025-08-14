@@ -11,7 +11,7 @@ import { DatabaseService, Document } from './database';
 import { v4 as uuidv4 } from 'uuid';
 import { cleanText } from '../utils/textProcessor';
 
-const SEARCH_DISTANCE_CUTOFF = 55.0;
+const SEARCH_DISTANCE_CUTOFF = 70.0;
 
 export type SearchProgressStatus =
   | 'idle'

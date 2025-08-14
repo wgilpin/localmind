@@ -20,3 +20,4 @@ desktop-daemon/package-lock.json
 uv.lock
 *.pyc
 *.sqlite
+desktop-daemon/chroma.log
