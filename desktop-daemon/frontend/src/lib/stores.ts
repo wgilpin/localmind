@@ -12,12 +12,14 @@ export type RetrievedDocument = {
     id: string; // Added id property
     title: string;
     content: string;
+    distance?: number; // Add distance for logging
 };
 
 export const searchResults = writable('');
 export const vectorResults = writable<VectorSearchResult[]>([]);
 export const retrievedDocuments = writable<RetrievedDocument[]>([]);
 export const showResultsSection = writable(false);
+export const currentSearchTerm = writable('');
 export const showNewNoteSection = writable(false);
 export const showSettingsSection = writable(false);
 

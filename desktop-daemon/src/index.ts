@@ -276,6 +276,22 @@ async function startServer() {
     }
   });
 
+  app.post("/log-result-click", (req: any, res: any) => {
+    try {
+      const { searchTerm, documentId, distance } = req.body;
+      const timestamp = new Date().toISOString();
+      const logEntry = `${timestamp} | Search: "${searchTerm}" | Document: ${documentId} | Distance: ${distance}\n`;
+      
+      const logFilePath = path.join(appDataDir, "click_analytics.log");
+      fs.appendFileSync(logFilePath, logEntry, 'utf8');
+      
+      res.status(200).json({ message: "Click logged successfully" });
+    } catch (error) {
+      console.error("Error logging result click:", error);
+      res.status(500).json({ message: "Failed to log click" });
+    }
+  });
+
   app.get("/models", async (req: any, res: any) => {
     try {
       const models = await ollamaService.listModels();

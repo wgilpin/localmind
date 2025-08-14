@@ -1,6 +1,6 @@
 <script lang="ts">
   // @ts-nocheck
-  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, statusMessages, retrievedDocuments, currentEventSource, stopCurrentGeneration, currentSearchCutoff, resetSearchCutoff, increaseSearchCutoff, type SearchStatus } from '$lib/stores';
+  import { searchResults, vectorResults, showResultsSection, searchStatus, searchProgress, statusMessages, retrievedDocuments, currentEventSource, stopCurrentGeneration, currentSearchCutoff, resetSearchCutoff, increaseSearchCutoff, currentSearchTerm, type SearchStatus } from '$lib/stores';
   import { get } from 'svelte/store';
 
   let searchQuery = '';
@@ -16,6 +16,9 @@
       // Reset cutoff to default when main search is triggered
       resetSearchCutoff();
       
+      // Store the current search term
+      currentSearchTerm.set(searchQuery);
+      
       searchStatus.set('retrieving');
       searchProgress.set('Retrieving relevant documents...');
       showResultsSection.set(true);
@@ -30,9 +33,11 @@
       
       if (data.rankedChunks && data.rankedChunks.length > 0) {
         retrievedDocuments.set(data.rankedChunks.map((doc: any) => ({ 
+          id: doc.documentId,
           title: doc.title, 
           content: doc.content, 
-          url: doc.url 
+          url: doc.url,
+          distance: doc.distance
         })));
         vectorResults.set(data.rankedChunks.map((doc: any) => ({
           id: doc.documentId,
@@ -136,9 +141,11 @@
       
       if (data.rankedChunks && data.rankedChunks.length > 0) {
         retrievedDocuments.set(data.rankedChunks.map((doc: any) => ({ 
+          id: doc.documentId,
           title: doc.title, 
           content: doc.content, 
-          url: doc.url 
+          url: doc.url,
+          distance: doc.distance
         })));
         vectorResults.set(data.rankedChunks.map((doc: any) => ({
           id: doc.documentId,

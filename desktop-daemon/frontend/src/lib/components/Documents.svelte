@@ -1,13 +1,44 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { currentSearchTerm } from '$lib/stores';
+	import { get } from 'svelte/store';
 
-	export let documents: Array<{ id: string; title: string; content: string; url?: string;[key: string]: any }> = [];
+	export let documents: Array<{ id: string; title: string; content: string; url?: string; distance?: number; [key: string]: any }> = [];
 	let expanded: { [key: number]: boolean } = {};
 
 	$: safeDocuments = Array.isArray(documents) ? documents : [];
 
+	async function logResultClick(documentId: string, distance?: number) {
+		try {
+			const searchTerm = get(currentSearchTerm);
+			if (!searchTerm) return; // Only log if we have a search term
+			
+			await fetch('/log-result-click', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					searchTerm,
+					documentId,
+					distance: distance || 0
+				})
+			});
+		} catch (error) {
+			console.error('Failed to log result click:', error);
+		}
+	}
+
 	function toggle(index: number) {
 		expanded[index] = !expanded[index];
+		
+		// Log the click when expanding (first click)
+		if (expanded[index]) {
+			const doc = safeDocuments[index];
+			if (doc) {
+				logResultClick(doc.id, doc.distance);
+			}
+		}
 	}
 
 	const dispatch = createEventDispatcher();
@@ -20,8 +51,10 @@
 		dispatch('edit', docId);
 	}
 
-	function handleOpenUrl(url: string | undefined) {
+	function handleOpenUrl(url: string | undefined, docId: string, distance?: number) {
 		if (url) {
+			// Log the URL click
+			logResultClick(docId, distance);
 			window.open(url, '_blank');
 		}
 	}
@@ -50,7 +83,7 @@
 						{#if expanded[i]}
 							<div class="card-header-actions">
 								{#if doc.url}
-									<button class="icon-button" on:click|stopPropagation={() => handleOpenUrl(doc.url)} title="Open URL">
+									<button class="icon-button" on:click|stopPropagation={() => handleOpenUrl(doc.url, doc.id, doc.distance)} title="Open URL">
 										<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-external-link">
 											<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
 											<polyline points="15 3 21 3 21 9"></polyline>
