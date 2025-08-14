@@ -26,7 +26,9 @@ class QueryGenerator:
         
         prompt = f"""Based on the following webpage, generate {num_queries} different search queries that someone might use to find this content.
 Each query should be on a new line and be a realistic search query someone would type.
-Vary the queries: some short (1-2 words), some longer (3-6 words), some questions, some keyword-based.
+Generate one or two queries for simple searches with 1 or 2 words only.
+Also generate up to 3 longer (3-6 words) question form queries.
+There must be at least 1 short query.
 
 Title: {title}
 URL: {url}
