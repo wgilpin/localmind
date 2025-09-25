@@ -22,12 +22,13 @@ impl DocumentProcessor {
 
     pub fn chunk_text(&self, text: &str) -> Result<Vec<DocumentChunk>> {
         if text.is_empty() {
+            println!("⚠️ Empty text provided to chunk_text");
             return Ok(vec![]);
         }
 
         let mut chunks = Vec::new();
         let text_len = text.len();
-        
+
         if text_len <= self.chunk_size {
             chunks.push(DocumentChunk {
                 content: text.to_string(),
@@ -38,13 +39,17 @@ impl DocumentProcessor {
         }
 
         let mut start = 0;
-        
-        while start < text_len {
+        let mut chunk_count = 0;
+        let max_chunks = (text_len / (self.chunk_size / 2)) + 10; // Safety limit
+
+        while start < text_len && chunk_count < max_chunks {
+            chunk_count += 1;
             let end = std::cmp::min(start + self.chunk_size, text_len);
             
             // Find a good break point (sentence or paragraph boundary)
             let actual_end = if end < text_len {
-                self.find_break_point(text, start, end)
+                let break_point = self.find_break_point(text, start, end);
+                break_point
             } else {
                 end
             };
@@ -60,15 +65,28 @@ impl DocumentProcessor {
             }
 
             // Move start position, accounting for overlap
-            start = if actual_end >= self.overlap {
+            let new_start = if actual_end >= self.overlap {
                 actual_end - self.overlap
             } else {
                 actual_end
             };
 
+            // Ensure we make reasonable progress - if new start is too close, advance by a minimum amount
+            start = if new_start <= start {
+                // If we can't make progress with overlap, jump forward by at least chunk_size / 4
+                start + std::cmp::max(1, self.chunk_size / 4)
+            } else {
+                new_start
+            };
+
+
             if start >= text_len {
                 break;
             }
+        }
+
+        if chunk_count >= max_chunks {
+            println!("⚠️ Hit maximum chunk limit ({}) - stopping to prevent excessive chunking", max_chunks);
         }
 
         Ok(chunks)

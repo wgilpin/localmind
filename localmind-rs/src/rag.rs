@@ -1,5 +1,5 @@
 use crate::{
-    Result, 
+    Result,
     db::Database,
     vector::VectorStore,
     ollama::OllamaClient,
@@ -31,11 +31,11 @@ impl RagPipeline {
     pub async fn new(db: Database, ollama_client: OllamaClient) -> Result<Self> {
         let document_processor = DocumentProcessor::default();
         let mut vector_store = VectorStore::new();
-        
+
         // Load existing embeddings from database
         let embeddings = db.get_all_embeddings().await?;
         vector_store.load_vectors(embeddings)?;
-        
+
         Ok(Self {
             db,
             vector_store,
@@ -51,21 +51,24 @@ impl RagPipeline {
         url: Option<&str>,
         source: &str,
     ) -> Result<i64> {
+
         // Chunk the document
         let chunks = self.document_processor.chunk_text(content)?;
-        
+
         if chunks.is_empty() {
+            println!("❌ Document produced no chunks, returning error");
             return Err("Document produced no chunks".into());
         }
 
         // For now, we'll store the full document and generate embedding for the full content
         // In a more advanced implementation, we might store chunks separately
         let full_content = content.to_string();
-        
+
         // Generate embedding for the document
         let embedding = self.ollama_client.generate_embedding(&full_content).await?;
+
         let embedding_bytes = bincode::serialize(&embedding)?;
-        
+
         // Insert document into database
         let doc_id = self.db.insert_document(
             title,
@@ -74,10 +77,11 @@ impl RagPipeline {
             source,
             Some(&embedding_bytes),
         ).await?;
-        
+
         // Add to vector store
         self.vector_store.add_vector(doc_id, embedding)?;
-        
+
+        println!("🎉 ingest_document completed successfully for: {}", title);
         Ok(doc_id)
     }
 
@@ -91,10 +95,10 @@ impl RagPipeline {
 
         // Generate embedding for the query
         let query_embedding = self.ollama_client.generate_embedding(input).await?;
-        
+
         // Search for similar documents
         let search_results = self.vector_store.search(&query_embedding, 5)?;
-        
+
         if search_results.is_empty() {
             // Fallback to text search if no vector results
             return self.fallback_text_search(input).await;
@@ -103,29 +107,29 @@ impl RagPipeline {
         // Get document details
         let mut sources = Vec::new();
         let mut context_parts = Vec::new();
-        
+
         for result in search_results {
             if let Some(doc) = self.db.get_document(result.doc_id).await? {
                 let snippet = self.create_snippet(&doc.content, input);
-                
+
                 sources.push(DocumentSource {
                     doc_id: doc.id,
                     title: doc.title.clone(),
                     content_snippet: snippet.clone(),
                     similarity: result.similarity,
                 });
-                
+
                 context_parts.push(format!("Title: {}\nContent: {}", doc.title, snippet));
             }
         }
-        
+
         // Build context and prompt
         let context = context_parts.join("\n\n");
         let prompt = self.build_rag_prompt(input, &context);
-        
+
         // Generate response
         let answer = self.ollama_client.generate_completion(&prompt).await?;
-        
+
         Ok(RagResponse {
             answer: answer.trim().to_string(),
             sources,
@@ -135,7 +139,7 @@ impl RagPipeline {
     async fn fallback_text_search(&self, query: &str) -> Result<RagResponse> {
         // Use SQLite FTS5 for text search
         let documents = self.db.search_documents(query, 3).await?;
-        
+
         if documents.is_empty() {
             return Ok(RagResponse {
                 answer: format!("I couldn't find any documents related to '{}'. Try rephrasing your question or adding more documents to search.", query),
@@ -145,24 +149,24 @@ impl RagPipeline {
 
         let mut sources = Vec::new();
         let mut context_parts = Vec::new();
-        
+
         for doc in documents {
             let snippet = self.create_snippet(&doc.content, query);
-            
+
             sources.push(DocumentSource {
                 doc_id: doc.id,
                 title: doc.title.clone(),
                 content_snippet: snippet.clone(),
                 similarity: 0.0, // No similarity score from text search
             });
-            
+
             context_parts.push(format!("Title: {}\nContent: {}", doc.title, snippet));
         }
-        
+
         let context = context_parts.join("\n\n");
         let prompt = self.build_rag_prompt(query, &context);
         let answer = self.ollama_client.generate_completion(&prompt).await?;
-        
+
         Ok(RagResponse {
             answer: answer.trim().to_string(),
             sources,
@@ -171,23 +175,23 @@ impl RagPipeline {
 
     fn create_snippet(&self, content: &str, query: &str) -> String {
         let max_snippet_length = 200;
-        
+
         if content.len() <= max_snippet_length {
             return content.to_string();
         }
-        
+
         // Try to find the query term in the content
         let query_lower = query.to_lowercase();
         let content_lower = content.to_lowercase();
-        
+
         if let Some(pos) = content_lower.find(&query_lower) {
             let start = pos.saturating_sub(50);
             let end = std::cmp::min(pos + query.len() + 150, content.len());
             let snippet = &content[start..end];
-            
+
             let prefix = if start > 0 { "..." } else { "" };
             let suffix = if end < content.len() { "..." } else { "" };
-            
+
             format!("{}{}{}", prefix, snippet, suffix)
         } else {
             // Just take the beginning of the content

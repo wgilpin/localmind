@@ -52,18 +52,46 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize Tauri API (now async with timeout)
     initializeTauriAPI(() => {
         loadStats();
+        setupBookmarkProgressListener();
     });
+
+    function setupBookmarkProgressListener() {
+        if (!window.__TAURI__ || !window.__TAURI__.event) {
+            console.warn('Tauri event system not available');
+            return;
+        }
+
+        // Listen for bookmark progress events
+        window.__TAURI__.event.listen('bookmark-progress', (event) => {
+            console.log('Received bookmark progress:', event.payload);
+            const progress = event.payload;
+
+            if (progress.completed) {
+                showMessage(progress.current_title, 'info');
+                // Refresh stats after completion
+                setTimeout(loadStats, 1000);
+            } else {
+                const percentage = Math.round((progress.current / progress.total) * 100);
+                showMessage(
+                    `📚 Processing bookmarks... ${progress.current}/${progress.total} (${percentage}%)\nCurrent: ${progress.current_title}`,
+                    'info'
+                );
+            }
+        });
+
+        console.log('Bookmark progress listener setup complete');
+    }
 
     async function loadStats() {
         if (!invoke) {
             showMessage('Tauri API not available', 'error');
             return;
         }
-        
+
         try {
             const stats = await invoke('get_stats');
             console.log('System stats:', stats);
-            
+
             if (stats.status === 'initializing') {
                 showMessage('LocalMind is initializing...', 'info');
             } else if (stats.document_count === 0) {

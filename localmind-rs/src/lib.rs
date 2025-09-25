@@ -3,6 +3,8 @@ pub mod vector;
 pub mod rag;
 pub mod ollama;
 pub mod document;
+pub mod bookmark;
+pub mod fetcher;
 
 use std::error::Error;
 
