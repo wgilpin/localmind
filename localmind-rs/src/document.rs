@@ -60,7 +60,7 @@ impl DocumentProcessor {
             };
 
             let chunk_text = text[start..actual_end].trim().to_string();
-            
+
             if !chunk_text.is_empty() {
                 chunks.push(DocumentChunk {
                     content: chunk_text,
@@ -105,40 +105,45 @@ impl DocumentProcessor {
         }
 
         if safe_end <= start {
-            return preferred_end; // Fallback to original if we can't find a safe boundary
+            // Find a safe boundary starting from preferred_end and working backwards
+            let mut fallback = preferred_end;
+            while fallback > start && !text.is_char_boundary(fallback) {
+                fallback -= 1;
+            }
+            return if fallback > start { fallback } else { start };
         }
 
         let search_text = &text[start..safe_end];
-        
+
         // Look for paragraph breaks first
         if let Some(pos) = search_text.rfind("\n\n") {
             return start + pos + 2;
         }
-        
+
         // Look for sentence endings
         if let Some(pos) = search_text.rfind(". ") {
             return start + pos + 2;
         }
-        
+
         // Look for other sentence endings
         for ending in &["! ", "? ", ": ", "; "] {
             if let Some(pos) = search_text.rfind(ending) {
                 return start + pos + 2;
             }
         }
-        
+
         // Look for line breaks
         if let Some(pos) = search_text.rfind('\n') {
             return start + pos + 1;
         }
-        
+
         // Look for word boundaries
         if let Some(pos) = search_text.rfind(' ') {
             return start + pos + 1;
         }
-        
-        // No good break point found, use preferred end
-        preferred_end
+
+        // No good break point found, use safe_end (which is guaranteed to be on a UTF-8 boundary)
+        safe_end
     }
 }
 
@@ -157,7 +162,7 @@ mod tests {
         let processor = DocumentProcessor::new(100, 10);
         let text = "This is a short text.";
         let chunks = processor.chunk_text(text).unwrap();
-        
+
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].content, text);
     }
@@ -167,9 +172,9 @@ mod tests {
         let processor = DocumentProcessor::new(50, 10);
         let text = "This is the first sentence. This is the second sentence. This is the third sentence. This is the fourth sentence.";
         let chunks = processor.chunk_text(text).unwrap();
-        
+
         assert!(chunks.len() > 1);
-        
+
         // Check that chunks have proper overlap
         for i in 1..chunks.len() {
             let prev_end = &chunks[i-1].content[chunks[i-1].content.len().saturating_sub(10)..];
