@@ -1,9 +1,9 @@
 use crate::{
     Result, 
-    db::{Database, Document},
-    vector::{VectorStore, SearchResult},
+    db::Database,
+    vector::VectorStore,
     ollama::OllamaClient,
-    document::{DocumentProcessor, DocumentChunk},
+    document::DocumentProcessor,
 };
 
 pub struct RagPipeline {
@@ -243,7 +243,7 @@ Answer:",
 
         let mut sources = Vec::new();
         for result in search_results {
-            if let Ok(doc) = self.db.get_document(result.doc_id).await {
+            if let Ok(Some(doc)) = self.db.get_document(result.doc_id).await {
                 sources.push(DocumentSource {
                     doc_id: result.doc_id,
                     title: doc.title,
@@ -262,7 +262,7 @@ Answer:",
 
         // Get content from specified documents
         for &doc_id in context_doc_ids {
-            if let Ok(doc) = self.db.get_document(doc_id).await {
+            if let Ok(Some(doc)) = self.db.get_document(doc_id).await {
                 context_parts.push(format!("From \"{}\":\n{}", doc.title, doc.content));
             }
         }

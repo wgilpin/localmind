@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use localmind_rs::{
     db::Database, 
     ollama::OllamaClient,
-    rag::{RagPipeline, RagResponse},
+    rag::RagPipeline,
 };
 use serde::{Deserialize, Serialize};
 

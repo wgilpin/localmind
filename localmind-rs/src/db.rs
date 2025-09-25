@@ -1,7 +1,6 @@
 use crate::Result;
 use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
-use std::path::Path;
 
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
