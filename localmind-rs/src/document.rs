@@ -44,8 +44,13 @@ impl DocumentProcessor {
 
         while start < text_len && chunk_count < max_chunks {
             chunk_count += 1;
-            let end = std::cmp::min(start + self.chunk_size, text_len);
-            
+            let mut end = std::cmp::min(start + self.chunk_size, text_len);
+
+            // Ensure end is on a UTF-8 character boundary
+            while end > start && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+
             // Find a good break point (sentence or paragraph boundary)
             let actual_end = if end < text_len {
                 let break_point = self.find_break_point(text, start, end);
@@ -93,7 +98,17 @@ impl DocumentProcessor {
     }
 
     fn find_break_point(&self, text: &str, start: usize, preferred_end: usize) -> usize {
-        let search_text = &text[start..preferred_end];
+        // Ensure we're working with valid UTF-8 boundaries
+        let mut safe_end = preferred_end;
+        while safe_end > start && !text.is_char_boundary(safe_end) {
+            safe_end -= 1;
+        }
+
+        if safe_end <= start {
+            return preferred_end; // Fallback to original if we can't find a safe boundary
+        }
+
+        let search_text = &text[start..safe_end];
         
         // Look for paragraph breaks first
         if let Some(pos) = search_text.rfind("\n\n") {

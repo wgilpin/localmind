@@ -49,6 +49,26 @@ struct IngestRequest {
     source: String,
 }
 
+// Helper function to limit bookmark content to 2k characters (UTF-8 safe)
+fn truncate_bookmark_content(content: &str, max_chars: usize) -> String {
+    if content.len() <= max_chars {
+        content.to_string()
+    } else {
+        // Find a safe UTF-8 character boundary
+        let mut boundary = max_chars;
+        while boundary > 0 && !content.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+
+        if boundary == 0 {
+            // If we can't find a boundary, just return the truncation message
+            format!("[Content truncated - unable to find safe UTF-8 boundary at {} chars]", max_chars)
+        } else {
+            format!("{}...\n[Content truncated at {} chars]", &content[..boundary], boundary)
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct SearchHitsResponse {
     query: String,
@@ -198,11 +218,11 @@ async fn start_bookmark_ingestion(
                 let content = match fetcher.fetch_page_content(&url).await {
                     Ok(page_content) if !page_content.is_empty() => {
                         println!("✅ Using fetched content for: {}", title);
-                        page_content
+                        truncate_bookmark_content(&page_content, 2000)
                     }
                     _ => {
                         println!("⏭️ Using URL as content for: {}", title);
-                        url.clone()
+                        truncate_bookmark_content(&url, 2000)
                     }
                 };
 
@@ -435,11 +455,12 @@ async fn main() {
                             let content = match fetcher.fetch_page_content(url).await {
                                 Ok(page_content) if !page_content.is_empty() => {
                                     println!("✅ Using fetched content for: {}", title);
-                                    page_content
+                                    truncate_bookmark_content(&page_content, 2000)
                                 }
                                 _ => {
                                     println!("⏭️ Using URL as content for: {}", title);
-                                    format!("Bookmark: {}\nURL: {}", title, url)
+                                    let fallback_content = format!("Bookmark: {}\nURL: {}", title, url);
+                                    truncate_bookmark_content(&fallback_content, 2000)
                                 }
                             };
 
@@ -553,6 +574,20 @@ async fn main() {
                                 for (index, (title, _url_as_content, url)) in existing_bookmarks.into_iter().enumerate() {
                                     println!("\n📌 Processing bookmark {}/{}: {} - {}", index + 1, total, title, url);
 
+                                    // Check if URL already exists in database
+                                    match rag.url_exists(&url).await {
+                                        Ok(true) => {
+                                            println!("⏭️  Skipping existing bookmark: {} - {}", title, url);
+                                            continue;
+                                        }
+                                        Ok(false) => {
+                                            println!("✅ New bookmark, proceeding with processing");
+                                        }
+                                        Err(e) => {
+                                            eprintln!("⚠️  Error checking URL existence for {}: {}. Processing anyway.", url, e);
+                                        }
+                                    }
+
                                     // Send progress update to UI
                                     let progress = BookmarkProgress {
                                         current: index + 1,
@@ -568,13 +603,13 @@ async fn main() {
                                     // Fetch actual page content
                                     let content = match fetcher.fetch_page_content(&url).await {
                                         Ok(page_content) if !page_content.is_empty() => {
-                                            page_content
+                                            truncate_bookmark_content(&page_content, 2000)
                                         }
-                                        Err(e) => {
-                                            url.clone()
+                                        Err(_e) => {
+                                            truncate_bookmark_content(&url, 2000)
                                         }
                                         Ok(_) => {
-                                            url.clone()
+                                            truncate_bookmark_content(&url, 2000)
                                         }
                                     };
 

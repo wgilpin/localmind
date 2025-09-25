@@ -169,4 +169,14 @@ impl Database {
         }
         Ok(results)
     }
+
+    pub async fn url_exists(&self, url: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT COUNT(*) FROM documents WHERE url = ?1"
+        )?;
+
+        let count: i64 = stmt.query_row(params![url], |row| row.get(0))?;
+        Ok(count > 0)
+    }
 }

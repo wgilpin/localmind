@@ -281,6 +281,10 @@ Answer:",
 
         Ok(answer.trim().to_string())
     }
+
+    pub async fn url_exists(&self, url: &str) -> Result<bool> {
+        self.db.url_exists(url).await
+    }
 }
 
 // Remove the Default implementation as it's not safe and not needed
