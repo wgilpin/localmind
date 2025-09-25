@@ -67,14 +67,15 @@ document.addEventListener('DOMContentLoaded', function() {
             const progress = event.payload;
 
             if (progress.completed) {
-                showMessage(progress.current_title, 'info');
+                showToast(progress.current_title, 'success', 3000);
                 // Refresh stats after completion
                 setTimeout(loadStats, 1000);
             } else {
                 const percentage = Math.round((progress.current / progress.total) * 100);
-                showMessage(
+                showToast(
                     `📚 Processing bookmarks... ${progress.current}/${progress.total} (${percentage}%)\nCurrent: ${progress.current_title}`,
-                    'info'
+                    'info',
+                    0 // Keep showing until replaced or completed
                 );
             }
         });
@@ -246,11 +247,58 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function showMessage(message, type) {
-        const className = type === 'error' ? 'error-message' : 
-                         type === 'warning' ? 'warning-message' : 
+        const className = type === 'error' ? 'error-message' :
+                         type === 'warning' ? 'warning-message' :
                          'info-message';
-        
+
         resultsDiv.innerHTML = `<div class="${className}">${escapeHtml(message)}</div>`;
+    }
+
+    let currentProgressToast = null;
+
+    function showToast(message, type = 'info', duration = 5000) {
+        const toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) return;
+
+        // Remove existing progress toast if this is a new progress message
+        if (type === 'info' && message.includes('Processing bookmarks') && currentProgressToast) {
+            currentProgressToast.remove();
+            currentProgressToast = null;
+        }
+
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `
+            ${escapeHtml(message).replace(/\n/g, '<br>')}
+            <button class="close-btn" onclick="this.parentElement.remove()">×</button>
+        `;
+
+        toastContainer.appendChild(toast);
+
+        // Keep reference to progress toasts
+        if (type === 'info' && message.includes('Processing bookmarks')) {
+            currentProgressToast = toast;
+        }
+
+        // Trigger animation
+        setTimeout(() => {
+            toast.classList.add('show');
+        }, 10);
+
+        // Auto remove after duration (unless duration is 0)
+        if (duration > 0) {
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentElement) {
+                        toast.remove();
+                        if (toast === currentProgressToast) {
+                            currentProgressToast = null;
+                        }
+                    }
+                }, 300);
+            }, duration);
+        }
     }
 
     function escapeHtml(text) {
