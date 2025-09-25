@@ -10,7 +10,8 @@
       "Bash(npm run build:*)",
       "Bash(python test_exclude_filter.py:*)",
       "Bash(python test:*)",
-      "Bash(nvidia-smi:*)"
+      "Bash(nvidia-smi:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": [],

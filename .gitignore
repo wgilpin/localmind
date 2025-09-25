@@ -24,3 +24,4 @@ desktop-daemon/chroma.log
 npm run 
 *.bin
 *.sqlite3
+bash.exe.stackdump
