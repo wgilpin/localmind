@@ -148,21 +148,6 @@ localmind-rs/
 - **Updates**: Built-in auto-updater using Tauri
 - **Configuration**: Portable with optional system integration
 
-## Migration & Compatibility
-
-### Data Migration
-
-1. **Export Tool**: Extract from existing SQLite + ChromaDB
-2. **Schema Mapping**: Migrate to unified SQLite schema with vector BLOBs
-3. **Embedding Migration**: Re-generate if model changes
-4. **Vector Loading**: Build in-memory index from SQLite on startup
-
-### API Compatibility
-
-- **REST Endpoints**: Maintain existing API surface
-- **Chrome Extension**: No changes required
-- **Configuration**: Import existing settings where possible
-
 ### Deployment Strategy
 
 1. **Parallel Testing**: Run alongside existing version
