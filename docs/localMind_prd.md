@@ -68,7 +68,7 @@ People save countless webpages and notes but struggle to recall them quickly. Th
 ### 6.3 Local RAG Store
 
 - Documents chunked & embedded using the fixed 384‑dim sentence‑transformer **all‑MiniLM‑L6‑v2** (served via Ollama). The embedding model is not user‑configurable to avoid expensive re‑embedding of the entire corpus.
-- Vector index: FAISS flat (MVP) with metadata filters.
+- Vector index: In mem, persisted to db
 - Content and index encrypted at rest (AES‑256, key derived from OS keychain).
 
 ### 6.4 Search UI
@@ -99,7 +99,7 @@ People save countless webpages and notes but struggle to recall them quickly. Th
 ```
 [Chrome Extension / Mobile Share App]──(HTTPS)──►[Relay Server]──►[Desktop Daemon]
                                                │
-             [Web UI]◄──local HTTP──[Desktop Daemon]──►[Vector DB (FAISS)]
+             [Web UI]◄──local HTTP──[Desktop Daemon]──►[Vector store]
                                                │
                                         [Ollama Runtime]
 ```
@@ -119,7 +119,7 @@ Local web app served from:
 ## 9. MVP Scope (v0.1)
 
 - Chrome desktop extension.
-- Desktop daemon with FAISS + Ollama.
+- Desktop daemon to run Ollama.
 - Basic web UI with chat search.
 - Manual phone‑to‑desktop via share‑to‑relay.
 - No tagging or encryption UI (hard‑coded key).

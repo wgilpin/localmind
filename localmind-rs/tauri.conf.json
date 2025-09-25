@@ -1,0 +1,40 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "./src-ui",
+    "distDir": "./src-ui",
+    "withGlobalTauri": true
+  },
+  "package": {
+    "productName": "LocalMind",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": true
+    },
+    "bundle": {
+      "active": true,
+      "identifier": "com.localmind.app",
+      "icon": ["icons/icon.png"]
+    },
+    "security": {
+      "csp": "default-src 'self' tauri: asset: https://asset.localhost; connect-src ipc: http://ipc.localhost https://tauri.localhost; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'"
+    },
+    "updater": {
+      "active": false
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 800,
+        "resizable": true,
+        "title": "LocalMind",
+        "width": 1200,
+        "decorations": true,
+        "transparent": false
+      }
+    ]
+  }
+}

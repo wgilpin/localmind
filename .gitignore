@@ -25,3 +25,10 @@ npm run
 *.bin
 *.sqlite3
 bash.exe.stackdump
+
+# Rust application
+localmind-rs/target/
+localmind-rs/Cargo.lock
+localmind-rs/src-ui/node_modules/
+localmind-rs/src-ui/dist/
+localmind-rs/src-ui/build/
