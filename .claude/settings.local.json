@@ -24,7 +24,8 @@
       "Bash(claude mcp:*)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__get-library-docs",
-      "Read(//c/Users/wgilp/.claude/**)"
+      "Read(//c/Users/wgilp/.claude/**)",
+      "WebFetch(domain:docs.rs)"
     ],
     "deny": [],
     "ask": [],

@@ -5,6 +5,7 @@ pub mod ollama;
 pub mod document;
 pub mod bookmark;
 pub mod fetcher;
+pub mod youtube;
 
 use std::error::Error;
 

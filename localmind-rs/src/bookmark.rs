@@ -1,4 +1,4 @@
-use crate::{Result, fetcher::WebFetcher};
+use crate::{Result, fetcher::WebFetcher, youtube::YouTubeProcessor};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::fs;
@@ -193,24 +193,77 @@ impl BookmarkMonitor {
 
                 println!("📖 Processing bookmark: {} ({})", title, url);
 
-                // Use WebFetcher with readability for better content extraction
-                let content = match fetcher.fetch_page_content(url).await {
-                    Ok(content) => {
-                        if content.is_empty() {
-                            format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", title, url)
-                        } else {
-                            format!("Bookmark: {}\nURL: {}\n\n{}", title, url, content)
+                // Check if this is a YouTube URL and handle specially
+                let (processed_title, content) = if YouTubeProcessor::is_youtube_url(url) {
+                    println!("🎥 Processing YouTube bookmark: {}", url);
+
+                    // Clean up YouTube title
+                    let cleaned_title = YouTubeProcessor::cleanup_title(&title);
+
+                    // Try to get transcript first
+                    match YouTubeProcessor::fetch_transcript(url).await {
+                        Ok(Some(transcript)) => {
+                            println!("✅ Using YouTube transcript for bookmark: {}", cleaned_title);
+                            (cleaned_title, format!("Bookmark: {}\nURL: {}\n\n{}", title, url, transcript))
+                        }
+                        Ok(None) => {
+                            println!("⚠️ No YouTube transcript available, using fallback content");
+                            // Use WebFetcher as fallback
+                            let fallback_content = match fetcher.fetch_page_content(url).await {
+                                Ok(content) => {
+                                    if content.is_empty() {
+                                        format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", title, url)
+                                    } else {
+                                        format!("Bookmark: {}\nURL: {}\n\n{}", title, url, content)
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("⚠️ Failed to fetch fallback content from {}: {}", url, e);
+                                    format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", title, url, e)
+                                }
+                            };
+                            (cleaned_title, fallback_content)
+                        }
+                        Err(e) => {
+                            println!("⚠️ Failed to fetch YouTube transcript: {}, using fallback content", e);
+                            // Use WebFetcher as fallback
+                            let fallback_content = match fetcher.fetch_page_content(url).await {
+                                Ok(content) => {
+                                    if content.is_empty() {
+                                        format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", title, url)
+                                    } else {
+                                        format!("Bookmark: {}\nURL: {}\n\n{}", title, url, content)
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("⚠️ Failed to fetch fallback content from {}: {}", url, e);
+                                    format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", title, url, e)
+                                }
+                            };
+                            (cleaned_title, fallback_content)
                         }
                     }
-                    Err(e) => {
-                        println!("⚠️ Failed to fetch content from {}: {}", url, e);
-                        format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", title, url, e)
-                    }
+                } else {
+                    // Regular webpage processing
+                    let content = match fetcher.fetch_page_content(url).await {
+                        Ok(content) => {
+                            if content.is_empty() {
+                                format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", title, url)
+                            } else {
+                                format!("Bookmark: {}\nURL: {}\n\n{}", title, url, content)
+                            }
+                        }
+                        Err(e) => {
+                            println!("⚠️ Failed to fetch content from {}: {}", url, e);
+                            format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", title, url, e)
+                        }
+                    };
+                    (title, content)
                 };
 
                 let content_len = content.len();
-                result.push((title.clone(), content, url.clone(), false));
-                println!("✅ Processed bookmark: {} ({} chars)", title, content_len);
+                result.push((processed_title.clone(), content, url.clone(), false));
+                println!("✅ Processed bookmark: {} ({} chars)", processed_title, content_len);
             }
         }
 
@@ -232,7 +285,15 @@ impl BookmarkMonitor {
                 } else {
                     bookmark.name.clone()
                 };
-                result.push((title, url.clone()));
+
+                // Clean up YouTube titles
+                let processed_title = if YouTubeProcessor::is_youtube_url(url) {
+                    YouTubeProcessor::cleanup_title(&title)
+                } else {
+                    title
+                };
+
+                result.push((processed_title, url.clone()));
             }
         }
 
@@ -242,6 +303,24 @@ impl BookmarkMonitor {
     pub async fn fetch_bookmark_content(&self, url: &str) -> Result<String> {
         let fetcher = WebFetcher::new();
 
+        // Check if this is a YouTube URL and try to get transcript
+        if YouTubeProcessor::is_youtube_url(url) {
+            println!("🎥 Processing YouTube bookmark: {}", url);
+            match YouTubeProcessor::fetch_transcript(url).await {
+                Ok(Some(transcript)) => {
+                    println!("✅ Using YouTube transcript for bookmark: {}", url);
+                    return Ok(format!("Bookmark: {}\nURL: {}\n\n{}", url, url, transcript));
+                }
+                Ok(None) => {
+                    println!("⚠️ No YouTube transcript available, using original content");
+                }
+                Err(e) => {
+                    println!("⚠️ Failed to fetch YouTube transcript: {}, using original content", e);
+                }
+            }
+        }
+
+        // Fallback to regular content fetching
         let content = match fetcher.fetch_page_content(url).await {
             Ok(content) => {
                 if content.is_empty() {
