@@ -1,13 +1,13 @@
 use crate::{
     Result,
-    db::{Database, OperationPriority},
+    db::{Database, Document, OperationPriority},
     vector::VectorStore,
     ollama::OllamaClient,
     document::DocumentProcessor,
 };
 
 pub struct RagPipeline {
-    db: Database,
+    pub db: Database,
     vector_store: VectorStore,
     ollama_client: OllamaClient,
     document_processor: DocumentProcessor,
@@ -145,6 +145,32 @@ impl RagPipeline {
             answer,
             sources,
         })
+    }
+
+    // Add the search method for compatibility
+    pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<(Document, f32)>> {
+        // Generate embedding for the query
+        let query_embedding = self.ollama_client.generate_embedding(query).await?;
+
+        // Find similar documents using vector similarity with 60% cutoff
+        let search_results = self.vector_store.search_with_cutoff(&query_embedding, limit, 0.6)?;
+
+        let mut results = Vec::new();
+
+        // Retrieve full documents for the most similar results
+        for search_result in search_results {
+            if let Some(doc) = self.db.get_document(search_result.doc_id).await? {
+                results.push((doc, search_result.similarity));
+            }
+        }
+
+        Ok(results)
+    }
+
+    // Add the chat method for compatibility
+    pub async fn chat(&self, message: &str) -> Result<String> {
+        let response = self.query(message).await?;
+        Ok(response.answer)
     }
 
     fn extract_snippet(&self, content: &str, query: &str) -> String {

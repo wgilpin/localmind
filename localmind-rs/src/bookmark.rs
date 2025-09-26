@@ -1,11 +1,9 @@
-use crate::Result;
+use crate::{Result, fetcher::WebFetcher};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::fs;
 use notify::{Watcher, RecursiveMode, Event, EventKind};
 use tokio::sync::mpsc;
-use reqwest;
-use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookmarkItem {
@@ -181,11 +179,9 @@ impl BookmarkMonitor {
     pub async fn get_bookmarks_for_ingestion(&self) -> Result<Vec<(String, String, String, bool)>> {
         let bookmarks = self.parse_bookmarks()?;
         let mut result = Vec::new();
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .user_agent("LocalMind/1.0")
-            .build()
-            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+        let fetcher = WebFetcher::new();
+
+        println!("🔍 Starting bookmark ingestion for {} bookmarks", bookmarks.len());
 
         for bookmark in bookmarks {
             if let Some(url) = &bookmark.url {
@@ -195,102 +191,76 @@ impl BookmarkMonitor {
                     bookmark.name.clone()
                 };
 
-                // Check if URL is accessible and fetch content
-                let (content, is_dead) = match self.fetch_url_content(&client, url).await {
-                    Ok(content) => (content, false),
+                println!("📖 Processing bookmark: {} ({})", title, url);
+
+                // Use WebFetcher with readability for better content extraction
+                let content = match fetcher.fetch_page_content(url).await {
+                    Ok(content) => {
+                        if content.is_empty() {
+                            format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", title, url)
+                        } else {
+                            format!("Bookmark: {}\nURL: {}\n\n{}", title, url, content)
+                        }
+                    }
                     Err(e) => {
                         println!("⚠️ Failed to fetch content from {}: {}", url, e);
-                        if e.to_string().contains("404") || e.to_string().contains("Not Found") {
-                            println!("🚫 Marking {} as dead (404)", url);
-                            (format!("Bookmark: {}\nURL: {} (DEAD - 404)", title, url), true)
-                        } else {
-                            // For other errors, don't mark as dead but use placeholder content
-                            (format!("Bookmark: {}\nURL: {} (Error: {})", title, url, e), false)
-                        }
+                        format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", title, url, e)
                     }
                 };
 
-                result.push((title, content, url.clone(), is_dead));
+                let content_len = content.len();
+                result.push((title.clone(), content, url.clone(), false));
+                println!("✅ Processed bookmark: {} ({} chars)", title, content_len);
+            }
+        }
+
+        println!("📚 Processed {} bookmarks total", result.len());
+
+        Ok(result)
+    }
+
+    pub async fn get_bookmarks_metadata(&self) -> Result<Vec<(String, String)>> {
+        let bookmarks = self.parse_bookmarks()?;
+        let mut result = Vec::new();
+
+        println!("🔍 Found {} bookmarks for processing", bookmarks.len());
+
+        for bookmark in bookmarks {
+            if let Some(url) = &bookmark.url {
+                let title = if bookmark.name.is_empty() {
+                    url.clone()
+                } else {
+                    bookmark.name.clone()
+                };
+                result.push((title, url.clone()));
             }
         }
 
         Ok(result)
     }
 
-    async fn fetch_url_content(&self, client: &reqwest::Client, url: &str) -> Result<String> {
-        let response = client.get(url).send().await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+    pub async fn fetch_bookmark_content(&self, url: &str) -> Result<String> {
+        let fetcher = WebFetcher::new();
 
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err("404 Not Found".into());
-        }
+        println!("🌐 Fetching content from: {}", url);
 
-        if !response.status().is_success() {
-            return Err(format!("HTTP {}: {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")).into());
-        }
+        let content = match fetcher.fetch_page_content(url).await {
+            Ok(content) => {
+                if content.is_empty() {
+                    format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", url, url)
+                } else {
+                    format!("Bookmark: {}\nURL: {}\n\n{}", url, url, content)
+                }
+            }
+            Err(e) => {
+                println!("⚠️ Failed to fetch content from {}: {}", url, e);
+                format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", url, url, e)
+            }
+        };
 
-        let html = response.text().await
-            .map_err(|e| format!("Failed to read response body: {}", e))?;
-
-        // Basic HTML content extraction - just get text between <title> tags for now
-        let title = self.extract_title_from_html(&html);
-        let content = self.extract_content_from_html(&html);
-
-        Ok(format!("Title: {}\nContent: {}", title, content))
+        Ok(content)
     }
 
-    fn extract_title_from_html(&self, html: &str) -> String {
-        if let Some(start) = html.find("<title>") {
-            if let Some(end) = html[start + 7..].find("</title>") {
-                return html[start + 7..start + 7 + end].trim().to_string();
-            }
-        }
-        "No title found".to_string()
-    }
-
-    fn extract_content_from_html(&self, html: &str) -> String {
-        // Very basic content extraction - remove HTML tags and get first 500 chars
-        let mut content = html.to_string();
-
-        // Remove script and style tags with their content
-        while let Some(start) = content.find("<script") {
-            if let Some(end) = content[start..].find("</script>") {
-                content.replace_range(start..start + end + 9, "");
-            } else {
-                break;
-            }
-        }
-
-        while let Some(start) = content.find("<style") {
-            if let Some(end) = content[start..].find("</style>") {
-                content.replace_range(start..start + end + 8, "");
-            } else {
-                break;
-            }
-        }
-
-        // Remove all HTML tags
-        let mut result = String::new();
-        let mut in_tag = false;
-
-        for ch in content.chars() {
-            match ch {
-                '<' => in_tag = true,
-                '>' => in_tag = false,
-                _ if !in_tag => result.push(ch),
-                _ => {}
-            }
-        }
-
-        // Clean up whitespace and limit length
-        result
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .chars()
-            .take(500)
-            .collect()
-    }
 }
 
 impl Default for BookmarkMonitor {

@@ -1,25 +1,29 @@
-#![cfg_attr(
-    all(not(debug_assertions), target_os = "windows"),
-    windows_subsystem = "windows"
-)]
+// Prevents additional console window on Windows in release, DO NOT REMOVE!!
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use localmind_rs::{
-    db::Database,
-    ollama::OllamaClient,
-    rag::RagPipeline,
+    db::{Database, OperationPriority},
+    rag::RagPipeline as RAG,
     bookmark::BookmarkMonitor,
-    fetcher::WebFetcher
 };
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use std::sync::Arc;
+use tauri::{Manager, State, Window};
+use tokio::sync::Mutex;
 
-// Global state for the RAG pipeline and bookmarks
-type RagState = Arc<Mutex<Option<RagPipeline>>>;
-type BookmarkState = Arc<Mutex<Option<BookmarkMonitor>>>;
+type RagState = Arc<Mutex<Option<RAG>>>;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct SearchResult {
+    id: i64,
+    title: String,
+    content: String,
+    url: Option<String>,
+    source: String,
+    similarity_score: f32,
+}
+
+#[derive(Debug, Serialize)]
 struct BookmarkProgress {
     current: usize,
     total: usize,
@@ -27,179 +31,117 @@ struct BookmarkProgress {
     completed: bool,
 }
 
-#[derive(Serialize, Deserialize)]
-struct SearchResponse {
-    answer: String,
-    sources: Vec<DocumentSourceResponse>,
+#[tauri::command]
+async fn search_documents(
+    query: String,
+    state: State<'_, RagState>,
+) -> Result<Vec<SearchResult>, String> {
+    println!("📝 search_documents called with query: {}", query);
+    let rag_lock = state.lock().await;
+    let rag = rag_lock
+        .as_ref()
+        .ok_or("RAG system not initialized")?;
+
+    let results = rag
+        .search(&query, 10)
+        .await
+        .map_err(|e| format!("Search failed: {}", e))?;
+
+    let search_results = results
+        .into_iter()
+        .map(|(doc, score)| SearchResult {
+            id: doc.id,
+            title: doc.title,
+            content: doc.content,
+            url: doc.url,
+            source: doc.source,
+            similarity_score: score,
+        })
+        .collect();
+
+    Ok(search_results)
 }
 
-#[derive(Serialize, Deserialize)]
-struct DocumentSourceResponse {
-    doc_id: i64,
-    title: String,
-    content_snippet: String,
-    similarity: f32,
+#[tauri::command]
+async fn get_document_count(state: State<'_, RagState>) -> Result<i64, String> {
+    println!("📝 get_document_count called");
+    let rag_lock = state.lock().await;
+    let rag = rag_lock
+        .as_ref()
+        .ok_or("RAG system not initialized")?;
+
+    rag.db
+        .count_documents(OperationPriority::UserSearch)
+        .await
+        .map_err(|e| format!("Failed to count documents: {}", e))
 }
 
-#[derive(Serialize, Deserialize)]
-struct IngestRequest {
+#[tauri::command]
+async fn chat_with_rag(
+    message: String,
+    state: State<'_, RagState>,
+) -> Result<String, String> {
+    println!("📝 chat_with_rag called with message: {}", message);
+    let rag_lock = state.lock().await;
+    let rag = rag_lock
+        .as_ref()
+        .ok_or("RAG system not initialized")?;
+
+    rag.chat(&message)
+        .await
+        .map_err(|e| format!("Chat failed: {}", e))
+}
+
+#[tauri::command]
+async fn add_document(
     title: String,
     content: String,
     url: Option<String>,
     source: String,
-}
-
-// Helper function to limit bookmark content to 2k characters (UTF-8 safe)
-fn truncate_bookmark_content(content: &str, max_chars: usize) -> String {
-    if content.len() <= max_chars {
-        content.to_string()
-    } else {
-        // Find a safe UTF-8 character boundary
-        let mut boundary = max_chars;
-        while boundary > 0 && !content.is_char_boundary(boundary) {
-            boundary -= 1;
-        }
-
-        if boundary == 0 {
-            // If we can't find a boundary, just return the truncation message
-            format!("[Content truncated - unable to find safe UTF-8 boundary at {} chars]", max_chars)
-        } else {
-            format!("{}...\n[Content truncated at {} chars]", &content[..boundary], boundary)
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct SearchHitsResponse {
-    query: String,
-    sources: Vec<DocumentSourceResponse>,
-    has_results: bool,
-}
-
-#[tauri::command]
-async fn search_query(
-    query: String,
-    state: tauri::State<'_, RagState>
-) -> Result<SearchResponse, String> {
-    let rag_lock = state.lock().await;
-    let rag = rag_lock
-        .as_ref()
-        .ok_or("RAG pipeline not initialized")?;
-
-    let response = rag.query(&query).await
-        .map_err(|e| format!("Search failed: {}", e))?;
-
-    let sources = response.sources.into_iter().map(|s| DocumentSourceResponse {
-        doc_id: s.doc_id,
-        title: s.title,
-        content_snippet: s.content_snippet,
-        similarity: s.similarity,
-    }).collect();
-
-    Ok(SearchResponse {
-        answer: response.answer,
-        sources,
-    })
-}
-
-#[tauri::command]
-async fn search_hits(
-    query: String,
-    state: tauri::State<'_, RagState>
-) -> Result<SearchHitsResponse, String> {
-    let rag_lock = state.lock().await;
-    let rag = rag_lock
-        .as_ref()
-        .ok_or("RAG pipeline not initialized")?;
-
-    let sources = rag.get_search_hits(&query).await
-        .map_err(|e| format!("Search failed: {}", e))?;
-
-    let has_results = !sources.is_empty();
-    let source_responses = sources.into_iter().map(|s| DocumentSourceResponse {
-        doc_id: s.doc_id,
-        title: s.title,
-        content_snippet: s.content_snippet,
-        similarity: s.similarity,
-    }).collect();
-
-    Ok(SearchHitsResponse {
-        query,
-        sources: source_responses,
-        has_results,
-    })
-}
-
-#[tauri::command]
-async fn generate_response(
-    query: String,
-    context_sources: Vec<i64>, // Document IDs to use for context
-    state: tauri::State<'_, RagState>
+    state: State<'_, RagState>,
 ) -> Result<String, String> {
-    let rag_lock = state.lock().await;
-    let rag = rag_lock
-        .as_ref()
-        .ok_or("RAG pipeline not initialized")?;
-
-    let answer = rag.generate_answer(&query, &context_sources).await
-        .map_err(|e| format!("Generation failed: {}", e))?;
-
-    Ok(answer)
-}
-
-#[tauri::command]
-async fn ingest_document(
-    request: IngestRequest,
-    state: tauri::State<'_, RagState>
-) -> Result<i64, String> {
+    println!("📝 add_document called for: {}", title);
     let mut rag_lock = state.lock().await;
     let rag = rag_lock
         .as_mut()
-        .ok_or("RAG pipeline not initialized")?;
+        .ok_or("RAG system not initialized")?;
 
-    let doc_id = rag.ingest_document(
-        &request.title,
-        &request.content,
-        request.url.as_deref(),
-        &request.source,
-    ).await
-    .map_err(|e| format!("Document ingestion failed: {}", e))?;
+    rag.ingest_document(&title, &content, url.as_deref(), &source)
+        .await
+        .map_err(|e| format!("Failed to add document: {}", e))?;
 
-    Ok(doc_id)
+    Ok(format!("Document '{}' added successfully", title))
 }
 
 #[tauri::command]
-async fn start_bookmark_ingestion(
-    window: tauri::Window,
-    rag_state: tauri::State<'_, RagState>,
-    bookmark_state: tauri::State<'_, BookmarkState>
+async fn ingest_bookmarks(
+    window: Window,
+    state: State<'_, RagState>,
 ) -> Result<String, String> {
-    let bookmark_lock = bookmark_state.lock().await;
-    let bookmark_monitor = bookmark_lock
-        .as_ref()
-        .ok_or("Bookmark monitor not available")?;
+    println!("📝 ingest_bookmarks called");
+    // Initialize bookmark monitor
+    let monitor = BookmarkMonitor::new()
+        .map_err(|e| format!("Failed to initialize bookmark monitor: {}", e))?
+        .0;
 
-    // Get existing bookmarks
-    let existing_bookmarks = bookmark_monitor.get_bookmarks_for_ingestion().await
+    // Get bookmarks for ingestion (with readability-processed content)
+    let existing_bookmarks = monitor
+        .get_bookmarks_for_ingestion()
+        .await
         .map_err(|e| format!("Failed to get bookmarks: {}", e))?;
-
-    if existing_bookmarks.is_empty() {
-        return Ok("No bookmarks found to ingest".to_string());
-    }
 
     let total = existing_bookmarks.len();
     println!("Starting bookmark ingestion: {} bookmarks", total);
 
     // Clone states for the background task
-    let rag_state_clone = rag_state.inner().clone();
+    let rag_state_clone = state.inner().clone();
     let window_clone = window.clone();
 
     // Start bookmark ingestion in background
     tokio::spawn(async move {
-        let _fetcher = WebFetcher::new();
         let mut ingested_count = 0;
 
-        for (index, (title, content, url, is_dead)) in existing_bookmarks.into_iter().enumerate() {
+        for (index, (title, content, url, _is_dead)) in existing_bookmarks.into_iter().enumerate() {
             // Send progress update to UI
             let progress = BookmarkProgress {
                 current: index + 1,
@@ -212,20 +154,10 @@ async fn start_bookmark_ingestion(
                 eprintln!("Failed to emit progress: {}", e);
             }
 
-            // Skip ingesting dead bookmarks
-            if is_dead {
-                println!("🚫 Skipping dead bookmark: {}", title);
-                continue;
-            }
-
-            // Use the content already fetched by the bookmark monitor
-            let final_content = truncate_bookmark_content(&content, 2000);
-
-            // Ingest the bookmark with fetched content - acquire lock only for ingestion
             {
                 let mut rag_lock = rag_state_clone.lock().await;
                 if let Some(ref mut rag) = *rag_lock {
-                    match rag.ingest_document(&title, &final_content, Some(&url), "chrome_bookmark").await {
+                    match rag.ingest_document(&title, &content, Some(&url), "chrome_bookmark").await {
                         Ok(_) => {
                             ingested_count += 1;
                         }
@@ -259,390 +191,357 @@ async fn start_bookmark_ingestion(
 }
 
 #[tauri::command]
-async fn get_bookmark_status() -> Result<serde_json::Value, String> {
-    match BookmarkMonitor::get_chrome_bookmarks_path() {
-        Ok(path) => {
-            let monitor = BookmarkMonitor::default();
-            match monitor.parse_bookmarks() {
-                Ok(bookmarks) => Ok(serde_json::json!({
-                    "available": true,
-                    "path": path.to_string_lossy(),
-                    "bookmark_count": bookmarks.len()
-                })),
-                Err(e) => Ok(serde_json::json!({
-                    "available": false,
-                    "path": path.to_string_lossy(),
-                    "error": format!("Failed to parse bookmarks: {}", e)
-                }))
-            }
-        }
-        Err(e) => Ok(serde_json::json!({
-            "available": false,
-            "error": format!("Chrome bookmarks not found: {}", e)
-        }))
+async fn get_ollama_models() -> Result<Vec<String>, String> {
+    println!("📝 get_ollama_models called");
+    let client = reqwest::Client::new();
+    let response = client
+        .get("http://localhost:11434/api/tags")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to Ollama: {}", e))?;
+
+    #[derive(Deserialize)]
+    struct Model {
+        name: String,
     }
+
+    #[derive(Deserialize)]
+    struct ModelsResponse {
+        models: Vec<Model>,
+    }
+
+    let models_response: ModelsResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse models: {}", e))?;
+
+    let model_names: Vec<String> = models_response
+        .models
+        .into_iter()
+        .map(|m| m.name)
+        .collect();
+
+    Ok(model_names)
+}
+
+#[derive(Debug, Serialize)]
+struct SystemStats {
+    document_count: i64,
+    status: String,
 }
 
 #[tauri::command]
-async fn health_check(
-    state: tauri::State<'_, RagState>
+async fn get_stats(state: State<'_, RagState>) -> Result<SystemStats, String> {
+    println!("📝 get_stats called");
+    let rag_lock = state.lock().await;
+
+    match rag_lock.as_ref() {
+        Some(rag) => {
+            println!("  ✅ RAG is initialized, getting doc count");
+            let doc_count = rag.db
+                .count_documents(OperationPriority::UserSearch)
+                .await
+                .unwrap_or(0);
+
+            println!("  📊 Document count: {}", doc_count);
+            Ok(SystemStats {
+                document_count: doc_count,
+                status: if doc_count > 0 { "ready".to_string() } else { "empty".to_string() },
+            })
+        }
+        None => {
+            println!("  ⏳ RAG not initialized yet");
+            Ok(SystemStats {
+                document_count: 0,
+                status: "initializing".to_string(),
+            })
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct SearchHitResult {
+    has_results: bool,
+    query: String,
+    sources: Vec<SearchSource>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchSource {
+    doc_id: i64,
+    title: String,
+    content_snippet: String,
+    similarity: f32,
+}
+
+#[tauri::command]
+async fn search_hits(
+    query: String,
+    state: State<'_, RagState>,
+) -> Result<SearchHitResult, String> {
+    println!("📝 search_hits called with query: {}", query);
+    let rag_lock = state.lock().await;
+    let rag = rag_lock
+        .as_ref()
+        .ok_or("RAG system not initialized")?;
+
+    let hits = rag
+        .get_search_hits(&query)
+        .await
+        .map_err(|e| format!("Search failed: {}", e))?;
+
+    let sources: Vec<SearchSource> = hits
+        .into_iter()
+        .map(|hit| SearchSource {
+            doc_id: hit.doc_id,
+            title: hit.title,
+            content_snippet: hit.content_snippet,
+            similarity: hit.similarity,
+        })
+        .collect();
+
+    Ok(SearchHitResult {
+        has_results: !sources.is_empty(),
+        query,
+        sources,
+    })
+}
+
+#[tauri::command]
+async fn generate_response(
+    query: String,
+    context_sources: Vec<i64>,
+    state: State<'_, RagState>,
 ) -> Result<String, String> {
+    println!("📝 generate_response called with query: {}", query);
     let rag_lock = state.lock().await;
-    if let Some(rag) = rag_lock.as_ref() {
-        let (count, _) = rag.vector_store_stats();
+    let rag = rag_lock
+        .as_ref()
+        .ok_or("RAG system not initialized")?;
 
-        // Check model availability
-        match rag.ollama().check_models_available().await {
-            Ok((embedding_ok, completion_ok, available_models)) => {
-                let (embedding_model, completion_model) = rag.ollama().get_model_names();
-
-                if !embedding_ok || !completion_ok {
-                    let mut missing = Vec::new();
-                    if !embedding_ok {
-                        missing.push(format!("❌ Embedding: {} (run: ollama pull {})",
-                            embedding_model, embedding_model));
-                    }
-                    if !completion_ok {
-                        missing.push(format!("❌ Completion: {} (run: ollama pull {})",
-                            completion_model, completion_model));
-                    }
-                    return Ok(format!(
-                        "⚠️  Missing models:\n{}\n\nAvailable: {:?}\n{} documents loaded",
-                        missing.join("\n"),
-                        available_models,
-                        count
-                    ));
-                }
-
-                Ok(format!(
-                    "✅ RAG Pipeline OK\n📚 {} documents loaded\n🤖 Models: {} (embed), {} (chat)",
-                    count, embedding_model, completion_model
-                ))
-            },
-            Err(e) => {
-                Ok(format!(
-                    "⚠️  Ollama not connected: {}\nPlease run: ollama serve\n{} documents loaded",
-                    e, count
-                ))
-            }
-        }
-    } else {
-        Err("RAG pipeline not initialized".to_string())
-    }
+    rag.generate_answer(&query, &context_sources)
+        .await
+        .map_err(|e| format!("Failed to generate response: {}", e))
 }
 
-#[tauri::command]
-async fn get_stats(
-    state: tauri::State<'_, RagState>
-) -> Result<serde_json::Value, String> {
-    let rag_lock = state.lock().await;
-    if let Some(rag) = rag_lock.as_ref() {
-        let (count, is_empty) = rag.vector_store_stats();
-        Ok(serde_json::json!({
-            "document_count": count,
-            "vector_store_empty": is_empty,
-            "status": "ready"
-        }))
-    } else {
-        Ok(serde_json::json!({
-            "document_count": 0,
-            "vector_store_empty": true,
-            "status": "initializing"
-        }))
-    }
-}
+fn main() {
+    println!("🚀 Starting LocalMind application");
 
-#[tokio::main]
-async fn main() {
-    // Initialize database
-    let db = match Database::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Failed to initialize database: {}", e);
-            return;
-        }
-    };
+    // Create the runtime for the entire application
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to build runtime");
 
-    // Initialize Ollama client
-    let ollama = OllamaClient::new("http://localhost:11434".to_string());
+    println!("✅ Tokio runtime created");
 
-    // Check if required models are available
-    match ollama.check_models_available().await {
-        Ok((embedding_ok, completion_ok, available_models)) => {
-            let (embedding_model, completion_model) = ollama.get_model_names();
+    // Enter the runtime context
+    let _guard = runtime.enter();
 
-            if !embedding_ok || !completion_ok {
-                eprintln!("⚠️  WARNING: Required Ollama models are missing!");
-                eprintln!("");
-                if !embedding_ok {
-                    eprintln!("❌ Embedding model '{}' is not installed", embedding_model);
-                    eprintln!("   Please run: ollama pull {}", embedding_model);
+    // Build and run the Tauri app
+    tauri::Builder::default()
+        .manage(RagState::default())
+        .setup(move |app| {
+            println!("🔧 Tauri setup starting");
+            let rag_state = app.state::<RagState>();
+            let rag_state_clone = rag_state.inner().clone();
+
+            // Try to get the main window
+            let _window = match app.get_window("main") {
+                Some(w) => {
+                    println!("✅ Got main window");
+                    w
+                },
+                None => {
+                    eprintln!("❌ Could not get main window!");
+                    return Err("Could not get main window".into());
                 }
-                if !completion_ok {
-                    eprintln!("❌ Completion model '{}' is not installed", completion_model);
-                    eprintln!("   Please run: ollama pull {}", completion_model);
-                }
-                eprintln!("");
-                eprintln!("Available models: {:?}", available_models);
-                eprintln!("");
-                eprintln!("The application will start but search functionality will be limited until models are installed.");
-            } else {
-                println!("✅ Ollama models: OK (embedding: {}, completion: {})",
-                    embedding_model, completion_model);
-            }
-        },
-        Err(e) => {
-            eprintln!("⚠️  WARNING: Cannot connect to Ollama service");
-            eprintln!("   Error: {}", e);
-            eprintln!("   Make sure Ollama is running: ollama serve");
-            eprintln!("");
-            eprintln!("The application will start but search functionality will not work.");
-        }
-    }
+            };
 
-    println!("LocalMind Rust implementation initialized!");
-    println!("Database: OK");
+            // Initialize RAG system in the background using tokio::spawn directly
+            tokio::spawn(async move {
+                println!("🚀 Starting RAG initialization task");
 
-    // Initialize RAG pipeline
-    let rag_pipeline = match RagPipeline::new(db, ollama).await {
-        Ok(rag) => {
-            println!("RAG Pipeline: OK");
-            Some(rag)
-        },
-        Err(e) => {
-            eprintln!("Failed to initialize RAG pipeline: {}", e);
-            println!("RAG Pipeline: Failed (will retry)");
-            None
-        }
-    };
-
-    // Create shared state
-    let rag_state: RagState = Arc::new(Mutex::new(rag_pipeline));
-
-    // Initialize bookmark monitoring (but don't process existing bookmarks yet)
-    let bookmark_state = if let Ok((bookmark_monitor, mut bookmark_rx)) = BookmarkMonitor::new() {
-        println!("Chrome Bookmarks: Found (monitoring will start after UI)");
-
-        // Clone the RAG state for the bookmark processing task
-        let rag_state_clone = rag_state.clone();
-
-        // Start the bookmark file watcher
-        if let Err(e) = bookmark_monitor.start_monitoring().await {
-            eprintln!("Failed to start bookmark monitoring: {}", e);
-        }
-
-        // Process bookmark updates in the background WITH PROPER LOCKING
-        tokio::spawn(async move {
-            let fetcher = WebFetcher::new();
-
-            while let Some(bookmarks) = bookmark_rx.recv().await {
-                println!("Received {} bookmark updates", bookmarks.len());
-                let mut ingested_count = 0;
-
-                for bookmark in bookmarks {
-                    if let Some(url) = &bookmark.url {
-                        let title = if bookmark.name.is_empty() {
-                            url.clone()
-                        } else {
-                            bookmark.name.clone()
-                        };
-
-                        // Fetch actual page content
-                        let content = match fetcher.fetch_page_content(url).await {
-                            Ok(page_content) if !page_content.is_empty() => {
-                                println!("✅ Using fetched content for: {}", title);
-                                truncate_bookmark_content(&page_content, 2000)
-                            }
-                            _ => {
-                                println!("⏭️ Using URL as content for: {}", title);
-                                let fallback_content = format!("Bookmark: {}\nURL: {}", title, url);
-                                truncate_bookmark_content(&fallback_content, 2000)
-                            }
-                        };
-
-                        // Acquire lock ONLY for ingestion
+                match init_rag_system().await {
+                    Ok(rag) => {
+                        println!("✅ RAG system initialized successfully");
                         {
                             let mut rag_lock = rag_state_clone.lock().await;
-                            if let Some(ref mut rag) = *rag_lock {
-                                match rag.ingest_document(&title, &content, Some(url), "chrome_bookmark").await {
-                                    Ok(_) => {
-                                        ingested_count += 1;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to ingest bookmark '{}': {}", title, e);
-                                    }
-                                }
-                            }
-                        } // Lock released here
-
-                        // Small delay to allow other operations
-                        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-                    }
-                }
-
-                if ingested_count > 0 {
-                    println!("Successfully ingested {} new bookmarks", ingested_count);
-                }
-            }
-        });
-
-        Some(bookmark_monitor)
-    } else {
-        println!("Chrome Bookmarks: Not found (monitoring disabled)");
-        None
-    };
-
-    let bookmark_state: BookmarkState = Arc::new(Mutex::new(bookmark_state));
-
-    tauri::Builder::default()
-        .manage(rag_state.clone())
-        .manage(bookmark_state.clone())
-        .invoke_handler(tauri::generate_handler![
-            search_query,
-            search_hits,
-            generate_response,
-            ingest_document,
-            start_bookmark_ingestion,
-            get_bookmark_status,
-            health_check,
-            get_stats
-        ])
-        .setup(move |app| {
-            // Start automatic bookmark processing after UI is ready
-            let app_handle = app.handle();
-            let rag_state_setup = rag_state.clone();
-            let bookmark_state_setup = bookmark_state.clone();
-
-            tokio::spawn(async move {
-                // Small delay to ensure UI is fully loaded
-                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-                let bookmark_lock = bookmark_state_setup.lock().await;
-                if let Some(bookmark_monitor) = bookmark_lock.as_ref() {
-                    if let Ok(existing_bookmarks) = bookmark_monitor.get_bookmarks_for_ingestion().await {
-                        if !existing_bookmarks.is_empty() {
-                            let total = existing_bookmarks.len();
-                            println!("Auto-processing {} existing bookmarks...", total);
-
-                            drop(bookmark_lock); // Release the bookmark lock before processing
-
-                            // First check if models are available
-                            let models_available = {
-                                let rag_lock = rag_state_setup.lock().await;
-                                if let Some(ref rag) = *rag_lock {
-                                    match rag.ollama().check_models_available().await {
-                                        Ok((embedding_ok, completion_ok, _)) => embedding_ok && completion_ok,
-                                        Err(_) => false
-                                    }
-                                } else {
-                                    false
-                                }
-                            }; // Release RAG lock
-
-                            if !models_available {
-                                eprintln!("❌ Cannot process bookmarks: Ollama models not available");
-                                return;
-                            }
-
-                            let fetcher = WebFetcher::new();
-                            let mut ingested_count = 0;
-
-                            println!("🚀 Starting bookmark processing loop for {} bookmarks", total);
-
-                            for (index, (title, _url_as_content, url, _is_dead)) in existing_bookmarks.into_iter().enumerate() {
-                                println!("\n📌 Processing bookmark {}/{}: {} - {}", index + 1, total, title, url);
-
-                                // Check if URL already exists in database
-                                let should_process = {
-                                    let mut rag_lock = rag_state_setup.lock().await;
-                                    if let Some(ref mut rag) = *rag_lock {
-                                        match rag.document_exists(&url).await {
-                                            Ok(true) => {
-                                                println!("⏭️  Skipping existing bookmark: {} - {}", title, url);
-                                                false
-                                            }
-                                            Ok(false) => {
-                                                println!("✅ New bookmark, proceeding with processing");
-                                                true
-                                            }
-                                            Err(e) => {
-                                                eprintln!("⚠️  Error checking URL existence for {}: {}. Processing anyway.", url, e);
-                                                true
-                                            }
-                                        }
-                                    } else {
-                                        false
-                                    }
-                                }; // Release lock after checking
-
-                                if !should_process {
-                                    continue;
-                                }
-
-                                // Send progress update to UI
-                                let progress = BookmarkProgress {
-                                    current: index + 1,
-                                    total,
-                                    current_title: title.clone(),
-                                    completed: false,
-                                };
-
-                                if let Err(e) = app_handle.emit_all("bookmark-progress", &progress) {
-                                    eprintln!("Failed to emit progress: {}", e);
-                                }
-
-                                // Fetch actual page content
-                                let content = match fetcher.fetch_page_content(&url).await {
-                                    Ok(page_content) if !page_content.is_empty() => {
-                                        truncate_bookmark_content(&page_content, 2000)
-                                    }
-                                    Err(_e) => {
-                                        truncate_bookmark_content(&url, 2000)
-                                    }
-                                    Ok(_) => {
-                                        truncate_bookmark_content(&url, 2000)
-                                    }
-                                };
-
-                                // Ingest the bookmark with fetched content - acquire lock only for ingestion
-                                {
-                                    let mut rag_lock = rag_state_setup.lock().await;
-                                    if let Some(ref mut rag) = *rag_lock {
-                                        match rag.ingest_document(&title, &content, Some(&url), "chrome_bookmark").await {
-                                            Ok(_) => {
-                                                ingested_count += 1;
-                                            }
-                                            Err(e) => {
-                                                eprintln!("Failed to ingest bookmark '{}': {}", title, e);
-                                            }
-                                        }
-                                    }
-                                } // Release lock after ingestion
-
-                                // Small delay to allow other operations like search
-                                tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-                            }
-
-                            // Send completion notification
-                            let final_progress = BookmarkProgress {
-                                current: total,
-                                total,
-                                current_title: format!("Completed! {} bookmarks ingested", ingested_count),
-                                completed: true,
-                            };
-
-                            if let Err(e) = app_handle.emit_all("bookmark-progress", &final_progress) {
-                                eprintln!("Failed to emit completion: {}", e);
-                            }
-
-                            println!("Auto-ingestion completed: {} bookmarks processed", ingested_count);
+                            *rag_lock = Some(rag);
+                            println!("✅ RAG stored in state");
                         }
+
+                        // Start automatic bookmark monitoring
+                        println!("📚 Starting automatic bookmark monitoring...");
+                        if let Err(e) = start_bookmark_monitoring(rag_state_clone.clone(), _window).await {
+                            eprintln!("❌ Failed to start bookmark monitoring: {}", e);
+                        } else {
+                            println!("✅ Bookmark monitoring started successfully");
+                        }
+                        println!("🎉 Initialization complete - system ready");
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to initialize RAG system: {}", e);
+                        eprintln!("Debug info:");
+                        eprintln!("  - Current directory: {:?}", std::env::current_dir());
+                        eprintln!("  - Data directory: {:?}", dirs::data_dir());
                     }
                 }
             });
 
+            println!("✅ Tauri setup complete");
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            search_documents,
+            get_document_count,
+            chat_with_rag,
+            add_document,
+            get_ollama_models,
+            get_stats,
+            search_hits,
+            generate_response,
+            ingest_bookmarks,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+async fn init_rag_system() -> Result<RAG, Box<dyn std::error::Error + Send + Sync>> {
+    use localmind_rs::{db::Database, ollama::OllamaClient};
+
+    println!("📁 Initializing database...");
+
+    // Initialize database with error handling
+    let db = match Database::new().await {
+        Ok(database) => {
+            println!("✅ Database initialized successfully");
+            database
+        },
+        Err(e) => {
+            eprintln!("❌ Database initialization failed: {}", e);
+            return Err(e.into());
+        }
+    };
+
+    println!("🤖 Initializing Ollama client...");
+    // Initialize Ollama client
+    let ollama_client = OllamaClient::new("http://localhost:11434".to_string());
+    println!("✅ Ollama client initialized");
+
+    println!("🔧 Initializing RAG pipeline...");
+    // Initialize RAG pipeline
+    let rag = match RAG::new(db, ollama_client).await {
+        Ok(rag_pipeline) => {
+            println!("✅ RAG pipeline initialized successfully");
+            rag_pipeline
+        },
+        Err(e) => {
+            eprintln!("❌ RAG pipeline initialization failed: {}", e);
+            return Err(e.into());
+        }
+    };
+
+    Ok(rag)
+}
+
+async fn start_bookmark_monitoring(
+    rag_state: RagState,
+    window: Window,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    println!("🔗 Initializing bookmark monitor...");
+    // Initialize bookmark monitor
+    let (monitor, mut rx) = BookmarkMonitor::new()?;
+
+    println!("👀 Starting file system monitoring...");
+    // Start monitoring for changes
+    monitor.start_monitoring().await?;
+
+    println!("📖 Getting existing bookmarks...");
+    // Get bookmark metadata only (no content fetching yet)
+    let bookmark_metadata = monitor.get_bookmarks_metadata().await?;
+    if !bookmark_metadata.is_empty() {
+        println!("🚀 DEBUG: About to start event emission loop with {} bookmarks", bookmark_metadata.len());
+        println!("📚 Processing {} existing bookmarks WITH EVENTS...", bookmark_metadata.len());
+
+        let total = bookmark_metadata.len();
+        let mut ingested_count = 0;
+
+        for (index, (title, url)) in bookmark_metadata.into_iter().enumerate() {
+            // Send progress update to UI
+            let progress = BookmarkProgress {
+                current: index + 1,
+                total,
+                current_title: title.clone(),
+                completed: false,
+            };
+
+            if let Err(e) = window.emit("bookmark-progress", &progress) {
+                eprintln!("❌ Failed to emit progress: {}", e);
+            } else {
+                println!("✅ Successfully emitted progress event: {}/{} - {}", index + 1, total, title);
+            }
+
+            {
+                let mut rag_lock = rag_state.lock().await;
+                if let Some(ref mut rag) = *rag_lock {
+                    // Check if bookmark already exists
+                    if !rag.document_exists(&url).await.unwrap_or(false) {
+                        // Fetch content here where we have access to window for progress
+                        println!("🌐 Fetching content for: {}", title);
+                        let content = match monitor.fetch_bookmark_content(&url).await {
+                            Ok(content) => content,
+                            Err(e) => {
+                                eprintln!("❌ Failed to fetch content for '{}': {}", title, e);
+                                format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", title, url, e)
+                            }
+                        };
+
+                        match rag.ingest_document(&title, &content, Some(&url), "chrome_bookmark").await {
+                            Ok(_) => {
+                                ingested_count += 1;
+                                println!("✅ Ingested bookmark: {}", title);
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Failed to ingest bookmark '{}': {}", title, e);
+                            }
+                        }
+                    } else {
+                        println!("⏭️ Skipping existing bookmark: {}", title);
+                    }
+                }
+            }
+
+            // Small delay to prevent overwhelming the system
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        }
+
+        // Send completion notification
+        let final_progress = BookmarkProgress {
+            current: total,
+            total,
+            current_title: format!("Completed! {} new bookmarks ingested", ingested_count),
+            completed: true,
+        };
+
+        if let Err(e) = window.emit("bookmark-progress", &final_progress) {
+            eprintln!("Failed to emit completion: {}", e);
+        }
+
+        println!("✅ Initial bookmark ingestion completed: {} bookmarks ingested", ingested_count);
+    } else {
+        println!("📚 No existing bookmarks found");
+    }
+
+    // Listen for bookmark changes
+    println!("👂 Starting bookmark change listener...");
+    tokio::spawn(async move {
+        while let Some(updated_bookmarks) = rx.recv().await {
+            println!("📚 Detected bookmark changes, processing {} bookmarks...", updated_bookmarks.len());
+            // Process updated bookmarks similar to above
+            // ... (for now just log the change)
+        }
+    });
+
+    Ok(())
 }

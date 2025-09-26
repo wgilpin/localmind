@@ -1,5 +1,6 @@
 // Import Tauri API - handle different Tauri versions
 let invoke;
+let listen;
 
 function initializeTauriAPI(callback) {
     console.log('Initializing Tauri API...');
@@ -25,6 +26,14 @@ function initializeTauriAPI(callback) {
                         console.log(`__TAURI__.${key} keys:`, Object.keys(window.__TAURI__[key]));
                     }
                 }
+            }
+
+            // Get the event listener function
+            if (window.__TAURI__.event && window.__TAURI__.event.listen) {
+                console.log('Found event.listen at window.__TAURI__.event.listen');
+                listen = window.__TAURI__.event.listen;
+            } else {
+                console.warn('Tauri event.listen not found');
             }
 
             if (invoke) {
@@ -56,28 +65,53 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     function setupBookmarkProgressListener() {
-        if (!window.__TAURI__ || !window.__TAURI__.event) {
-            console.warn('Tauri event system not available');
+        if (!listen) {
+            console.warn('Tauri event listener not available');
             return;
         }
 
+        console.log('=== Setting up bookmark progress listener ===')
+        console.log('listen function available:', !!listen)
+        console.log('listen function type:', typeof listen);
+
         // Listen for bookmark progress events
-        window.__TAURI__.event.listen('bookmark-progress', (event) => {
-            console.log('Received bookmark progress:', event.payload);
+        listen('bookmark-progress', (event) => {
+            console.log('🎯 === BOOKMARK PROGRESS EVENT RECEIVED ===');
+            console.log('📄 Raw event:', event);
+            console.log('📦 Event payload:', event.payload);
             const progress = event.payload;
 
+            if (!progress) {
+                console.error('❌ No payload in bookmark progress event');
+                return;
+            }
+
+            console.log('📊 Progress data:', {
+                current: progress.current,
+                total: progress.total,
+                title: progress.current_title,
+                completed: progress.completed
+            });
+
             if (progress.completed) {
+                console.log('✅ Bookmark processing completed!');
                 showToast(progress.current_title, 'success', 3000);
                 // Refresh stats after completion
                 setTimeout(loadStats, 1000);
             } else {
                 const percentage = Math.round((progress.current / progress.total) * 100);
+                const message = `📚 Processing bookmarks... ${progress.current}/${progress.total} (${percentage}%)\nCurrent: ${progress.current_title}`;
+                console.log('📋 Showing progress toast:', message);
                 showToast(
-                    `📚 Processing bookmarks... ${progress.current}/${progress.total} (${percentage}%)\nCurrent: ${progress.current_title}`,
+                    message,
                     'info',
                     0 // Keep showing until replaced or completed
                 );
             }
+        }).then(() => {
+            console.log('Successfully registered bookmark-progress listener');
+        }).catch((error) => {
+            console.error('Failed to register bookmark-progress listener:', error);
         });
 
         console.log('Bookmark progress listener setup complete');
@@ -257,8 +291,13 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentProgressToast = null;
 
     function showToast(message, type = 'info', duration = 5000) {
+        console.log(`🍞 SHOWTOAST CALLED: [${type}] ${message} (duration: ${duration})`);
+
         const toastContainer = document.getElementById('toast-container');
-        if (!toastContainer) return;
+        if (!toastContainer) {
+            console.error('❌ Toast container not found!');
+            return;
+        }
 
         // Remove existing progress toast if this is a new progress message
         if (type === 'info' && message.includes('Processing bookmarks') && currentProgressToast) {
@@ -300,6 +339,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }, duration);
         }
     }
+
+    // Export showToast to global scope for testing
+    window.showToast = showToast;
 
     function escapeHtml(text) {
         const div = document.createElement('div');
