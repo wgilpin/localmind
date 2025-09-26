@@ -59,21 +59,35 @@ impl DocumentProcessor {
                 end
             };
 
-            let chunk_text = text[start..actual_end].trim().to_string();
+            // Ensure start is on a UTF-8 character boundary before creating slice
+            let mut safe_start = start;
+            while safe_start < text_len && !text.is_char_boundary(safe_start) {
+                safe_start += 1;
+            }
 
-            if !chunk_text.is_empty() {
-                chunks.push(DocumentChunk {
-                    content: chunk_text,
-                    start_pos: start,
-                    end_pos: actual_end,
-                });
+            // Ensure actual_end is on a UTF-8 character boundary
+            let mut safe_actual_end = actual_end;
+            while safe_actual_end > safe_start && !text.is_char_boundary(safe_actual_end) {
+                safe_actual_end -= 1;
+            }
+
+            if safe_actual_end > safe_start {
+                let chunk_text = text[safe_start..safe_actual_end].trim().to_string();
+
+                if !chunk_text.is_empty() {
+                    chunks.push(DocumentChunk {
+                        content: chunk_text,
+                        start_pos: safe_start,
+                        end_pos: safe_actual_end,
+                    });
+                }
             }
 
             // Move start position, accounting for overlap
-            let new_start = if actual_end >= self.overlap {
-                actual_end - self.overlap
+            let new_start = if safe_actual_end >= self.overlap {
+                safe_actual_end - self.overlap
             } else {
-                actual_end
+                safe_actual_end
             };
 
             // Ensure we make reasonable progress - if new start is too close, advance by a minimum amount
@@ -98,48 +112,53 @@ impl DocumentProcessor {
     }
 
     fn find_break_point(&self, text: &str, start: usize, preferred_end: usize) -> usize {
-        // Ensure we're working with valid UTF-8 boundaries
+        // Ensure both start and end are on valid UTF-8 boundaries
+        let mut safe_start = start;
+        while safe_start < text.len() && !text.is_char_boundary(safe_start) {
+            safe_start += 1;
+        }
+
         let mut safe_end = preferred_end;
-        while safe_end > start && !text.is_char_boundary(safe_end) {
+        while safe_end > safe_start && !text.is_char_boundary(safe_end) {
             safe_end -= 1;
         }
 
-        if safe_end <= start {
+        if safe_end <= safe_start {
             // Find a safe boundary starting from preferred_end and working backwards
             let mut fallback = preferred_end;
-            while fallback > start && !text.is_char_boundary(fallback) {
+            while fallback > safe_start && !text.is_char_boundary(fallback) {
                 fallback -= 1;
             }
-            return if fallback > start { fallback } else { start };
+            return if fallback > safe_start { fallback } else { safe_start };
         }
 
-        let search_text = &text[start..safe_end];
+        let search_text = &text[safe_start..safe_end];
 
         // Look for paragraph breaks first
         if let Some(pos) = search_text.rfind("\n\n") {
-            return start + pos + 2;
+            return safe_start + pos + 2;
         }
 
         // Look for sentence endings
         if let Some(pos) = search_text.rfind(". ") {
-            return start + pos + 2;
+            return safe_start + pos + 2;
         }
 
         // Look for other sentence endings
         for ending in &["! ", "? ", ": ", "; "] {
             if let Some(pos) = search_text.rfind(ending) {
-                return start + pos + 2;
+                return safe_start + pos + 2;
             }
         }
 
         // Look for line breaks
         if let Some(pos) = search_text.rfind('\n') {
-            return start + pos + 1;
+            return safe_start + pos + 1;
         }
 
         // Look for word boundaries
         if let Some(pos) = search_text.rfind(' ') {
-            return start + pos + 1;
+            return safe_start + pos + 1;
         }
 
         // No good break point found, use safe_end (which is guaranteed to be on a UTF-8 boundary)
@@ -189,5 +208,207 @@ mod tests {
         let processor = DocumentProcessor::default();
         let chunks = processor.chunk_text("").unwrap();
         assert_eq!(chunks.len(), 0);
+    }
+
+    #[test]
+    fn test_utf8_boundaries() {
+        let processor = DocumentProcessor::new(10, 2);
+        // String with multi-byte UTF-8 characters
+        let text = "Hello 🦀 world with émojis and ñoñó characters";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        // Verify all chunks are valid UTF-8
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+        }
+
+        // Verify we got reasonable chunks
+        assert!(chunks.len() > 0);
+    }
+
+    #[test]
+    fn test_emoji_at_chunk_boundary() {
+        let processor = DocumentProcessor::new(8, 2);
+        // Place emojis exactly at potential chunk boundaries
+        let text = "Hello 🦀🚀🎉 World!";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        // Verify all chunks are valid UTF-8 and contain complete characters
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            // Ensure no broken emoji characters
+            assert!(!chunk.content.contains('�'));
+        }
+    }
+
+    #[test]
+    fn test_mixed_script_chunking() {
+        let processor = DocumentProcessor::new(15, 3);
+        // Mix of Latin, Cyrillic, Chinese, Arabic, and emojis
+        let text = "Hello мир 世界 مرحبا 🌍 नमस्ते こんにちは";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            // No replacement characters indicating broken UTF-8
+            assert!(!chunk.content.contains('�'));
+        }
+    }
+
+    #[test]
+    fn test_long_multibyte_sequence() {
+        let processor = DocumentProcessor::new(20, 5);
+        // String with many consecutive multi-byte characters
+        let text = "🦀🚀🎉🌟💫⭐🎯🎪🎨🎭🎪🎨🎭🎪🎨🎭🎪🎨🎭🎪🎨🎭";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            // Each emoji is 4 bytes, so verify we're handling them correctly
+            assert!(chunk.content.chars().count() > 0);
+        }
+    }
+
+    #[test]
+    fn test_combining_characters() {
+        let processor = DocumentProcessor::new(10, 2);
+        // Text with combining diacritical marks
+        let text = "Café résumé naïve Zürich exposé";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            // Verify combining characters aren't separated from their base
+            assert!(!chunk.content.contains('�'));
+        }
+    }
+
+    #[test]
+    fn test_rtl_text_chunking() {
+        let processor = DocumentProcessor::new(15, 3);
+        // Right-to-left languages (Arabic, Hebrew)
+        let text = "English text مرحبا بالعالم Hello שלום עולם World!";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            assert!(!chunk.content.contains('�'));
+        }
+    }
+
+    #[test]
+    fn test_zero_width_characters() {
+        let processor = DocumentProcessor::new(12, 2);
+        // Text with zero-width characters
+        let text = "Hello\u{200B}world\u{FEFF}test\u{200C}text";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_very_small_chunks_with_multibyte() {
+        let processor = DocumentProcessor::new(3, 1);
+        // Very small chunks with multi-byte characters
+        let text = "🦀a🚀b🎉c";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            // With such small chunks, we might get individual characters
+            assert!(chunk.content.chars().count() >= 1);
+        }
+    }
+
+    #[test]
+    fn test_multibyte_at_exact_boundary() {
+        let processor = DocumentProcessor::new(7, 1);
+        // Carefully crafted to put multi-byte chars at chunk boundaries
+        let text = "Hi 🦀 Go"; // "Hi " = 3 bytes, "🦀" = 4 bytes, " Go" = 3 bytes
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            assert!(!chunk.content.contains('�'));
+        }
+    }
+
+    #[test]
+    fn test_normalization_forms() {
+        let processor = DocumentProcessor::new(10, 2);
+        // Same character in different Unicode normalization forms
+        let text = "é vs e\u{0301} café vs cafe\u{0301}"; // é vs e + combining accent
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_surrogate_pairs() {
+        let processor = DocumentProcessor::new(8, 1);
+        // Characters that require surrogate pairs in UTF-16 but are single code points in UTF-8
+        let text = "𝕳𝖊𝖑𝖑𝖔 𝖂𝖔𝖗𝖑𝖉!"; // Mathematical bold characters
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            assert!(!chunk.content.contains('�'));
+        }
+    }
+
+    #[test]
+    fn test_cjk_ideographs() {
+        let processor = DocumentProcessor::new(12, 2);
+        // Chinese, Japanese, Korean characters
+        let text = "中文测试 日本語テスト 한국어시험";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            assert!(!chunk.content.contains('�'));
+        }
+    }
+
+    #[test]
+    fn test_edge_case_single_multibyte() {
+        let processor = DocumentProcessor::new(10, 0);
+        // Just a single multi-byte character - chunk size larger than text
+        let text = "🦀";
+        let chunks = processor.chunk_text(text).unwrap();
+
+        // Should use short text path and create exactly one chunk
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].content, "🦀");
+        assert!(std::str::from_utf8(chunks[0].content.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_mixed_multibyte_with_whitespace() {
+        let processor = DocumentProcessor::new(10, 2);
+        // Multi-byte characters mixed with various whitespace
+        let text = "🦀\n🚀\t🎉 \u{00A0}world"; // Include non-breaking space
+        let chunks = processor.chunk_text(text).unwrap();
+
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.content.as_bytes()).is_ok());
+            assert!(!chunk.content.is_empty());
+            assert!(!chunk.content.contains('�'));
+        }
     }
 }
