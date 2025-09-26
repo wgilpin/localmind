@@ -4,7 +4,7 @@ This file provides guidance for working with the Rust implementation of LocalMin
 
 ## Overview
 
-The Rust implementation (`localmind-rs/`) is a desktop application built with Tauri that provides a native GUI for LocalMind's RAG-based knowledge management system. This version aims to be a standalone, performant alternative to the Node.js implementation.
+The Rust implementation (`localmind-rs/`) is the current active development version of LocalMind. It's a desktop application built with Tauri that provides a native GUI for LocalMind's RAG-based knowledge management system. This version aims to be a standalone, performant replacement for the Node.js implementation.
 
 ## Technology Stack
 
@@ -178,11 +178,11 @@ cargo +nightly udeps
 
 ### API Compatibility
 
-The Rust implementation maintains API compatibility with the Node.js version:
+The Rust implementation is designed as a desktop-first application but maintains conceptual compatibility with the TypeScript version:
 
-- Same REST endpoints
-- Compatible JSON responses
-- Chrome extension works unchanged
+- Similar data models and operations
+- Compatible configuration concepts
+- Shared Ollama integration approach
 
 ### Data Migration
 
@@ -196,7 +196,7 @@ Migration utilities are planned for:
 
 ### Default Settings
 
-- Database: `~/.localmind/localmind.db`
+- Database: `~/.localmind/localmind.db` (Windows: `%APPDATA%/localmind/localmind.db`)
 - Ollama URL: `http://localhost:11434`
 - Default model: `nomic-embed-text`
 - Window size: 1200x800
@@ -299,4 +299,4 @@ cargo build --target x86_64-unknown-linux-gnu
 - Test changes before committing
 - Update documentation for API changes
 
-This Rust implementation represents the future direction of LocalMind, focusing on performance, security, and ease of deployment while maintaining full compatibility with existing workflows.
+This Rust implementation is the current active development version of LocalMind, focusing on performance, security, and ease of deployment as a standalone desktop application.

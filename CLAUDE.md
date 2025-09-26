@@ -17,14 +17,13 @@ localmind/
 │   ├── src/                # TypeScript source code
 │   ├── frontend/           # SvelteKit web application
 │   └── package.json        # Node.js dependencies
-├── localmind-go/           # Go implementation (current development)
-│   ├── CLAUDE.md           # Go-specific guidance
-│   ├── cmd/localmind/      # Main application
-│   ├── internal/           # Go packages
-│   └── go.mod              # Go dependencies
+├── localmind-rs/           # Rust implementation (current development)
+│   ├── CLAUDE.md           # Rust-specific guidance
+│   ├── src/                # Rust source code
+│   ├── src-ui/             # Tauri frontend UI
+│   └── Cargo.toml          # Rust dependencies
 ├── chrome-extension/        # Browser integration (shared)
 ├── docs/                   # Documentation and planning
-│   └── main_plan_go.md     # Go implementation plan
 └── CLAUDE.md               # This file - project overview
 ```
 
@@ -37,12 +36,12 @@ localmind/
 - **Use Case**: Current production version, feature-complete
 - **Documentation**: See `desktop-daemon/CLAUDE.md`
 
-### Go Implementation (Active Development) 🟢  
-- **Status**: Phase 1 complete, Phase 2 in progress
-- **Location**: `localmind-go/`
-- **Technology**: Pure Go, modernc.org/sqlite, embedded UI
-- **Target**: Single 15MB binary with zero dependencies
-- **Documentation**: See `localmind-go/CLAUDE.md`
+### Rust Implementation (Active Development) 🟢
+- **Status**: Desktop application with Tauri GUI
+- **Location**: `localmind-rs/`
+- **Technology**: Rust with Tauri, SQLite via rusqlite, native GUI
+- **Target**: Standalone desktop app with embedded web UI
+- **Documentation**: See `localmind-rs/CLAUDE.md`
 
 ### Chrome Extension (Shared) 🟢
 - **Status**: Works with both implementations
@@ -60,14 +59,14 @@ npm run dev                 # Development server
 ```
 See `desktop-daemon/CLAUDE.md` for detailed TypeScript-specific commands.
 
-### Working with Go Version  
+### Working with Rust Version
 ```bash
-cd localmind-go
-go mod tidy
-go run ./cmd/localmind      # Development server
-go build -o localmind.exe ./cmd/localmind  # Build binary
+cd localmind-rs
+cargo check                 # Check dependencies
+cargo tauri dev             # Development GUI
+cargo tauri build           # Build production app
 ```
-See `localmind-go/CLAUDE.md` for detailed Go-specific commands.
+See `localmind-rs/CLAUDE.md` for detailed Rust-specific commands.
 
 ### Working with Chrome Extension
 ```bash
@@ -78,12 +77,12 @@ cd chrome-extension
 
 ## Migration Path
 
-The Go implementation is designed to be a drop-in replacement:
+The Rust implementation is designed to be a drop-in replacement:
 
 1. **API Compatibility**: 100% compatible REST API
 2. **Data Migration**: Tools provided to migrate from SQLite + ChromaDB to pure SQLite
 3. **Chrome Extension**: No changes required
-4. **Configuration**: Similar config structure with Go-specific optimizations
+4. **Configuration**: Similar config structure with Rust-specific optimizations
 
 ## Which Implementation to Use?
 
@@ -93,20 +92,21 @@ The Go implementation is designed to be a drop-in replacement:
 - Contributing to legacy features
 - Familiar with Node.js ecosystem
 
-### Use Go Version When:
-- Want single binary deployment
+### Use Rust Version When:
+- Want desktop application with native GUI
 - Need better performance/memory usage
 - Contributing to future development
-- Want zero external dependencies
+- Want standalone app deployment
 
 ## Configuration
 
-Both implementations share the same data directory and basic configuration:
+Both implementations share basic configuration concepts:
 
-- **Data Directory**: `~/.localmind/`
-- **Default Port**: `3001`
+- **TypeScript Data Directory**: `~/.localmind/`
+- **Rust Data Directory**: `~/.localmind/` (Windows: `%APPDATA%/localmind`)
+- **Default Port**: `3001` (TypeScript only)
 - **Ollama URL**: `http://localhost:11434`
-- **Chrome Extension**: Compatible with both versions
+- **Chrome Extension**: Compatible with TypeScript version
 
 ## Development Commands (Project Root)
 
@@ -115,8 +115,8 @@ Both implementations share the same data directory and basic configuration:
 # TypeScript version
 ./start_dev.sh              # Starts Ollama + ChromaDB + TypeScript backend
 
-# Go version
-cd localmind-go && go run ./cmd/localmind
+# Rust version
+cd localmind-rs && cargo tauri dev
 ```
 
 ### Build Production Versions
@@ -124,8 +124,8 @@ cd localmind-go && go run ./cmd/localmind
 # TypeScript version  
 ./start_all.sh              # Build frontend + start production server
 
-# Go version
-cd localmind-go && go build -o localmind.exe ./cmd/localmind
+# Rust version
+cd localmind-rs && cargo tauri build
 ```
 
 ### Run Tests
@@ -133,8 +133,8 @@ cd localmind-go && go build -o localmind.exe ./cmd/localmind
 # TypeScript version
 cd desktop-daemon && npm test
 
-# Go version  
-cd localmind-go && go test ./...
+# Rust version
+cd localmind-rs && cargo test
 ```
 
 ## Important Notes
@@ -143,6 +143,6 @@ cd localmind-go && go test ./...
 - **Data Compatibility**: Migration tools handle schema differences
 - **Chrome Extension**: Works with both versions via port configuration
 - **Documentation**: Each implementation has its own detailed CLAUDE.md file
-- **Future**: Go version is the target for new development and distribution
+- **Future**: Rust version is the target for new development and distribution
 
 For implementation-specific details, see the respective CLAUDE.md files in each subdirectory.
