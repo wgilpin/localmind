@@ -12,10 +12,7 @@ rusqlite = { version = "0.31", features = ["bundled", "blob"] }
 
 # HTTP client
 reqwest = { version = "0.11", features = ["json"] }
-tokio-stream = "0.1"
 
-# HTML parsing
-scraper = "0.18"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -30,6 +27,8 @@ notify = "6.0"
 # GUI Framework (Tauri)
 tauri = { version = "1.5", features = ["shell-open"] }
 pdf-extract = "0.9.0"
+readability = "0.3.0"
+url = "2.5"
 
 # Build dependencies for Tauri
 [build-dependencies]

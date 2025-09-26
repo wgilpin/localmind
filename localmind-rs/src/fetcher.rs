@@ -1,7 +1,8 @@
 use reqwest;
-use scraper::{Html, Selector};
 use std::time::Duration;
 use pdf_extract;
+use readability::extractor;
+use url::Url;
 
 pub struct WebFetcher {
     client: reqwest::Client,
@@ -163,61 +164,50 @@ impl WebFetcher {
             }
         }
 
-        // Parse HTML and extract text
-        let document = Html::parse_document(&html);
+        // Use readability to extract clean content
+        let text_content = match Url::parse(url) {
+            Ok(parsed_url) => {
+                match extractor::extract(&mut html.as_bytes(), &parsed_url) {
+                    Ok(product) => {
+                        let mut content = String::new();
 
-        // Remove script and style elements
-        let script_selector = Selector::parse("script").unwrap();
-        let style_selector = Selector::parse("style").unwrap();
+                        // Add title if available
+                        if !product.title.trim().is_empty() {
+                            content.push_str(&product.title);
+                            content.push_str("\n\n");
+                        }
 
-        let mut text_content = String::new();
-
-        // Try to get title
-        if let Ok(title_selector) = Selector::parse("title") {
-            if let Some(title) = document.select(&title_selector).next() {
-                text_content.push_str(&title.inner_html());
-                text_content.push_str("\n\n");
-            }
-        }
-
-        // Try to get meta description
-        if let Ok(meta_selector) = Selector::parse("meta[name=\"description\"]") {
-            if let Some(meta) = document.select(&meta_selector).next() {
-                if let Some(content) = meta.value().attr("content") {
-                    text_content.push_str(content);
-                    text_content.push_str("\n\n");
-                }
-            }
-        }
-
-        // Try to get article or main content
-        let content_selectors = vec![
-            "article", "main", "[role=\"main\"]", ".content", "#content",
-            "div.post", "div.entry", "div.article-body"
-        ];
-
-        let mut found_content = false;
-        for selector_str in content_selectors {
-            if let Ok(selector) = Selector::parse(selector_str) {
-                if let Some(element) = document.select(&selector).next() {
-                    let text = extract_text_from_element(&element, &script_selector, &style_selector);
-                    if text.len() > 100 {  // Only use if substantial content
-                        text_content.push_str(&text);
-                        found_content = true;
-                        break;
+                        // Add main text content
+                        content.push_str(&product.text);
+                        content
+                    }
+                    Err(e) => {
+                        println!("⚠️ Readability extraction failed for {}, falling back to basic text: {}", url, e);
+                        // Fallback to basic text extraction if readability fails
+                        html.chars()
+                            .filter(|c| c.is_ascii_graphic() || c.is_whitespace())
+                            .collect::<String>()
+                            .lines()
+                            .map(|line| line.trim())
+                            .filter(|line| !line.is_empty() && line.len() > 3)
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     }
                 }
             }
-        }
-
-        // Fallback to body if no specific content found
-        if !found_content {
-            if let Ok(body_selector) = Selector::parse("body") {
-                if let Some(body) = document.select(&body_selector).next() {
-                    text_content.push_str(&extract_text_from_element(&body, &script_selector, &style_selector));
-                }
+            Err(_) => {
+                println!("⚠️ Invalid URL for readability: {}, using fallback", url);
+                // Fallback if URL parsing fails
+                html.chars()
+                    .filter(|c| c.is_ascii_graphic() || c.is_whitespace())
+                    .collect::<String>()
+                    .lines()
+                    .map(|line| line.trim())
+                    .filter(|line| !line.is_empty() && line.len() > 3)
+                    .collect::<Vec<_>>()
+                    .join("\n")
             }
-        }
+        };
 
         // Clean up whitespace
         let cleaned = text_content
@@ -249,29 +239,3 @@ impl WebFetcher {
     }
 }
 
-fn extract_text_from_element(
-    element: &scraper::ElementRef,
-    _script_selector: &Selector,
-    _style_selector: &Selector,
-) -> String {
-    let mut text = String::new();
-
-    for node in element.descendants() {
-        if let Some(element) = node.value().as_element() {
-            // Skip script and style tags
-            if element.name() == "script" || element.name() == "style" {
-                continue;
-            }
-        }
-
-        if let Some(text_node) = node.value().as_text() {
-            let trimmed = text_node.trim();
-            if !trimmed.is_empty() {
-                text.push_str(trimmed);
-                text.push(' ');
-            }
-        }
-    }
-
-    text
-}

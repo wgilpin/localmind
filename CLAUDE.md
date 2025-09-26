@@ -146,3 +146,4 @@ cd localmind-rs && cargo test
 - **Future**: Rust version is the target for new development and distribution
 
 For implementation-specific details, see the respective CLAUDE.md files in each subdirectory.
+- always run cargo check before announcing a task is complete
