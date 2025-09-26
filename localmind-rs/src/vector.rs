@@ -28,6 +28,10 @@ impl VectorStore {
     }
 
     pub fn search(&self, query_vector: &[f32], limit: usize) -> Result<Vec<SearchResult>> {
+        self.search_with_cutoff(query_vector, limit, 0.0)
+    }
+
+    pub fn search_with_cutoff(&self, query_vector: &[f32], limit: usize, min_similarity: f32) -> Result<Vec<SearchResult>> {
         if query_vector.is_empty() {
             return Ok(vec![]);
         }
@@ -36,10 +40,13 @@ impl VectorStore {
 
         for (doc_id, vector) in &self.vectors {
             if let Some(similarity) = cosine_similarity(query_vector, vector) {
-                similarities.push(SearchResult {
-                    doc_id: *doc_id,
-                    similarity,
-                });
+                // Only include results above the similarity threshold
+                if similarity >= min_similarity {
+                    similarities.push(SearchResult {
+                        doc_id: *doc_id,
+                        similarity,
+                    });
+                }
             }
         }
 
@@ -116,5 +123,22 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].doc_id, 1);
         assert!(results[0].similarity > results[1].similarity);
+    }
+
+    #[test]
+    fn test_vector_search_with_cutoff() {
+        let mut store = VectorStore::new();
+        store.add_vector(1, vec![1.0, 0.0, 0.0]).unwrap();
+        store.add_vector(2, vec![0.8, 0.6, 0.0]).unwrap();
+        store.add_vector(3, vec![0.0, 1.0, 0.0]).unwrap();
+
+        let query = vec![1.0, 0.0, 0.0];
+        let results = store.search_with_cutoff(&query, 10, 0.6).unwrap();
+
+        // Only results with similarity >= 0.6 should be included
+        assert!(results.len() <= 2);
+        for result in results {
+            assert!(result.similarity >= 0.6);
+        }
     }
 }

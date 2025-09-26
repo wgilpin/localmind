@@ -1,6 +1,6 @@
 use crate::{
     Result,
-    db::Database,
+    db::{Database, OperationPriority},
     vector::VectorStore,
     ollama::OllamaClient,
     document::DocumentProcessor,
@@ -69,13 +69,14 @@ impl RagPipeline {
 
         let embedding_bytes = bincode::serialize(&embedding)?;
 
-        // Insert document into database
+        // Insert document into database with background priority
         let doc_id = self.db.insert_document(
             title,
             &full_content,
             url,
             source,
             Some(&embedding_bytes),
+            OperationPriority::BackgroundIngest,
         ).await?;
 
         // Add to vector store
@@ -96,163 +97,109 @@ impl RagPipeline {
         // Generate embedding for the query
         let query_embedding = self.ollama_client.generate_embedding(input).await?;
 
-        // Search for similar documents
-        let search_results = self.vector_store.search(&query_embedding, 5)?;
+        // Find similar documents using vector similarity with 60% cutoff
+        let search_results = self.vector_store.search_with_cutoff(&query_embedding, 5, 0.6)?;
 
-        if search_results.is_empty() {
-            // Fallback to text search if no vector results
-            return self.fallback_text_search(input).await;
-        }
-
-        // Get document details
         let mut sources = Vec::new();
-        let mut context_parts = Vec::new();
 
-        for result in search_results {
-            if let Some(doc) = self.db.get_document(result.doc_id).await? {
-                let snippet = self.create_snippet(&doc.content, input);
+        // Retrieve full documents for the most similar results
+        for search_result in search_results {
+            if let Some(doc) = self.db.get_document(search_result.doc_id).await? {
+                // Extract a relevant snippet around the query
+                let snippet = self.extract_snippet(&doc.content, input);
 
                 sources.push(DocumentSource {
-                    doc_id: doc.id,
-                    title: doc.title.clone(),
-                    content_snippet: snippet.clone(),
-                    similarity: result.similarity,
+                    doc_id: search_result.doc_id,
+                    title: doc.title,
+                    content_snippet: snippet,
+                    similarity: search_result.similarity,
                 });
-
-                context_parts.push(format!("Title: {}\nContent: {}", doc.title, snippet));
             }
         }
 
-        // Build context and prompt
-        let context = context_parts.join("\n\n");
-        let prompt = self.build_rag_prompt(input, &context);
-
-        // Generate response
-        let answer = self.ollama_client.generate_completion(&prompt).await?;
-
-        Ok(RagResponse {
-            answer: answer.trim().to_string(),
-            sources,
-        })
-    }
-
-    async fn fallback_text_search(&self, query: &str) -> Result<RagResponse> {
-        // Use SQLite FTS5 for text search
-        let documents = self.db.search_documents(query, 3).await?;
-
-        if documents.is_empty() {
+        if sources.is_empty() {
             return Ok(RagResponse {
-                answer: format!("I couldn't find any documents related to '{}'. Try rephrasing your question or adding more documents to search.", query),
+                answer: "I couldn't find any relevant information for your query.".to_string(),
                 sources: vec![],
             });
         }
 
-        let mut sources = Vec::new();
-        let mut context_parts = Vec::new();
+        // Build context from sources
+        let context = sources.iter()
+            .map(|s| format!("Source: {}\n{}", s.title, s.content_snippet))
+            .collect::<Vec<_>>()
+            .join("\n\n---\n\n");
 
-        for doc in documents {
-            let snippet = self.create_snippet(&doc.content, query);
+        // Generate response using context
+        let prompt = format!(
+            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
+            context,
+            input
+        );
 
-            sources.push(DocumentSource {
-                doc_id: doc.id,
-                title: doc.title.clone(),
-                content_snippet: snippet.clone(),
-                similarity: 0.0, // No similarity score from text search
-            });
-
-            context_parts.push(format!("Title: {}\nContent: {}", doc.title, snippet));
-        }
-
-        let context = context_parts.join("\n\n");
-        let prompt = self.build_rag_prompt(query, &context);
-        let answer = self.ollama_client.generate_completion(&prompt).await?;
+        let answer = self.ollama_client.generate_completion(&prompt).await
+            .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
 
         Ok(RagResponse {
-            answer: answer.trim().to_string(),
+            answer,
             sources,
         })
     }
 
-    fn create_snippet(&self, content: &str, query: &str) -> String {
-        let max_snippet_length = 200;
-
-        if content.len() <= max_snippet_length {
-            return content.to_string();
-        }
-
-        // Try to find the query term in the content
+    fn extract_snippet(&self, content: &str, query: &str) -> String {
         let query_lower = query.to_lowercase();
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
         let content_lower = content.to_lowercase();
 
-        if let Some(pos) = content_lower.find(&query_lower) {
-            let start = pos.saturating_sub(50);
-            let end = std::cmp::min(pos + query.len() + 150, content.len());
-            let snippet = &content[start..end];
-
-            let prefix = if start > 0 { "..." } else { "" };
-            let suffix = if end < content.len() { "..." } else { "" };
-
-            format!("{}{}{}", prefix, snippet, suffix)
-        } else {
-            // Just take the beginning of the content
-            let end = std::cmp::min(max_snippet_length, content.len());
-            let snippet = &content[..end];
-            if end < content.len() {
-                format!("{}...", snippet)
-            } else {
-                snippet.to_string()
+        // Find the position of the first query word
+        let mut best_position = 0;
+        for word in &query_words {
+            if let Some(pos) = content_lower.find(word) {
+                best_position = pos;
+                break;
             }
         }
+
+        // Extract snippet around that position
+        let start = best_position.saturating_sub(100);
+        let end = std::cmp::min(best_position + 300, content.len());
+
+        // Make sure we don't cut in the middle of a word
+        let snippet = &content[start..end];
+        format!("...{}\n...", snippet.trim())
     }
 
-    fn build_rag_prompt(&self, query: &str, context: &str) -> String {
-        format!(
-            "Based on the following context, please answer the question. If the context doesn't contain enough information to answer the question, say so.
-
-Context:
-{}
-
-Question: {}
-
-Answer:",
-            context,
-            query
-        )
+    pub async fn document_exists(&self, url: &str) -> Result<bool> {
+        // Use background priority since this is typically called during ingestion
+        self.db.url_exists(url, OperationPriority::BackgroundIngest).await
     }
 
-    pub fn vector_store_stats(&self) -> (usize, bool) {
-        (self.vector_store.len(), self.vector_store.is_empty())
+    pub async fn get_document_count(&self) -> Result<i64> {
+        // Use background priority for stats queries
+        self.db.count_documents(OperationPriority::BackgroundIngest).await
     }
 
-    pub fn ollama(&self) -> &OllamaClient {
-        &self.ollama_client
-    }
+    // Additional methods needed by main.rs
+    pub async fn get_search_hits(&self, query: &str) -> Result<Vec<DocumentSource>> {
+        // Generate embedding for the query
+        let query_embedding = self.ollama_client.generate_embedding(query).await?;
 
-    // Get search hits immediately without waiting for LLM generation
-    pub async fn get_search_hits(&self, input: &str) -> Result<Vec<DocumentSource>> {
-        let query_embedding = self.ollama_client.generate_embedding(input).await?;
-        let search_results = self.vector_store.search(&query_embedding, 5)?;
-
-        if search_results.is_empty() {
-            // Fallback to text search if no vector results
-            let documents = self.db.search_documents(input, 3).await?;
-            let sources = documents.into_iter().map(|doc| DocumentSource {
-                doc_id: doc.id,
-                title: doc.title,
-                content_snippet: doc.content.chars().take(200).collect::<String>() + "...",
-                similarity: 0.0,
-            }).collect();
-            return Ok(sources);
-        }
+        // Find similar documents using vector similarity with 60% cutoff
+        let search_results = self.vector_store.search_with_cutoff(&query_embedding, 10, 0.6)?;
 
         let mut sources = Vec::new();
-        for result in search_results {
-            if let Ok(Some(doc)) = self.db.get_document(result.doc_id).await {
+
+        // Retrieve full documents for the most similar results
+        for search_result in search_results {
+            if let Some(doc) = self.db.get_document(search_result.doc_id).await? {
+                // Extract a relevant snippet around the query
+                let snippet = self.extract_snippet(&doc.content, query);
+
                 sources.push(DocumentSource {
-                    doc_id: result.doc_id,
+                    doc_id: search_result.doc_id,
                     title: doc.title,
-                    content_snippet: doc.content.chars().take(200).collect::<String>() + "...",
-                    similarity: result.similarity,
+                    content_snippet: snippet,
+                    similarity: search_result.similarity,
                 });
             }
         }
@@ -260,31 +207,42 @@ Answer:",
         Ok(sources)
     }
 
-    // Generate answer using specific document IDs for context
-    pub async fn generate_answer(&self, input: &str, context_doc_ids: &[i64]) -> Result<String> {
+    pub async fn generate_answer(&self, query: &str, context_doc_ids: &[i64]) -> Result<String> {
         let mut context_parts = Vec::new();
 
-        // Get content from specified documents
+        // Get documents by IDs
         for &doc_id in context_doc_ids {
-            if let Ok(Some(doc)) = self.db.get_document(doc_id).await {
-                context_parts.push(format!("From \"{}\":\n{}", doc.title, doc.content));
+            if let Some(doc) = self.db.get_document(doc_id).await? {
+                let snippet = self.extract_snippet(&doc.content, query);
+                context_parts.push(format!("Source: {}\n{}", doc.title, snippet));
             }
         }
 
         if context_parts.is_empty() {
-            return Ok("I couldn't find any relevant information to answer your question.".to_string());
+            return Ok("I couldn't find any relevant information for your query.".to_string());
         }
 
-        let context = context_parts.join("\n\n");
-        let prompt = self.build_rag_prompt(input, &context);
-        let answer = self.ollama_client.generate_completion(&prompt).await?;
+        let context = context_parts.join("\n\n---\n\n");
 
-        Ok(answer.trim().to_string())
+        // Generate response using context
+        let prompt = format!(
+            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
+            context,
+            query
+        );
+
+        let answer = self.ollama_client.generate_completion(&prompt).await
+            .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
+
+        Ok(answer)
     }
 
-    pub async fn url_exists(&self, url: &str) -> Result<bool> {
-        self.db.url_exists(url).await
+    pub fn vector_store_stats(&self) -> (usize, bool) {
+        let count = self.vector_store.len();
+        (count, count == 0)
+    }
+
+    pub fn ollama(&self) -> &OllamaClient {
+        &self.ollama_client
     }
 }
-
-// Remove the Default implementation as it's not safe and not needed

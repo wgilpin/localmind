@@ -25,6 +25,7 @@ npm run
 *.bin
 *.sqlite3
 bash.exe.stackdump
+*.tmp
 
 # Rust application
 localmind-rs/target/
