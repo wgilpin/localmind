@@ -73,10 +73,10 @@ impl Database {
             [],
         );
 
-        // Create FTS table for text search
+        // Create FTS table for text search (without content_tokenize for compatibility)
         conn.execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-                title, content, content_tokenize='porter'
+                title, content
             )",
             [],
         )?;
