@@ -63,8 +63,13 @@ impl WebFetcher {
             // Extract text from PDF
             let filename = url.split('/').last().unwrap_or("document.pdf");
 
-            match pdf_extract::extract_text_from_mem(&pdf_bytes) {
-                Ok(text) if !text.trim().is_empty() => {
+            // Use catch_unwind to prevent panics from the pdf_extract library
+            let pdf_result = std::panic::catch_unwind(|| {
+                pdf_extract::extract_text_from_mem(&pdf_bytes)
+            });
+
+            match pdf_result {
+                Ok(Ok(text)) if !text.trim().is_empty() => {
                     let cleaned_text = text
                         .lines()
                         .map(|line| line.trim())
@@ -92,7 +97,7 @@ impl WebFetcher {
                     println!("✅ Extracted {} chars of text from PDF: {}", result.len(), url);
                     return Ok(result);
                 }
-                Ok(_) => {
+                Ok(Ok(_)) => {
                     // PDF parsed but no text content
                     let placeholder = format!(
                         "PDF Document: {}\nURL: {}\nSize: {} bytes\n\n[This PDF file contains no extractable text content - it may be image-based or encrypted]",
@@ -101,13 +106,22 @@ impl WebFetcher {
                     println!("⚠️ PDF contains no extractable text: {}", url);
                     return Ok(placeholder);
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     // PDF extraction failed, return safe placeholder
                     let placeholder = format!(
                         "PDF Document: {}\nURL: {}\nSize: {} bytes\n\n[PDF text extraction failed: {}. Document indexed for reference.]",
                         filename, url, pdf_bytes.len(), e
                     );
                     println!("⚠️ PDF text extraction failed for {}: {}", url, e);
+                    return Ok(placeholder);
+                }
+                Err(_panic) => {
+                    // PDF extraction panicked, return safe placeholder
+                    let placeholder = format!(
+                        "PDF Document: {}\nURL: {}\nSize: {} bytes\n\n[PDF text extraction panicked due to corrupted/invalid PDF structure. Document indexed for reference.]",
+                        filename, url, pdf_bytes.len()
+                    );
+                    println!("⚠️ PDF text extraction panicked for {}: corrupted or invalid PDF structure", url);
                     return Ok(placeholder);
                 }
             }
@@ -139,9 +153,13 @@ impl WebFetcher {
             println!("📄 Detected PDF content served as text: {}", url);
             let filename = url.split('/').last().unwrap_or("document.pdf");
 
-            // Try to extract text from the PDF content
-            match pdf_extract::extract_text_from_mem(html.as_bytes()) {
-                Ok(text) if !text.trim().is_empty() => {
+            // Try to extract text from the PDF content with panic protection
+            let pdf_result = std::panic::catch_unwind(|| {
+                pdf_extract::extract_text_from_mem(html.as_bytes())
+            });
+
+            match pdf_result {
+                Ok(Ok(text)) if !text.trim().is_empty() => {
                     let cleaned_text = text
                         .lines()
                         .map(|line| line.trim())
@@ -153,12 +171,22 @@ impl WebFetcher {
                     println!("✅ Extracted text from PDF served as text: {}", url);
                     return Ok(result);
                 }
-                _ => {
+                Ok(Ok(_)) | Ok(Err(_)) => {
+                    // PDF parsed but no text content or extraction failed
                     let placeholder = format!(
                         "PDF Document: {}\nURL: {}\n\n[This is a PDF file served as text content, but text extraction failed or no text found.]",
                         filename, url
                     );
                     println!("⚠️ Could not extract text from PDF served as text: {}", url);
+                    return Ok(placeholder);
+                }
+                Err(_panic) => {
+                    // PDF extraction panicked
+                    let placeholder = format!(
+                        "PDF Document: {}\nURL: {}\n\n[PDF text extraction panicked due to corrupted/invalid PDF structure served as text. Document indexed for reference.]",
+                        filename, url
+                    );
+                    println!("⚠️ PDF text extraction panicked for PDF served as text: {}", url);
                     return Ok(placeholder);
                 }
             }
@@ -238,4 +266,3 @@ impl WebFetcher {
         Ok(result)
     }
 }
-
