@@ -196,7 +196,7 @@ async fn start_bookmark_ingestion(
 
     // Start bookmark ingestion in background
     tokio::spawn(async move {
-        let fetcher = WebFetcher::new();
+        let _fetcher = WebFetcher::new();
         let mut ingested_count = 0;
 
         for (index, (title, content, url, is_dead)) in existing_bookmarks.into_iter().enumerate() {
