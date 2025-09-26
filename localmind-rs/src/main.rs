@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use localmind_rs::{
-    db::{Database, OperationPriority},
+    db::OperationPriority,
     rag::RagPipeline as RAG,
     bookmark::BookmarkMonitor,
 };
@@ -277,16 +277,18 @@ struct SearchSource {
 #[tauri::command]
 async fn search_hits(
     query: String,
+    cutoff: Option<f32>,
     state: State<'_, RagState>,
 ) -> Result<SearchHitResult, String> {
-    println!("📝 search_hits called with query: {}", query);
+    let cutoff_value = cutoff.unwrap_or(0.2); // Default to 0.2 if not provided
+    println!("📝 search_hits called with query: {} and cutoff: {}", query, cutoff_value);
     let rag_lock = state.lock().await;
     let rag = rag_lock
         .as_ref()
         .ok_or("RAG system not initialized")?;
 
     let hits = rag
-        .get_search_hits(&query)
+        .get_search_hits_with_cutoff(&query, cutoff_value)
         .await
         .map_err(|e| format!("Search failed: {}", e))?;
 
@@ -478,9 +480,7 @@ async fn start_bookmark_monitoring(
 
             if let Err(e) = window.emit("bookmark-progress", &progress) {
                 eprintln!("❌ Failed to emit progress: {}", e);
-            } else {
-                println!("✅ Successfully emitted progress event: {}/{} - {}", index + 1, total, title);
-            }
+            };
 
             {
                 let mut rag_lock = rag_state.lock().await;
@@ -488,7 +488,6 @@ async fn start_bookmark_monitoring(
                     // Check if bookmark already exists
                     if !rag.document_exists(&url).await.unwrap_or(false) {
                         // Fetch content here where we have access to window for progress
-                        println!("🌐 Fetching content for: {}", title);
                         let content = match monitor.fetch_bookmark_content(&url).await {
                             Ok(content) => content,
                             Err(e) => {

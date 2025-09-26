@@ -89,6 +89,27 @@ impl Database {
             [],
         )?;
 
+        // Create embeddings table for chunk embeddings
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS embeddings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                chunk_start INTEGER NOT NULL,
+                chunk_end INTEGER NOT NULL,
+                embedding BLOB NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Create index for faster lookups
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_document_id ON embeddings(document_id)",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -222,18 +243,51 @@ impl Database {
         }).await
     }
 
+    // Legacy method - will be replaced by get_all_chunk_embeddings
     pub async fn get_all_embeddings(&self) -> Result<Vec<(i64, Vec<f32>)>> {
+        // For now, return chunk embeddings but use document_id as the key
+        // This maintains compatibility while we transition
+        let chunk_embeddings = self.get_all_chunk_embeddings().await?;
+        Ok(chunk_embeddings.into_iter()
+            .map(|(_, doc_id, _, _, _, embedding)| (doc_id, embedding))
+            .collect())
+    }
+
+    pub async fn insert_chunk_embedding(
+        &self,
+        document_id: i64,
+        chunk_index: usize,
+        chunk_start: usize,
+        chunk_end: usize,
+        embedding: &[u8],
+        priority: OperationPriority,
+    ) -> Result<i64> {
+        self.execute_with_priority(priority, |conn| {
+            conn.execute(
+                "INSERT INTO embeddings (document_id, chunk_index, chunk_start, chunk_end, embedding)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![document_id, chunk_index as i64, chunk_start as i64, chunk_end as i64, embedding],
+            )?;
+            Ok(conn.last_insert_rowid())
+        }).await
+    }
+
+    pub async fn get_all_chunk_embeddings(&self) -> Result<Vec<(i64, i64, usize, usize, usize, Vec<f32>)>> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, embedding FROM documents WHERE embedding IS NOT NULL"
+                "SELECT id, document_id, chunk_index, chunk_start, chunk_end, embedding FROM embeddings"
             )?;
 
             let rows = stmt.query_map([], |row| {
                 let id: i64 = row.get(0)?;
-                let embedding_bytes: Vec<u8> = row.get(1)?;
+                let document_id: i64 = row.get(1)?;
+                let chunk_index: i64 = row.get(2)?;
+                let chunk_start: i64 = row.get(3)?;
+                let chunk_end: i64 = row.get(4)?;
+                let embedding_bytes: Vec<u8> = row.get(5)?;
                 let embedding: Vec<f32> = bincode::deserialize(&embedding_bytes)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                Ok((id, embedding))
+                Ok((id, document_id, chunk_index as usize, chunk_start as usize, chunk_end as usize, embedding))
             })?;
 
             let mut results = Vec::new();
@@ -241,6 +295,42 @@ impl Database {
                 results.push(row?);
             }
             Ok(results)
+        }).await
+    }
+
+    pub async fn get_chunk_embeddings_for_document(&self, document_id: i64) -> Result<Vec<(i64, usize, usize, usize, Vec<f32>)>> {
+        self.execute_with_priority(OperationPriority::UserSearch, |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, chunk_index, chunk_start, chunk_end, embedding
+                 FROM embeddings WHERE document_id = ?1 ORDER BY chunk_index"
+            )?;
+
+            let rows = stmt.query_map(params![document_id], |row| {
+                let id: i64 = row.get(0)?;
+                let chunk_index: i64 = row.get(1)?;
+                let chunk_start: i64 = row.get(2)?;
+                let chunk_end: i64 = row.get(3)?;
+                let embedding_bytes: Vec<u8> = row.get(4)?;
+                let embedding: Vec<f32> = bincode::deserialize(&embedding_bytes)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                Ok((id, chunk_index as usize, chunk_start as usize, chunk_end as usize, embedding))
+            })?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        }).await
+    }
+
+    pub async fn delete_chunk_embeddings_for_document(&self, document_id: i64) -> Result<()> {
+        self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
+            conn.execute(
+                "DELETE FROM embeddings WHERE document_id = ?1",
+                params![document_id],
+            )?;
+            Ok(())
         }).await
     }
 

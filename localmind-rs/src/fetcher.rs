@@ -20,8 +20,6 @@ impl WebFetcher {
     }
 
     pub async fn fetch_page_content(&self, url: &str) -> Result<String, Box<dyn std::error::Error>> {
-        println!("🌐 Fetching content from: {}", url);
-
         // Skip non-HTTP(S) URLs
         if !url.starts_with("http://") && !url.starts_with("https://") {
             println!("⏭️ Skipping non-HTTP URL: {}", url);
@@ -74,9 +72,11 @@ impl WebFetcher {
                         .collect::<Vec<_>>()
                         .join("\n");
 
-                    let result = if cleaned_text.len() > 50000 {
+                    // REQUIREMENT: Limit PDF content to 2000 chars max to ensure ~4 chunks per document
+                    // This prevents excessive embedding generation and maintains search quality
+                    let result = if cleaned_text.len() > 2000 {
                         // Ensure UTF-8 boundary safety when truncating
-                        let mut boundary = 50000;
+                        let mut boundary = 2000;
                         while boundary > 0 && !cleaned_text.is_char_boundary(boundary) {
                             boundary -= 1;
                         }
@@ -217,8 +217,9 @@ impl WebFetcher {
             .collect::<Vec<_>>()
             .join("\n");
 
-        // Limit content size to avoid huge documents
-        let max_chars = 50000;
+        // REQUIREMENT: Limit content to 2000 chars max to ensure ~4 chunks per document
+        // This prevents excessive embedding generation and maintains search quality
+        let max_chars = 2000;
         let result = if cleaned.len() > max_chars {
             // Make sure we don't cut in the middle of a UTF-8 character
             let mut boundary = max_chars;
@@ -234,7 +235,6 @@ impl WebFetcher {
             cleaned
         };
 
-        println!("✅ Fetched {} chars from {}", result.len(), url);
         Ok(result)
     }
 }

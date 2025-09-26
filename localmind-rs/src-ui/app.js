@@ -57,11 +57,28 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.getElementById('search-input');
     const searchBtn = document.getElementById('search-btn');
     const resultsDiv = document.getElementById('results');
+    const similarityCutoff = document.getElementById('similarity-cutoff');
+    const similarityValue = document.getElementById('similarity-value');
+
+    // Global state to track last search query
+    let lastSearchQuery = '';
 
     // Initialize Tauri API (now async with timeout)
     initializeTauriAPI(() => {
         loadStats();
         setupBookmarkProgressListener();
+    });
+
+    // Handle similarity cutoff changes
+    similarityCutoff.addEventListener('input', function() {
+        const value = parseFloat(this.value);
+        similarityValue.textContent = value.toFixed(1);
+
+        // If we have a previous search, re-run it with the new cutoff
+        if (lastSearchQuery) {
+            console.log('Similarity cutoff changed to', value, '- reloading search for:', lastSearchQuery);
+            performSearch();
+        }
     });
 
     function setupBookmarkProgressListener() {
@@ -147,15 +164,22 @@ document.addEventListener('DOMContentLoaded', function() {
         const query = searchInput.value.trim();
         if (!query) {
             showMessage('Please enter a search query.', 'warning');
+            lastSearchQuery = ''; // Clear last search when no query
             return;
         }
 
-        try {
-            console.log('Searching for:', query);
+        // Store the query for potential re-search when cutoff changes
+        lastSearchQuery = query;
 
-            // Step 1: Get search hits immediately
+        // Get the current similarity cutoff value
+        const cutoff = parseFloat(similarityCutoff.value);
+
+        try {
+            console.log('Searching for:', query, 'with cutoff:', cutoff);
+
+            // Step 1: Get search hits immediately with cutoff
             showLoadingState(query);
-            const searchHits = await invoke('search_hits', { query });
+            const searchHits = await invoke('search_hits', { query, cutoff });
             console.log('Search hits:', searchHits);
 
             // Display search hits immediately

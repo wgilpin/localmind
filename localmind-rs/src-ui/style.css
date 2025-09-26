@@ -29,7 +29,70 @@ header h1 {
 .search-container {
     display: flex;
     gap: 10px;
-    margin-bottom: 30px;
+    margin-bottom: 20px;
+}
+
+.settings-container {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.similarity-setting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.similarity-setting label {
+    font-weight: 500;
+    color: #374151;
+    min-width: 140px;
+}
+
+#similarity-cutoff {
+    flex: 1;
+    min-width: 200px;
+    height: 6px;
+    background: #e5e7eb;
+    border-radius: 3px;
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+}
+
+#similarity-cutoff::-webkit-slider-thumb {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: #2563eb;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+#similarity-cutoff::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: #2563eb;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+}
+
+#similarity-value {
+    font-weight: 600;
+    color: #2563eb;
+    min-width: 30px;
+    text-align: center;
+}
+
+.similarity-setting small {
+    color: #6b7280;
+    font-size: 0.85rem;
+    margin-left: 10px;
 }
 
 #search-input {

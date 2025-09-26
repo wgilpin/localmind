@@ -6,14 +6,26 @@ pub struct SearchResult {
     pub similarity: f32,
 }
 
+#[derive(Debug, Clone)]
+pub struct ChunkSearchResult {
+    pub embedding_id: i64,
+    pub doc_id: i64,
+    pub chunk_index: usize,
+    pub chunk_start: usize,
+    pub chunk_end: usize,
+    pub similarity: f32,
+}
+
 pub struct VectorStore {
-    vectors: Vec<(i64, Vec<f32>)>, // (doc_id, vector)
+    vectors: Vec<(i64, Vec<f32>)>, // (doc_id, vector) - legacy
+    chunk_vectors: Vec<(i64, i64, usize, usize, usize, Vec<f32>)>, // (embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector)
 }
 
 impl VectorStore {
     pub fn new() -> Self {
         Self {
             vectors: Vec::new(),
+            chunk_vectors: Vec::new(),
         }
     }
 
@@ -22,8 +34,18 @@ impl VectorStore {
         Ok(())
     }
 
+    pub fn load_chunk_vectors(&mut self, chunk_vectors: Vec<(i64, i64, usize, usize, usize, Vec<f32>)>) -> Result<()> {
+        self.chunk_vectors = chunk_vectors;
+        Ok(())
+    }
+
     pub fn add_vector(&mut self, doc_id: i64, vector: Vec<f32>) -> Result<()> {
         self.vectors.push((doc_id, vector));
+        Ok(())
+    }
+
+    pub fn add_chunk_vector(&mut self, embedding_id: i64, doc_id: i64, chunk_index: usize, chunk_start: usize, chunk_end: usize, vector: Vec<f32>) -> Result<()> {
+        self.chunk_vectors.push((embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector));
         Ok(())
     }
 
@@ -59,12 +81,52 @@ impl VectorStore {
         Ok(similarities)
     }
 
+    pub fn search_chunks(&self, query_vector: &[f32], limit: usize) -> Result<Vec<ChunkSearchResult>> {
+        self.search_chunks_with_cutoff(query_vector, limit, 0.0)
+    }
+
+    pub fn search_chunks_with_cutoff(&self, query_vector: &[f32], limit: usize, min_similarity: f32) -> Result<Vec<ChunkSearchResult>> {
+        if query_vector.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut similarities: Vec<ChunkSearchResult> = Vec::new();
+
+        for (embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector) in &self.chunk_vectors {
+            if let Some(similarity) = cosine_similarity(query_vector, vector) {
+                // Only include results above the similarity threshold
+                if similarity >= min_similarity {
+                    similarities.push(ChunkSearchResult {
+                        embedding_id: *embedding_id,
+                        doc_id: *doc_id,
+                        chunk_index: *chunk_index,
+                        chunk_start: *chunk_start,
+                        chunk_end: *chunk_end,
+                        similarity,
+                    });
+                }
+            }
+        }
+
+        // Sort by similarity (highest first)
+        similarities.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Take top results
+        similarities.truncate(limit);
+
+        Ok(similarities)
+    }
+
     pub fn len(&self) -> usize {
         self.vectors.len()
     }
 
+    pub fn chunk_len(&self) -> usize {
+        self.chunk_vectors.len()
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.vectors.is_empty()
+        self.vectors.is_empty() && self.chunk_vectors.is_empty()
     }
 }
 

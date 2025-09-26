@@ -5,6 +5,7 @@ use crate::{
     ollama::OllamaClient,
     document::DocumentProcessor,
 };
+use std::collections::HashSet;
 
 pub struct RagPipeline {
     pub db: Database,
@@ -32,9 +33,13 @@ impl RagPipeline {
         let document_processor = DocumentProcessor::default();
         let mut vector_store = VectorStore::new();
 
-        // Load existing embeddings from database
-        let embeddings = db.get_all_embeddings().await?;
-        vector_store.load_vectors(embeddings)?;
+        // Load existing chunk embeddings from database
+        let chunk_embeddings = db.get_all_chunk_embeddings().await?;
+        vector_store.load_chunk_vectors(chunk_embeddings)?;
+
+        // For backward compatibility, also load old document embeddings
+        let legacy_embeddings = db.get_all_embeddings().await?;
+        vector_store.load_vectors(legacy_embeddings)?;
 
         Ok(Self {
             db,
@@ -60,34 +65,62 @@ impl RagPipeline {
             return Err("Document produced no chunks".into());
         }
 
-        // For now, we'll store the full document and generate embedding for the full content
-        // In a more advanced implementation, we might store chunks separately
-        let full_content = content.to_string();
+        println!("📝 Processing document: '{}' → {} chunks (content: {} chars)",
+                 title.chars().take(60).collect::<String>(),
+                 chunks.len(),
+                 content.len());
 
-        // Generate embedding for the document
-        let embedding = self.ollama_client.generate_embedding(&full_content).await?;
-
-        let embedding_bytes = bincode::serialize(&embedding)?;
-
-        // Insert document into database with background priority
+        // Store the full document (without embedding in document table)
         let doc_id = self.db.insert_document(
             title,
-            &full_content,
+            content,
             url,
             source,
-            Some(&embedding_bytes),
+            None, // No embedding at document level
             None, // is_dead defaults to false
             OperationPriority::BackgroundIngest,
         ).await?;
 
-        // Add to vector store
-        self.vector_store.add_vector(doc_id, embedding)?;
+        // Generate and store embeddings for each chunk
+        for (chunk_index, chunk) in chunks.iter().enumerate() {
+            // Generate embedding for this chunk
+            let chunk_embedding = self.ollama_client.generate_embedding(&chunk.content).await?;
+            let embedding_bytes = bincode::serialize(&chunk_embedding)?;
 
-        println!("🎉 ingest_document completed successfully for: {}", title);
+            // Use actual chunk boundaries from DocumentChunk
+            let chunk_start = chunk.start_pos;
+            let chunk_end = chunk.end_pos;
+
+            // Insert chunk embedding
+            let embedding_id = self.db.insert_chunk_embedding(
+                doc_id,
+                chunk_index,
+                chunk_start,
+                chunk_end,
+                &embedding_bytes,
+                OperationPriority::BackgroundIngest,
+            ).await?;
+
+            // Add to vector store
+            self.vector_store.add_chunk_vector(
+                embedding_id,
+                doc_id,
+                chunk_index,
+                chunk_start,
+                chunk_end,
+                chunk_embedding,
+            )?;
+        }
+
+        println!("🎉 ingest_document completed successfully for: {} ({} chunks indexed)", title, chunks.len());
         Ok(doc_id)
     }
 
     pub async fn query(&self, input: &str) -> Result<RagResponse> {
+        self.query_with_cutoff(input, 0.2).await // Use more permissive default
+    }
+
+    pub async fn query_with_cutoff(&self, input: &str, cutoff: f32) -> Result<RagResponse> {
         if input.trim().is_empty() {
             return Ok(RagResponse {
                 answer: "Please provide a question to search for.".to_string(),
@@ -95,28 +128,8 @@ impl RagPipeline {
             });
         }
 
-        // Generate embedding for the query
-        let query_embedding = self.ollama_client.generate_embedding(input).await?;
-
-        // Find similar documents using vector similarity with 60% cutoff
-        let search_results = self.vector_store.search_with_cutoff(&query_embedding, 5, 0.6)?;
-
-        let mut sources = Vec::new();
-
-        // Retrieve full documents for the most similar results
-        for search_result in search_results {
-            if let Some(doc) = self.db.get_document(search_result.doc_id).await? {
-                // Extract a relevant snippet around the query
-                let snippet = self.extract_snippet(&doc.content, input);
-
-                sources.push(DocumentSource {
-                    doc_id: search_result.doc_id,
-                    title: doc.title,
-                    content_snippet: snippet,
-                    similarity: search_result.similarity,
-                });
-            }
-        }
+        // Use the updated search method which now uses chunks
+        let sources = self.get_search_hits_with_cutoff(input, cutoff).await?;
 
         if sources.is_empty() {
             return Ok(RagResponse {
@@ -125,8 +138,11 @@ impl RagPipeline {
             });
         }
 
-        // Build context from sources
-        let context = sources.iter()
+        // Take only top 5 for response generation
+        let top_sources = sources.into_iter().take(5).collect::<Vec<_>>();
+
+        // Build context from sources (now using chunk content)
+        let context = top_sources.iter()
             .map(|s| format!("Source: {}\n{}", s.title, s.content_snippet))
             .collect::<Vec<_>>()
             .join("\n\n---\n\n");
@@ -143,24 +159,38 @@ impl RagPipeline {
 
         Ok(RagResponse {
             answer,
-            sources,
+            sources: top_sources,
         })
     }
 
     // Add the search method for compatibility
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<(Document, f32)>> {
+        self.search_with_cutoff(query, limit, 0.2).await // Use more permissive default
+    }
+
+    pub async fn search_with_cutoff(&self, query: &str, limit: usize, cutoff: f32) -> Result<Vec<(Document, f32)>> {
         // Generate embedding for the query
         let query_embedding = self.ollama_client.generate_embedding(query).await?;
 
-        // Find similar documents using vector similarity with 60% cutoff
-        let search_results = self.vector_store.search_with_cutoff(&query_embedding, limit, 0.6)?;
+        // Search chunk embeddings instead of document embeddings
+        let chunk_results = self.vector_store.search_chunks_with_cutoff(&query_embedding, limit * 2, cutoff)?;
 
         let mut results = Vec::new();
+        let mut seen_docs = HashSet::new();
 
-        // Retrieve full documents for the most similar results
-        for search_result in search_results {
-            if let Some(doc) = self.db.get_document(search_result.doc_id).await? {
-                results.push((doc, search_result.similarity));
+        // Process chunk results and group by document (take highest scoring chunk per doc)
+        for chunk_result in chunk_results {
+            if seen_docs.contains(&chunk_result.doc_id) {
+                continue;
+            }
+            seen_docs.insert(chunk_result.doc_id);
+
+            if let Some(doc) = self.db.get_document(chunk_result.doc_id).await? {
+                results.push((doc, chunk_result.similarity));
+
+                if results.len() >= limit {
+                    break;
+                }
             }
         }
 
@@ -208,26 +238,50 @@ impl RagPipeline {
 
     // Additional methods needed by main.rs
     pub async fn get_search_hits(&self, query: &str) -> Result<Vec<DocumentSource>> {
+        self.get_search_hits_with_cutoff(query, 0.2).await // Use more permissive default
+    }
+
+    pub async fn get_search_hits_with_cutoff(&self, query: &str, cutoff: f32) -> Result<Vec<DocumentSource>> {
         // Generate embedding for the query
         let query_embedding = self.ollama_client.generate_embedding(query).await?;
 
-        // Find similar documents using vector similarity with 60% cutoff
-        let search_results = self.vector_store.search_with_cutoff(&query_embedding, 10, 0.6)?;
+        // Search chunk embeddings instead of document embeddings
+        let chunk_results = self.vector_store.search_chunks_with_cutoff(&query_embedding, 20, cutoff)?;
 
         let mut sources = Vec::new();
+        let mut seen_docs = HashSet::new();
 
-        // Retrieve full documents for the most similar results
-        for search_result in search_results {
-            if let Some(doc) = self.db.get_document(search_result.doc_id).await? {
-                // Extract a relevant snippet around the query
-                let snippet = self.extract_snippet(&doc.content, query);
+        // Process chunk results and group by document
+        for chunk_result in chunk_results {
+            // Skip if we already have this document (take highest scoring chunk per doc)
+            if seen_docs.contains(&chunk_result.doc_id) {
+                continue;
+            }
+            seen_docs.insert(chunk_result.doc_id);
+
+            if let Some(doc) = self.db.get_document(chunk_result.doc_id).await? {
+                // Extract the actual chunk content from the document
+                let content_chars: Vec<char> = doc.content.chars().collect();
+                let chunk_content = if chunk_result.chunk_end <= content_chars.len() {
+                    content_chars[chunk_result.chunk_start..chunk_result.chunk_end]
+                        .iter()
+                        .collect::<String>()
+                } else {
+                    // Fallback to snippet extraction if chunk boundaries are off
+                    self.extract_snippet(&doc.content, query)
+                };
 
                 sources.push(DocumentSource {
-                    doc_id: search_result.doc_id,
+                    doc_id: chunk_result.doc_id,
                     title: doc.title,
-                    content_snippet: snippet,
-                    similarity: search_result.similarity,
+                    content_snippet: chunk_content,
+                    similarity: chunk_result.similarity,
                 });
+
+                // Limit to 10 documents
+                if sources.len() >= 10 {
+                    break;
+                }
             }
         }
 
@@ -265,8 +319,10 @@ impl RagPipeline {
     }
 
     pub fn vector_store_stats(&self) -> (usize, bool) {
-        let count = self.vector_store.len();
-        (count, count == 0)
+        let chunk_count = self.vector_store.chunk_len();
+        let legacy_count = self.vector_store.len();
+        let total_count = chunk_count + legacy_count;
+        (total_count, total_count == 0)
     }
 
     pub fn ollama(&self) -> &OllamaClient {

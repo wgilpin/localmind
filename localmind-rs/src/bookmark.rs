@@ -242,8 +242,6 @@ impl BookmarkMonitor {
     pub async fn fetch_bookmark_content(&self, url: &str) -> Result<String> {
         let fetcher = WebFetcher::new();
 
-        println!("🌐 Fetching content from: {}", url);
-
         let content = match fetcher.fetch_page_content(url).await {
             Ok(content) => {
                 if content.is_empty() {

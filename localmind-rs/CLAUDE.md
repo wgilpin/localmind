@@ -198,7 +198,7 @@ Migration utilities are planned for:
 
 - Database: `~/.localmind/localmind.db` (Windows: `%APPDATA%/localmind/localmind.db`)
 - Ollama URL: `http://localhost:11434`
-- Default model: `nomic-embed-text`
+- Default model: `qwen3-embedding:0.6b`
 - Window size: 1200x800
 
 ### Environment Variables
