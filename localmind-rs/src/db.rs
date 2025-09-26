@@ -211,6 +211,43 @@ impl Database {
         }).await
     }
 
+    pub async fn get_documents_batch(&self, ids: &[i64]) -> Result<Vec<Document>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        self.execute_with_priority(OperationPriority::UserSearch, |conn| {
+            // Build the IN clause with placeholders
+            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let query = format!(
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead
+                 FROM documents WHERE id IN ({})",
+                placeholders
+            );
+
+            let mut stmt = conn.prepare(&query)?;
+
+            // Convert ids to params
+            let params: Vec<_> = ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+
+            let docs = stmt.query_map(&params[..], |row| {
+                Ok(Document {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    content: row.get(2)?,
+                    url: row.get(3)?,
+                    source: row.get(4)?,
+                    created_at: row.get(5)?,
+                    embedding: row.get(6)?,
+                    is_dead: row.get(7)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+            Ok(docs)
+        }).await
+    }
+
     pub async fn search_documents(&self, query: &str, limit: i64) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(

@@ -9,9 +9,9 @@ use localmind_rs::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{Manager, State, Window};
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
-type RagState = Arc<Mutex<Option<RAG>>>;
+type RagState = Arc<RwLock<Option<RAG>>>;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct SearchResult {
@@ -37,7 +37,7 @@ async fn search_documents(
     state: State<'_, RagState>,
 ) -> Result<Vec<SearchResult>, String> {
     println!("📝 search_documents called with query: {}", query);
-    let rag_lock = state.lock().await;
+    let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
         .ok_or("RAG system not initialized")?;
@@ -65,7 +65,7 @@ async fn search_documents(
 #[tauri::command]
 async fn get_document_count(state: State<'_, RagState>) -> Result<i64, String> {
     println!("📝 get_document_count called");
-    let rag_lock = state.lock().await;
+    let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
         .ok_or("RAG system not initialized")?;
@@ -82,7 +82,7 @@ async fn chat_with_rag(
     state: State<'_, RagState>,
 ) -> Result<String, String> {
     println!("📝 chat_with_rag called with message: {}", message);
-    let rag_lock = state.lock().await;
+    let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
         .ok_or("RAG system not initialized")?;
@@ -101,9 +101,9 @@ async fn add_document(
     state: State<'_, RagState>,
 ) -> Result<String, String> {
     println!("📝 add_document called for: {}", title);
-    let mut rag_lock = state.lock().await;
+    let rag_lock = state.read().await;
     let rag = rag_lock
-        .as_mut()
+        .as_ref()
         .ok_or("RAG system not initialized")?;
 
     rag.ingest_document(&title, &content, url.as_deref(), &source)
@@ -155,8 +155,8 @@ async fn ingest_bookmarks(
             }
 
             {
-                let mut rag_lock = rag_state_clone.lock().await;
-                if let Some(ref mut rag) = *rag_lock {
+                let rag_lock = rag_state_clone.read().await;
+                if let Some(ref rag) = *rag_lock {
                     match rag.ingest_document(&title, &content, Some(&url), "chrome_bookmark").await {
                         Ok(_) => {
                             ingested_count += 1;
@@ -233,7 +233,7 @@ struct SystemStats {
 #[tauri::command]
 async fn get_stats(state: State<'_, RagState>) -> Result<SystemStats, String> {
     println!("📝 get_stats called");
-    let rag_lock = state.lock().await;
+    let rag_lock = state.read().await;
 
     match rag_lock.as_ref() {
         Some(rag) => {
@@ -280,18 +280,28 @@ async fn search_hits(
     cutoff: Option<f32>,
     state: State<'_, RagState>,
 ) -> Result<SearchHitResult, String> {
+    use std::time::Instant;
+    let total_start = Instant::now();
+
     let cutoff_value = cutoff.unwrap_or(0.2); // Default to 0.2 if not provided
     println!("📝 search_hits called with query: {} and cutoff: {}", query, cutoff_value);
-    let rag_lock = state.lock().await;
+
+    let lock_start = Instant::now();
+    let rag_lock = state.read().await;
+    println!("⏱️ [main] Acquiring RAG lock took: {:?}", lock_start.elapsed());
+
     let rag = rag_lock
         .as_ref()
         .ok_or("RAG system not initialized")?;
 
+    let search_start = Instant::now();
     let hits = rag
         .get_search_hits_with_cutoff(&query, cutoff_value)
         .await
         .map_err(|e| format!("Search failed: {}", e))?;
+    println!("⏱️ [main] RAG search took: {:?}", search_start.elapsed());
 
+    let transform_start = Instant::now();
     let sources: Vec<SearchSource> = hits
         .into_iter()
         .map(|hit| SearchSource {
@@ -301,6 +311,9 @@ async fn search_hits(
             similarity: hit.similarity,
         })
         .collect();
+    println!("⏱️ [main] Result transformation took: {:?}", transform_start.elapsed());
+
+    println!("⏱️ [main] TOTAL search_hits took: {:?}", total_start.elapsed());
 
     Ok(SearchHitResult {
         has_results: !sources.is_empty(),
@@ -316,7 +329,7 @@ async fn generate_response(
     state: State<'_, RagState>,
 ) -> Result<String, String> {
     println!("📝 generate_response called with query: {}", query);
-    let rag_lock = state.lock().await;
+    let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
         .ok_or("RAG system not initialized")?;
@@ -368,7 +381,7 @@ fn main() {
                     Ok(rag) => {
                         println!("✅ RAG system initialized successfully");
                         {
-                            let mut rag_lock = rag_state_clone.lock().await;
+                            let mut rag_lock = rag_state_clone.write().await;
                             *rag_lock = Some(rag);
                             println!("✅ RAG stored in state");
                         }
@@ -471,8 +484,8 @@ async fn start_bookmark_monitoring(
 
         for (index, (title, url)) in bookmark_metadata.into_iter().enumerate() {
             {
-                let mut rag_lock = rag_state.lock().await;
-                if let Some(ref mut rag) = *rag_lock {
+                let rag_lock = rag_state.read().await;
+                if let Some(ref rag) = *rag_lock {
                     // Check if bookmark already exists
                     if !rag.document_exists(&url).await.unwrap_or(false) {
                         // Send progress update to UI only for bookmarks being processed

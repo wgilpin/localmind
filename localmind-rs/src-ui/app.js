@@ -60,8 +60,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const similarityCutoff = document.getElementById('similarity-cutoff');
     const similarityValue = document.getElementById('similarity-value');
 
-    // Global state to track last search query
+    // Global state to track last search query and all results
     let lastSearchQuery = '';
+    let allSearchResults = []; // Cache ALL results from backend
 
     // Initialize Tauri API (now async with timeout)
     initializeTauriAPI(() => {
@@ -74,12 +75,94 @@ document.addEventListener('DOMContentLoaded', function() {
         const value = parseFloat(this.value);
         similarityValue.textContent = value.toFixed(1);
 
-        // If we have a previous search, re-run it with the new cutoff
-        if (lastSearchQuery) {
-            console.log('Similarity cutoff changed to', value, '- reloading search for:', lastSearchQuery);
-            performSearch();
+        // If we have cached results, just filter them client-side
+        if (lastSearchQuery && allSearchResults.length > 0) {
+            console.log('Similarity cutoff changed to', value, '- filtering cached results');
+            filterAndDisplayResults(value);
         }
     });
+
+    function calculateOptimalThreshold(results) {
+        if (!results || results.length === 0) return 0.3; // Minimum 30%
+
+        // Sort results by similarity (highest first)
+        const sortedResults = [...results].sort((a, b) => b.similarity - a.similarity);
+
+        // Find threshold that gives us 5-10 results
+        let targetCount = Math.min(8, Math.max(5, Math.floor(sortedResults.length * 0.1)));
+
+        if (sortedResults.length <= targetCount) {
+            // If we have fewer results than target, use a low threshold
+            return Math.max(0.3, sortedResults[sortedResults.length - 1].similarity);
+        }
+
+        // Get the threshold at the target position
+        let threshold = sortedResults[targetCount - 1].similarity;
+
+        // Ensure we don't go below 30%
+        threshold = Math.max(0.3, threshold);
+
+        // Round down to 2 decimal places for more inclusive results
+        threshold = Math.floor(threshold * 100) / 100;
+
+        console.log(`Calculated optimal threshold: ${threshold} (targets ${targetCount} results from ${sortedResults.length} total)`);
+        return threshold;
+    }
+
+    function filterAndDisplayResults(cutoff) {
+        console.log('Filtering', allSearchResults.length, 'cached results with cutoff:', cutoff);
+
+        // Filter the cached results based on the similarity cutoff
+        const filteredResults = allSearchResults.filter(source => source.similarity >= cutoff);
+        console.log('Found', filteredResults.length, 'results above cutoff');
+
+        // Display the filtered results without making a backend call
+        if (filteredResults.length === 0) {
+            resultsDiv.innerHTML = `
+                <div class="search-status">
+                    <div class="no-results">No documents found above ${(cutoff * 100).toFixed(0)}% similarity for "${escapeHtml(lastSearchQuery)}"</div>
+                    <div class="result-meta" style="margin-top: 10px; opacity: 0.7;">
+                        ${allSearchResults.length} total results cached. Try lowering the similarity threshold.
+                    </div>
+                </div>
+            `;
+        } else {
+            let sourcesHtml = filteredResults.map(source => `
+                <div class="result-item">
+                    <div class="result-title">${escapeHtml(source.title)}</div>
+                    <div class="result-snippet">${escapeHtml(source.content_snippet)}</div>
+                    <div class="result-meta">
+                        <span class="similarity">Similarity: ${(source.similarity * 100).toFixed(1)}%</span>
+                        <span class="doc-id">ID: ${source.doc_id}</span>
+                    </div>
+                </div>
+            `).join('');
+
+            resultsDiv.innerHTML = `
+                <div class="sources-section">
+                    <h3>📚 Found ${filteredResults.length} relevant document(s) (${allSearchResults.length} total cached):</h3>
+                    ${sourcesHtml}
+                </div>
+                <div id="ai-response-section"></div>
+            `;
+
+            // If we had an AI response before, regenerate it with the new filtered results
+            if (filteredResults.length > 0 && filteredResults.length <= 5) {
+                // Only regenerate if we have a reasonable number of results
+                showGeneratingState();
+                const documentIds = filteredResults.slice(0, 5).map(s => s.doc_id);
+                invoke('generate_response', {
+                    query: lastSearchQuery,
+                    contextSources: documentIds
+                }).then(aiResponse => {
+                    console.log('AI response for filtered results:', aiResponse);
+                    displayAIResponse(aiResponse);
+                }).catch(error => {
+                    console.error('Failed to generate AI response for filtered results:', error);
+                });
+            }
+        }
+    }
 
     function setupBookmarkProgressListener() {
         if (!listen) {
@@ -177,10 +260,32 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             console.log('Searching for:', query, 'with cutoff:', cutoff);
 
-            // Step 1: Get search hits immediately with cutoff
+            // Step 1: Get search hits immediately with cutoff 0.0 to get all results
             showLoadingState(query);
-            const searchHits = await invoke('search_hits', { query, cutoff });
-            console.log('Search hits:', searchHits);
+            // Always fetch with cutoff 0.0 to get top 100 results for caching
+            const searchHits = await invoke('search_hits', { query, cutoff: 0.0 });
+            console.log('Search hits (fetched with cutoff 0.0, got', searchHits.sources?.length || 0, 'results):', searchHits);
+
+            // Cache ALL results for client-side filtering
+            if (searchHits.sources) {
+                allSearchResults = searchHits.sources;
+                console.log('Cached', allSearchResults.length, 'results for client-side filtering');
+
+                // Auto-set similarity threshold to show top 5-10 results
+                const autoThreshold = calculateOptimalThreshold(allSearchResults);
+                if (autoThreshold !== cutoff) {
+                    console.log('Auto-setting similarity threshold from', cutoff, 'to', autoThreshold);
+                    similarityCutoff.value = autoThreshold;
+                    similarityValue.textContent = autoThreshold.toFixed(1);
+                }
+
+                // Now filter based on the auto-set threshold
+                const finalCutoff = autoThreshold;
+                const filteredSources = allSearchResults.filter(s => s.similarity >= finalCutoff);
+                searchHits.sources = filteredSources;
+                searchHits.has_results = filteredSources.length > 0;
+                console.log('Filtered to', filteredSources.length, 'results with auto-threshold', finalCutoff);
+            }
 
             // Display search hits immediately
             displaySearchHits(searchHits);
@@ -366,6 +471,71 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Export showToast to global scope for testing
     window.showToast = showToast;
+
+    // Export calculateOptimalThreshold for testing
+    window.calculateOptimalThreshold = calculateOptimalThreshold;
+
+    // Unit tests for calculateOptimalThreshold
+    function runThresholdTests() {
+        const tests = [
+            {
+                name: 'Empty results returns 0.3',
+                input: [],
+                expected: 0.3
+            },
+            {
+                name: 'Few results returns minimum of last result or 0.3',
+                input: [0.8, 0.7, 0.6, 0.5],
+                expectedMin: 0.3,
+                expectedMax: 0.5
+            },
+            {
+                name: 'Many results calculates decile threshold',
+                input: [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1],
+                expectedMin: 0.3,
+                expectedMax: 0.7
+            },
+            {
+                name: 'All low scores enforces 0.3 minimum',
+                input: [0.25, 0.2, 0.15, 0.1, 0.05],
+                expected: 0.3
+            },
+            {
+                name: 'Very similar high scores',
+                input: [0.85, 0.84, 0.83, 0.82, 0.81, 0.80, 0.79, 0.78],
+                expectedMin: 0.78,
+                expectedMax: 0.82
+            }
+        ];
+
+        let passed = 0;
+        tests.forEach(test => {
+            const mockResults = test.input.map((sim, i) => ({ similarity: sim }));
+            const result = calculateOptimalThreshold(mockResults);
+
+            let testPassed = false;
+            if (test.expected !== undefined) {
+                testPassed = result === test.expected;
+            } else {
+                testPassed = result >= test.expectedMin && result <= test.expectedMax;
+            }
+
+            if (testPassed) {
+                passed++;
+                console.log(`✅ ${test.name}: ${result}`);
+            } else {
+                console.log(`❌ ${test.name}: got ${result}, expected ${test.expected || `${test.expectedMin}-${test.expectedMax}`}`);
+            }
+        });
+
+        console.log(`Tests: ${passed}/${tests.length} passed`);
+        return passed === tests.length;
+    }
+
+    // Run tests on load if in development
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        setTimeout(runThresholdTests, 1000);
+    }
 
     function escapeHtml(text) {
         const div = document.createElement('div');

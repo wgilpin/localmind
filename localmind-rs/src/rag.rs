@@ -5,13 +5,15 @@ use crate::{
     ollama::OllamaClient,
     document::DocumentProcessor,
 };
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
+use tokio::sync::Mutex;
 
 pub struct RagPipeline {
     pub db: Database,
-    vector_store: VectorStore,
+    vector_store: Mutex<VectorStore>,
     ollama_client: OllamaClient,
     document_processor: DocumentProcessor,
+    query_embedding_cache: Mutex<HashMap<String, Vec<f32>>>,
 }
 
 #[derive(Debug)]
@@ -43,14 +45,45 @@ impl RagPipeline {
 
         Ok(Self {
             db,
-            vector_store,
+            vector_store: Mutex::new(vector_store),
             ollama_client,
             document_processor,
+            query_embedding_cache: Mutex::new(HashMap::new()),
         })
     }
 
+    async fn get_cached_query_embedding(&self, query: &str) -> Result<Vec<f32>> {
+        // Check cache first
+        {
+            let cache = self.query_embedding_cache.lock().await;
+            if let Some(cached_embedding) = cache.get(query) {
+                println!("🔍 Using cached embedding for query: {}", query.chars().take(50).collect::<String>());
+                return Ok(cached_embedding.clone());
+            }
+        }
+
+        // Generate new embedding
+        println!("🔍 Generating new embedding for query: {}", query.chars().take(50).collect::<String>());
+        let embedding = self.ollama_client.generate_embedding(query).await?;
+
+        // Cache the embedding
+        {
+            let mut cache = self.query_embedding_cache.lock().await;
+            cache.insert(query.to_string(), embedding.clone());
+
+            // Keep cache size reasonable (last 20 queries)
+            if cache.len() > 20 {
+                if let Some(oldest_key) = cache.keys().next().cloned() {
+                    cache.remove(&oldest_key);
+                }
+            }
+        }
+
+        Ok(embedding)
+    }
+
     pub async fn ingest_document(
-        &mut self,
+        &self,
         title: &str,
         content: &str,
         url: Option<&str>,
@@ -102,14 +135,17 @@ impl RagPipeline {
             ).await?;
 
             // Add to vector store
-            self.vector_store.add_chunk_vector(
-                embedding_id,
-                doc_id,
-                chunk_index,
-                chunk_start,
-                chunk_end,
-                chunk_embedding,
-            )?;
+            {
+                let mut vector_store = self.vector_store.lock().await;
+                vector_store.add_chunk_vector(
+                    embedding_id,
+                    doc_id,
+                    chunk_index,
+                    chunk_start,
+                    chunk_end,
+                    chunk_embedding,
+                )?;
+            }
         }
 
         println!("🎉 ingest_document completed successfully for: {} ({} chunks indexed)", title, chunks.len());
@@ -169,11 +205,14 @@ impl RagPipeline {
     }
 
     pub async fn search_with_cutoff(&self, query: &str, limit: usize, cutoff: f32) -> Result<Vec<(Document, f32)>> {
-        // Generate embedding for the query
-        let query_embedding = self.ollama_client.generate_embedding(query).await?;
+        // Use cached embedding for the query
+        let query_embedding = self.get_cached_query_embedding(query).await?;
 
         // Search chunk embeddings instead of document embeddings
-        let chunk_results = self.vector_store.search_chunks_with_cutoff(&query_embedding, limit * 2, cutoff)?;
+        let chunk_results = {
+            let vector_store = self.vector_store.lock().await;
+            vector_store.search_chunks_with_cutoff(&query_embedding, limit * 2, cutoff)?
+        };
 
         let mut results = Vec::new();
         let mut seen_docs = HashSet::new();
@@ -242,11 +281,14 @@ impl RagPipeline {
     }
 
     pub async fn get_search_hits_with_cutoff(&self, query: &str, cutoff: f32) -> Result<Vec<DocumentSource>> {
-        // Generate embedding for the query
-        let query_embedding = self.ollama_client.generate_embedding(query).await?;
+        // Use cached embedding for the query
+        let query_embedding = self.get_cached_query_embedding(query).await?;
 
         // Search chunk embeddings instead of document embeddings
-        let chunk_results = self.vector_store.search_chunks_with_cutoff(&query_embedding, 20, cutoff)?;
+        let chunk_results = {
+            let vector_store = self.vector_store.lock().await;
+            vector_store.search_chunks_with_cutoff(&query_embedding, 20, cutoff)?
+        };
 
         let mut sources = Vec::new();
         let mut seen_docs = HashSet::new();
@@ -319,10 +361,15 @@ impl RagPipeline {
     }
 
     pub fn vector_store_stats(&self) -> (usize, bool) {
-        let chunk_count = self.vector_store.chunk_len();
-        let legacy_count = self.vector_store.len();
-        let total_count = chunk_count + legacy_count;
-        (total_count, total_count == 0)
+        // Use try_lock to avoid blocking, return 0 if locked
+        if let Ok(vector_store) = self.vector_store.try_lock() {
+            let chunk_count = vector_store.chunk_len();
+            let legacy_count = vector_store.len();
+            let total_count = chunk_count + legacy_count;
+            (total_count, total_count == 0)
+        } else {
+            (0, true) // Return empty stats if locked
+        }
     }
 
     pub fn ollama(&self) -> &OllamaClient {
