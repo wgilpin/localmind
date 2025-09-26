@@ -470,23 +470,23 @@ async fn start_bookmark_monitoring(
         let mut ingested_count = 0;
 
         for (index, (title, url)) in bookmark_metadata.into_iter().enumerate() {
-            // Send progress update to UI
-            let progress = BookmarkProgress {
-                current: index + 1,
-                total,
-                current_title: title.clone(),
-                completed: false,
-            };
-
-            if let Err(e) = window.emit("bookmark-progress", &progress) {
-                eprintln!("❌ Failed to emit progress: {}", e);
-            };
-
             {
                 let mut rag_lock = rag_state.lock().await;
                 if let Some(ref mut rag) = *rag_lock {
                     // Check if bookmark already exists
                     if !rag.document_exists(&url).await.unwrap_or(false) {
+                        // Send progress update to UI only for bookmarks being processed
+                        let progress = BookmarkProgress {
+                            current: index + 1,
+                            total,
+                            current_title: title.clone(),
+                            completed: false,
+                        };
+
+                        if let Err(e) = window.emit("bookmark-progress", &progress) {
+                            eprintln!("❌ Failed to emit progress: {}", e);
+                        };
+
                         // Fetch content here where we have access to window for progress
                         let content = match monitor.fetch_bookmark_content(&url).await {
                             Ok(content) => content,
@@ -515,16 +515,18 @@ async fn start_bookmark_monitoring(
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         }
 
-        // Send completion notification
-        let final_progress = BookmarkProgress {
-            current: total,
-            total,
-            current_title: format!("Completed! {} new bookmarks ingested", ingested_count),
-            completed: true,
-        };
+        // Send completion notification only if some bookmarks were processed
+        if ingested_count > 0 {
+            let final_progress = BookmarkProgress {
+                current: total,
+                total,
+                current_title: format!("Completed! {} new bookmarks ingested", ingested_count),
+                completed: true,
+            };
 
-        if let Err(e) = window.emit("bookmark-progress", &final_progress) {
-            eprintln!("Failed to emit completion: {}", e);
+            if let Err(e) = window.emit("bookmark-progress", &final_progress) {
+                eprintln!("Failed to emit completion: {}", e);
+            }
         }
 
         println!("✅ Initial bookmark ingestion completed: {} bookmarks ingested", ingested_count);
