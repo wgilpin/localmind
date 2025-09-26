@@ -10,6 +10,7 @@ export type Document = {
   url: string;
   title: string;
   timestamp: number;
+  is_dead?: boolean;
 };
 
 /**
@@ -45,7 +46,8 @@ export class DatabaseService {
         title TEXT,
         url TEXT,
         timestamp INTEGER,
-        content TEXT
+        content TEXT,
+        is_dead BOOLEAN DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS vector_mappings (
@@ -54,6 +56,13 @@ export class DatabaseService {
         FOREIGN KEY(document_id) REFERENCES documents(id)
       );
     `);
+
+    // Add is_dead column if it doesn't exist (migration)
+    try {
+      this.db.exec(`ALTER TABLE documents ADD COLUMN is_dead BOOLEAN DEFAULT 0`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
   }
 
   /**

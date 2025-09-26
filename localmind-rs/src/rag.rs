@@ -76,6 +76,7 @@ impl RagPipeline {
             url,
             source,
             Some(&embedding_bytes),
+            None, // is_dead defaults to false
             OperationPriority::BackgroundIngest,
         ).await?;
 

@@ -180,7 +180,7 @@ async fn start_bookmark_ingestion(
         .ok_or("Bookmark monitor not available")?;
 
     // Get existing bookmarks
-    let existing_bookmarks = bookmark_monitor.get_bookmarks_for_ingestion()
+    let existing_bookmarks = bookmark_monitor.get_bookmarks_for_ingestion().await
         .map_err(|e| format!("Failed to get bookmarks: {}", e))?;
 
     if existing_bookmarks.is_empty() {
@@ -199,7 +199,7 @@ async fn start_bookmark_ingestion(
         let fetcher = WebFetcher::new();
         let mut ingested_count = 0;
 
-        for (index, (title, _url_as_content, url)) in existing_bookmarks.into_iter().enumerate() {
+        for (index, (title, content, url, is_dead)) in existing_bookmarks.into_iter().enumerate() {
             // Send progress update to UI
             let progress = BookmarkProgress {
                 current: index + 1,
@@ -212,23 +212,20 @@ async fn start_bookmark_ingestion(
                 eprintln!("Failed to emit progress: {}", e);
             }
 
-            // Fetch actual page content
-            let content = match fetcher.fetch_page_content(&url).await {
-                Ok(page_content) if !page_content.is_empty() => {
-                    println!("✅ Using fetched content for: {}", title);
-                    truncate_bookmark_content(&page_content, 2000)
-                }
-                _ => {
-                    println!("⏭️ Using URL as content for: {}", title);
-                    truncate_bookmark_content(&url, 2000)
-                }
-            };
+            // Skip ingesting dead bookmarks
+            if is_dead {
+                println!("🚫 Skipping dead bookmark: {}", title);
+                continue;
+            }
+
+            // Use the content already fetched by the bookmark monitor
+            let final_content = truncate_bookmark_content(&content, 2000);
 
             // Ingest the bookmark with fetched content - acquire lock only for ingestion
             {
                 let mut rag_lock = rag_state_clone.lock().await;
                 if let Some(ref mut rag) = *rag_lock {
-                    match rag.ingest_document(&title, &content, Some(&url), "chrome_bookmark").await {
+                    match rag.ingest_document(&title, &final_content, Some(&url), "chrome_bookmark").await {
                         Ok(_) => {
                             ingested_count += 1;
                         }
@@ -522,7 +519,7 @@ async fn main() {
 
                 let bookmark_lock = bookmark_state_setup.lock().await;
                 if let Some(bookmark_monitor) = bookmark_lock.as_ref() {
-                    if let Ok(existing_bookmarks) = bookmark_monitor.get_bookmarks_for_ingestion() {
+                    if let Ok(existing_bookmarks) = bookmark_monitor.get_bookmarks_for_ingestion().await {
                         if !existing_bookmarks.is_empty() {
                             let total = existing_bookmarks.len();
                             println!("Auto-processing {} existing bookmarks...", total);

@@ -25,6 +25,7 @@ pub struct Document {
     pub source: String,
     pub created_at: String,
     pub embedding: Option<Vec<u8>>,
+    pub is_dead: Option<bool>,
 }
 
 impl Database {
@@ -60,10 +61,17 @@ impl Database {
                 url TEXT,
                 source TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                embedding BLOB
+                embedding BLOB,
+                is_dead BOOLEAN DEFAULT 0
             )",
             [],
         )?;
+
+        // Add is_dead column if it doesn't exist (migration)
+        let _ = conn.execute(
+            "ALTER TABLE documents ADD COLUMN is_dead BOOLEAN DEFAULT 0",
+            [],
+        );
 
         // Create FTS table for text search
         conn.execute(
@@ -142,12 +150,13 @@ impl Database {
         url: Option<&str>,
         source: &str,
         embedding: Option<&[u8]>,
+        is_dead: Option<bool>,
         priority: OperationPriority,
     ) -> Result<i64> {
         self.execute_with_priority(priority, |conn| {
             conn.execute(
-                "INSERT INTO documents (title, content, url, source, embedding) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![title, content, url, source, embedding],
+                "INSERT INTO documents (title, content, url, source, embedding, is_dead) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![title, content, url, source, embedding, is_dead],
             )?;
             Ok(conn.last_insert_rowid())
         }).await
@@ -156,7 +165,7 @@ impl Database {
     pub async fn get_document(&self, id: i64) -> Result<Option<Document>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, title, content, url, source, created_at, embedding
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead
                  FROM documents WHERE id = ?1"
             )?;
 
@@ -169,6 +178,7 @@ impl Database {
                     source: row.get(4)?,
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
+                    is_dead: row.get(7)?,
                 })
             });
 
@@ -183,10 +193,10 @@ impl Database {
     pub async fn search_documents(&self, query: &str, limit: i64) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT d.id, d.title, d.content, d.url, d.source, d.created_at, d.embedding
+                "SELECT d.id, d.title, d.content, d.url, d.source, d.created_at, d.embedding, d.is_dead
                  FROM documents d
                  JOIN documents_fts fts ON d.id = fts.rowid
-                 WHERE documents_fts MATCH ?1
+                 WHERE documents_fts MATCH ?1 AND (d.is_dead IS NULL OR d.is_dead = 0)
                  ORDER BY rank
                  LIMIT ?2"
             )?;
@@ -200,6 +210,7 @@ impl Database {
                     source: row.get(4)?,
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
+                    is_dead: row.get(7)?,
                 })
             })?;
 
@@ -254,7 +265,7 @@ impl Database {
     // Batch insert method for efficient bookmark ingestion
     pub async fn batch_insert_documents<'a>(
         &self,
-        documents: &[(&'a str, &'a str, Option<&'a str>, &'a str, Option<&'a [u8]>)],
+        documents: &[(&'a str, &'a str, Option<&'a str>, &'a str, Option<&'a [u8]>, Option<bool>)],
     ) -> Result<Vec<i64>> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             let transaction = conn.unchecked_transaction()?;
@@ -262,11 +273,11 @@ impl Database {
             let mut ids = Vec::new();
             {
                 let mut stmt = transaction.prepare(
-                    "INSERT INTO documents (title, content, url, source, embedding) VALUES (?1, ?2, ?3, ?4, ?5)"
+                    "INSERT INTO documents (title, content, url, source, embedding, is_dead) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
                 )?;
 
-                for (title, content, url, source, embedding) in documents {
-                    stmt.execute(params![title, content, url, source, embedding])?;
+                for (title, content, url, source, embedding, is_dead) in documents {
+                    stmt.execute(params![title, content, url, source, embedding, is_dead])?;
                     ids.push(transaction.last_insert_rowid());
 
                     // Yield periodically during batch operations
@@ -279,5 +290,78 @@ impl Database {
             transaction.commit()?;
             Ok(ids)
         }).await
+    }
+
+    pub async fn mark_url_as_dead(&self, url: &str) -> Result<()> {
+        self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
+            conn.execute(
+                "UPDATE documents SET is_dead = 1 WHERE url = ?1",
+                params![url],
+            )?;
+            Ok(())
+        }).await
+    }
+
+    pub async fn get_live_documents_with_urls(&self) -> Result<Vec<Document>> {
+        self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead
+                 FROM documents
+                 WHERE url IS NOT NULL AND (is_dead IS NULL OR is_dead = 0)"
+            )?;
+
+            let docs = stmt.query_map([], |row| {
+                Ok(Document {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    content: row.get(2)?,
+                    url: row.get(3)?,
+                    source: row.get(4)?,
+                    created_at: row.get(5)?,
+                    embedding: row.get(6)?,
+                    is_dead: row.get(7)?,
+                })
+            })?;
+
+            let mut results = Vec::new();
+            for doc in docs {
+                results.push(doc?);
+            }
+            Ok(results)
+        }).await
+    }
+
+    pub async fn check_and_mark_dead_urls(&self) -> Result<u32> {
+        let documents = self.get_live_documents_with_urls().await?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .user_agent("LocalMind/1.0")
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+        let mut marked_dead_count = 0;
+
+        for doc in documents {
+            if let Some(url) = &doc.url {
+                match client.head(url).send().await {
+                    Ok(response) => {
+                        if response.status() == reqwest::StatusCode::NOT_FOUND {
+                            println!("🚫 Marking {} as dead (404)", url);
+                            self.mark_url_as_dead(url).await?;
+                            marked_dead_count += 1;
+                        }
+                    }
+                    Err(e) => {
+                        println!("⚠️ Error checking {}: {}", url, e);
+                        // Don't mark as dead for network errors, only for explicit 404s
+                    }
+                }
+
+                // Small delay to avoid overwhelming servers
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+
+        Ok(marked_dead_count)
     }
 }

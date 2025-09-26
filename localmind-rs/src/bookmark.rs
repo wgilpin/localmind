@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::fs;
 use notify::{Watcher, RecursiveMode, Event, EventKind};
 use tokio::sync::mpsc;
+use reqwest;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookmarkItem {
@@ -176,9 +178,14 @@ impl BookmarkMonitor {
         Ok(())
     }
 
-    pub fn get_bookmarks_for_ingestion(&self) -> Result<Vec<(String, String, String)>> {
+    pub async fn get_bookmarks_for_ingestion(&self) -> Result<Vec<(String, String, String, bool)>> {
         let bookmarks = self.parse_bookmarks()?;
         let mut result = Vec::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .user_agent("LocalMind/1.0")
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
         for bookmark in bookmarks {
             if let Some(url) = &bookmark.url {
@@ -188,14 +195,101 @@ impl BookmarkMonitor {
                     bookmark.name.clone()
                 };
 
-                // Use URL as content for now - could be enhanced to fetch page content
-                let content = format!("Bookmark: {}\nURL: {}", title, url);
+                // Check if URL is accessible and fetch content
+                let (content, is_dead) = match self.fetch_url_content(&client, url).await {
+                    Ok(content) => (content, false),
+                    Err(e) => {
+                        println!("⚠️ Failed to fetch content from {}: {}", url, e);
+                        if e.to_string().contains("404") || e.to_string().contains("Not Found") {
+                            println!("🚫 Marking {} as dead (404)", url);
+                            (format!("Bookmark: {}\nURL: {} (DEAD - 404)", title, url), true)
+                        } else {
+                            // For other errors, don't mark as dead but use placeholder content
+                            (format!("Bookmark: {}\nURL: {} (Error: {})", title, url, e), false)
+                        }
+                    }
+                };
 
-                result.push((title, content, url.clone()));
+                result.push((title, content, url.clone(), is_dead));
             }
         }
 
         Ok(result)
+    }
+
+    async fn fetch_url_content(&self, client: &reqwest::Client, url: &str) -> Result<String> {
+        let response = client.get(url).send().await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err("404 Not Found".into());
+        }
+
+        if !response.status().is_success() {
+            return Err(format!("HTTP {}: {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")).into());
+        }
+
+        let html = response.text().await
+            .map_err(|e| format!("Failed to read response body: {}", e))?;
+
+        // Basic HTML content extraction - just get text between <title> tags for now
+        let title = self.extract_title_from_html(&html);
+        let content = self.extract_content_from_html(&html);
+
+        Ok(format!("Title: {}\nContent: {}", title, content))
+    }
+
+    fn extract_title_from_html(&self, html: &str) -> String {
+        if let Some(start) = html.find("<title>") {
+            if let Some(end) = html[start + 7..].find("</title>") {
+                return html[start + 7..start + 7 + end].trim().to_string();
+            }
+        }
+        "No title found".to_string()
+    }
+
+    fn extract_content_from_html(&self, html: &str) -> String {
+        // Very basic content extraction - remove HTML tags and get first 500 chars
+        let mut content = html.clone();
+
+        // Remove script and style tags with their content
+        while let Some(start) = content.find("<script") {
+            if let Some(end) = content[start..].find("</script>") {
+                content.replace_range(start..start + end + 9, "");
+            } else {
+                break;
+            }
+        }
+
+        while let Some(start) = content.find("<style") {
+            if let Some(end) = content[start..].find("</style>") {
+                content.replace_range(start..start + end + 8, "");
+            } else {
+                break;
+            }
+        }
+
+        // Remove all HTML tags
+        let mut result = String::new();
+        let mut in_tag = false;
+
+        for ch in content.chars() {
+            match ch {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                _ if !in_tag => result.push(ch),
+                _ => {}
+            }
+        }
+
+        // Clean up whitespace and limit length
+        result
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(500)
+            .collect()
     }
 }
 
