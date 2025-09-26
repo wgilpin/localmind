@@ -314,42 +314,4 @@ document.addEventListener('DOMContentLoaded', function() {
             performSearch();
         }
     });
-
-    const sampleBtn = document.getElementById('sample-btn');
-    sampleBtn.addEventListener('click', addSampleDocument);
-
-    // Add sample document function for testing
-    async function addSampleDocument() {
-        console.log('Add sample document button clicked');
-        
-        if (!invoke) {
-            showMessage('Tauri API not available', 'error');
-            return;
-        }
-        
-        try {
-            const sampleDoc = {
-                title: "Sample Document",
-                content: "This is a sample document about artificial intelligence and machine learning. It contains information about neural networks, deep learning, and natural language processing. LocalMind uses these concepts to provide intelligent search capabilities.",
-                url: null,
-                source: "manual"
-            };
-            
-            console.log('Sample document:', sampleDoc);
-            showMessage('Adding sample document...', 'info');
-            
-            console.log('Calling ingest_document...');
-            const docId = await invoke('ingest_document', { request: sampleDoc });
-            console.log('Document added with ID:', docId);
-            
-            showMessage(`Sample document added successfully! Document ID: ${docId}`, 'info');
-            
-            // Refresh stats
-            setTimeout(loadStats, 1000);
-        } catch (error) {
-            console.error('Failed to add sample document:', error);
-            console.error('Error details:', error.toString());
-            showMessage('Failed to add sample document: ' + error, 'error');
-        }
-    }
 });
