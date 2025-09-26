@@ -251,8 +251,8 @@ impl WebFetcher {
 
 fn extract_text_from_element(
     element: &scraper::ElementRef,
-    script_selector: &Selector,
-    style_selector: &Selector,
+    _script_selector: &Selector,
+    _style_selector: &Selector,
 ) -> String {
     let mut text = String::new();
 

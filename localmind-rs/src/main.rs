@@ -549,7 +549,7 @@ async fn main() {
 
                             println!("🚀 Starting bookmark processing loop for {} bookmarks", total);
 
-                            for (index, (title, _url_as_content, url)) in existing_bookmarks.into_iter().enumerate() {
+                            for (index, (title, _url_as_content, url, _is_dead)) in existing_bookmarks.into_iter().enumerate() {
                                 println!("\n📌 Processing bookmark {}/{}: {} - {}", index + 1, total, title, url);
 
                                 // Check if URL already exists in database

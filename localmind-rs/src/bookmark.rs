@@ -250,7 +250,7 @@ impl BookmarkMonitor {
 
     fn extract_content_from_html(&self, html: &str) -> String {
         // Very basic content extraction - remove HTML tags and get first 500 chars
-        let mut content = html.clone();
+        let mut content = html.to_string();
 
         // Remove script and style tags with their content
         while let Some(start) = content.find("<script") {
