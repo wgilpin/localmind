@@ -7,7 +7,7 @@ use crate::{
 };
 use tokio_util::sync::CancellationToken;
 use std::collections::{HashSet, HashMap};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 
 pub struct RagPipeline {
     pub db: Database,
@@ -405,5 +405,72 @@ impl RagPipeline {
 
     pub fn ollama(&self) -> &OllamaClient {
         &self.ollama_client
+    }
+
+    pub async fn generate_answer_stream(
+        &self,
+        query: &str,
+        context_doc_ids: &[i64],
+        tx: mpsc::UnboundedSender<String>,
+    ) -> Result<()> {
+        let mut context_parts = Vec::new();
+
+        // Get documents by IDs
+        for &doc_id in context_doc_ids {
+            if let Some(doc) = self.db.get_document(doc_id).await? {
+                let snippet = self.extract_snippet(&doc.content, query);
+                context_parts.push(format!("Source: {}\n{}", doc.title, snippet));
+            }
+        }
+
+        if context_parts.is_empty() {
+            let _ = tx.send("I couldn't find any relevant information for your query.".to_string());
+            return Ok(());
+        }
+
+        let context = context_parts.join("\n\n---\n\n");
+
+        // Generate response using context with streaming
+        let prompt = format!(
+            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
+            context,
+            query
+        );
+
+        self.ollama_client.generate_completion_stream(&prompt, tx).await
+    }
+
+    pub async fn generate_answer_stream_with_cancellation(
+        &self,
+        query: &str,
+        context_doc_ids: &[i64],
+        tx: mpsc::UnboundedSender<String>,
+        cancel_token: CancellationToken,
+    ) -> Result<()> {
+        let mut context_parts = Vec::new();
+
+        // Get documents by IDs
+        for &doc_id in context_doc_ids {
+            if let Some(doc) = self.db.get_document(doc_id).await? {
+                let snippet = self.extract_snippet(&doc.content, query);
+                context_parts.push(format!("Source: {}\n{}", doc.title, snippet));
+            }
+        }
+
+        if context_parts.is_empty() {
+            let _ = tx.send("I couldn't find any relevant information for your query.".to_string());
+            return Ok(());
+        }
+
+        let context = context_parts.join("\n\n---\n\n");
+
+        // Generate response using context with streaming and cancellation
+        let prompt = format!(
+            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
+            context,
+            query
+        );
+
+        self.ollama_client.generate_completion_stream_with_cancellation(&prompt, tx, cancel_token).await
     }
 }

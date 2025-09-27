@@ -156,24 +156,58 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Only regenerate if we have a reasonable number of results
                 showGeneratingState();
                 const documentIds = filteredResults.slice(0, 5).map(s => s.doc_id);
-                invoke('generate_response', {
-                    query: lastSearchQuery,
-                    contextSources: documentIds
-                }).then(aiResponse => {
-                    console.log('AI response for filtered results:', aiResponse);
-                    displayAIResponse(aiResponse);
-                }).catch(error => {
-                    console.error('Failed to generate AI response for filtered results:', error);
-                    const aiSection = document.getElementById('ai-response-section');
-                    if (aiSection && error.toString().includes('cancelled')) {
-                        aiSection.innerHTML = `
-                            <div class="answer-section">
-                                <h3>🤖 AI Response:</h3>
-                                <p><em>Generation was cancelled by filter change</em></p>
-                            </div>
-                        `;
-                    }
-                });
+
+                // Use streaming if available
+                if (listen) {
+                    displayStreamingResponse();
+
+                    // Setup streaming listeners
+                    listen('llm-stream-chunk', (event) => {
+                        appendStreamChunk(event.payload);
+                    }).then(unlistenChunk => {
+                        listen('llm-stream-complete', () => {
+                            console.log('Stream completed for filtered results');
+                            unlistenChunk();
+                        }).then(unlistenComplete => {
+                            // Start streaming
+                            invoke('generate_response_stream', {
+                                query: lastSearchQuery,
+                                contextSources: documentIds
+                            }).catch(error => {
+                                console.error('Streaming failed, falling back:', error);
+                                unlistenChunk();
+                                unlistenComplete();
+                                // Fallback to non-streaming
+                                invoke('generate_response', {
+                                    query: lastSearchQuery,
+                                    contextSources: documentIds
+                                }).then(aiResponse => {
+                                    displayAIResponse(aiResponse);
+                                });
+                            });
+                        });
+                    });
+                } else {
+                    // Non-streaming fallback
+                    invoke('generate_response', {
+                        query: lastSearchQuery,
+                        contextSources: documentIds
+                    }).then(aiResponse => {
+                        console.log('AI response for filtered results:', aiResponse);
+                        displayAIResponse(aiResponse);
+                    }).catch(error => {
+                        console.error('Failed to generate AI response for filtered results:', error);
+                        const aiSection = document.getElementById('ai-response-section');
+                        if (aiSection && error.toString().includes('cancelled')) {
+                            aiSection.innerHTML = `
+                                <div class="answer-section">
+                                    <h3>🤖 AI Response:</h3>
+                                    <p><em>Generation was cancelled by filter change</em></p>
+                                </div>
+                            `;
+                        }
+                    });
+                }
             }
         }
     }
@@ -313,37 +347,74 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.warn('Failed to cancel previous generation:', error);
                 }
 
-                // Generate AI response in background
+                // Generate AI response in background with streaming
                 showGeneratingState();
                 const documentIds = searchHits.sources.map(s => s.doc_id);
 
-                try {
-                    const aiResponse = await invoke('generate_response', {
-                        query,
-                        contextSources: documentIds
-                    });
-                    console.log('AI response:', aiResponse);
+                // Setup streaming listeners if available
+                if (listen) {
+                    displayStreamingResponse();
 
-                    // Add AI response to existing search hits
-                    displayAIResponse(aiResponse);
-                } catch (error) {
-                    console.error('Failed to generate AI response:', error);
-                    const aiSection = document.getElementById('ai-response-section');
-                    if (aiSection) {
-                        if (error.toString().includes('cancelled')) {
-                            aiSection.innerHTML = `
-                                <div class="answer-section">
-                                    <h3>🤖 AI Response:</h3>
-                                    <p><em>Generation was cancelled by new search</em></p>
-                                </div>
-                            `;
-                        } else {
-                            aiSection.innerHTML = `
-                                <div class="answer-section">
-                                    <h3>🤖 AI Response:</h3>
-                                    <p><em>Failed to generate response: ${error}</em></p>
-                                </div>
-                            `;
+                    // Listen for streaming chunks
+                    const unlistenChunk = await listen('llm-stream-chunk', (event) => {
+                        appendStreamChunk(event.payload);
+                    });
+
+                    // Listen for stream completion
+                    const unlistenComplete = await listen('llm-stream-complete', () => {
+                        console.log('Stream completed');
+                        // Cleanup listeners
+                        unlistenChunk();
+                        unlistenComplete();
+                    });
+
+                    // Start streaming generation
+                    try {
+                        await invoke('generate_response_stream', {
+                            query,
+                            contextSources: documentIds
+                        });
+                    } catch (error) {
+                        console.error('Failed to start streaming:', error);
+                        // Cleanup listeners on error
+                        unlistenChunk();
+                        unlistenComplete();
+
+                        // Fallback to non-streaming
+                        const aiResponse = await invoke('generate_response', {
+                            query,
+                            contextSources: documentIds
+                        });
+                        displayAIResponse(aiResponse);
+                    }
+                } else {
+                    // Fallback to non-streaming if listen is not available
+                    try {
+                        const aiResponse = await invoke('generate_response', {
+                            query,
+                            contextSources: documentIds
+                        });
+                        console.log('AI response:', aiResponse);
+                        displayAIResponse(aiResponse);
+                    } catch (error) {
+                        console.error('Failed to generate AI response:', error);
+                        const aiSection = document.getElementById('ai-response-section');
+                        if (aiSection) {
+                            if (error.toString().includes('cancelled')) {
+                                aiSection.innerHTML = `
+                                    <div class="answer-section">
+                                        <h3>🤖 AI Response:</h3>
+                                        <p><em>Generation was cancelled by new search</em></p>
+                                    </div>
+                                `;
+                            } else {
+                                aiSection.innerHTML = `
+                                    <div class="answer-section">
+                                        <h3>🤖 AI Response:</h3>
+                                        <p><em>Failed to generate response: ${error}</em></p>
+                                    </div>
+                                `;
+                            }
                         }
                     }
                 }
@@ -414,6 +485,27 @@ document.addEventListener('DOMContentLoaded', function() {
                     <p>${escapeHtml(aiResponse)}</p>
                 </div>
             `;
+        }
+    }
+
+    function displayStreamingResponse() {
+        const aiSection = document.getElementById('ai-response-section');
+        if (aiSection) {
+            aiSection.innerHTML = `
+                <div class="answer-section">
+                    <h3>🤖 AI Response:</h3>
+                    <p id="streaming-response"></p>
+                </div>
+            `;
+        }
+    }
+
+    function appendStreamChunk(chunk) {
+        const responseElement = document.getElementById('streaming-response');
+        if (responseElement) {
+            // Append the chunk and escape HTML
+            const currentText = responseElement.textContent || '';
+            responseElement.textContent = currentText + chunk;
         }
     }
 

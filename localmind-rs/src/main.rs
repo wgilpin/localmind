@@ -382,6 +382,72 @@ async fn cancel_generation(generation_state: State<'_, GenerationState>) -> Resu
     Ok(())
 }
 
+#[tauri::command]
+async fn generate_response_stream(
+    query: String,
+    context_sources: Vec<i64>,
+    window: Window,
+    state: State<'_, RagState>,
+    generation_state: State<'_, GenerationState>,
+) -> Result<(), String> {
+    println!("📝 generate_response_stream called with query: {}", query);
+
+    // Create a unique request ID for this generation
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let cancel_token = CancellationToken::new();
+
+    // Store the cancellation token
+    {
+        let mut gen_state = generation_state.write().await;
+
+        // Cancel any existing generation requests
+        for (_, existing_token) in gen_state.drain() {
+            existing_token.cancel();
+        }
+
+        // Store the new token
+        gen_state.insert(request_id.clone(), cancel_token.clone());
+    }
+
+    // Create channel for streaming
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+    // Clone the state for use in spawned task
+    let state_clone = Arc::clone(&state);
+    let cancel_token_clone = cancel_token.clone();
+    let gen_state_clone = Arc::clone(&generation_state);
+    let request_id_clone = request_id.clone();
+
+    // Spawn task to generate response
+    tokio::spawn(async move {
+        let rag_lock = state_clone.read().await;
+        if let Some(rag) = rag_lock.as_ref() {
+            let _ = rag.generate_answer_stream_with_cancellation(
+                &query,
+                &context_sources,
+                tx,
+                cancel_token_clone,
+            ).await;
+        }
+    });
+
+    // Stream chunks to frontend
+    tokio::spawn(async move {
+        while let Some(chunk) = rx.recv().await {
+            // Emit each chunk to the frontend
+            let _ = window.emit("llm-stream-chunk", chunk);
+        }
+        // Signal completion
+        let _ = window.emit("llm-stream-complete", ());
+
+        // Clean up the token after completion
+        let mut gen_state = gen_state_clone.write().await;
+        gen_state.remove(&request_id_clone);
+    });
+
+    Ok(())
+}
+
 fn main() {
     println!("🚀 Starting LocalMind application");
 
@@ -460,6 +526,7 @@ fn main() {
             get_stats,
             search_hits,
             generate_response,
+            generate_response_stream,
             cancel_generation,
             ingest_bookmarks,
         ])

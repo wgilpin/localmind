@@ -2,6 +2,8 @@ use crate::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
+use futures_util::stream::StreamExt;
+use tokio::sync::mpsc;
 
 #[derive(Serialize)]
 struct EmbeddingRequest {
@@ -23,6 +25,12 @@ struct CompletionRequest {
 
 #[derive(Deserialize)]
 struct CompletionResponse {
+    response: String,
+    done: bool,
+}
+
+#[derive(Deserialize)]
+struct StreamCompletionResponse {
     response: String,
     done: bool,
 }
@@ -179,5 +187,74 @@ impl OllamaClient {
 
     pub fn get_model_names(&self) -> (String, String) {
         (self.embedding_model.clone(), self.completion_model.clone())
+    }
+
+    pub async fn generate_completion_stream(
+        &self,
+        prompt: &str,
+        tx: mpsc::UnboundedSender<String>,
+    ) -> Result<()> {
+        let url = format!("{}/api/generate", self.base_url);
+
+        let request = CompletionRequest {
+            model: self.completion_model.clone(),
+            prompt: prompt.to_string(),
+            stream: true,
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(format!("Ollama completion request failed: {}", response.status()).into());
+        }
+
+        let mut stream = response.bytes_stream();
+        let mut buffer = Vec::new();
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result?;
+            buffer.extend_from_slice(&chunk);
+
+            // Process complete JSON lines from buffer
+            while let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
+                let line = buffer.drain(..=newline_pos).collect::<Vec<u8>>();
+                let line_str = String::from_utf8_lossy(&line);
+                let trimmed = line_str.trim();
+
+                if !trimmed.is_empty() {
+                    if let Ok(response) = serde_json::from_str::<StreamCompletionResponse>(trimmed) {
+                        // Send the response chunk through the channel
+                        let _ = tx.send(response.response);
+
+                        if response.done {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn generate_completion_stream_with_cancellation(
+        &self,
+        prompt: &str,
+        tx: mpsc::UnboundedSender<String>,
+        cancel_token: CancellationToken,
+    ) -> Result<()> {
+        tokio::select! {
+            result = self.generate_completion_stream(prompt, tx) => {
+                result
+            }
+            _ = cancel_token.cancelled() => {
+                Err("Request was cancelled".into())
+            }
+        }
     }
 }
