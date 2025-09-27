@@ -10,7 +10,7 @@ from integrated_sampler import IntegratedSampler
 
 def reset_data():
     """Reset/delete all existing data"""
-    directories_to_remove = ['data', 'vector_store_eval', 'results']
+    directories_to_remove = ['data', 'chroma_db_eval', 'results']
 
     for dir_name in directories_to_remove:
         dir_path = Path(dir_name)
@@ -22,7 +22,7 @@ def reset_data():
 
 @click.group()
 def cli():
-    """Vector Bookmark Search Evaluation Tool"""
+    """ChromaDB Bookmark Search Evaluation Tool"""
     pass
 
 @cli.command()
@@ -82,14 +82,15 @@ def evaluate(samples, queries, top_k, embedding_model, ollama, ollama_url, outpu
     queries_map = generator.load_queries(queries)
 
     # Initialize evaluator
-    evaluator = VectorEvaluator(
-        persist_directory="./vector_store_eval",
+    evaluator = ChromaEvaluator(
+        persist_directory="./chroma_db_eval",
         embedding_model=embedding_model,
         use_ollama=ollama,
         ollama_url=ollama_url
     )
 
-    # Index bookmarks
+    # Create collection and index bookmarks
+    evaluator.create_collection()
     evaluator.index_bookmarks(bookmarks)
 
     # Evaluate queries
@@ -132,7 +133,7 @@ def run_all(sample_size, model, top_k, embedding_model, ollama, ollama_url, rese
     """Run the complete evaluation pipeline"""
 
     click.echo("="*60)
-    click.echo("VECTOR BOOKMARK EVALUATION PIPELINE")
+    click.echo("CHROMADB BOOKMARK EVALUATION PIPELINE")
     click.echo("="*60)
 
     if reset:
@@ -144,13 +145,14 @@ def run_all(sample_size, model, top_k, embedding_model, ollama, ollama_url, rese
     samples, queries_map = sampler.sample_and_generate(sample_size=sample_size)
 
     # Step 3: Index bookmarks
-    click.echo("\n[2/3] Indexing bookmarks in vector store...")
-    evaluator = VectorEvaluator(
-        persist_directory="./vector_store_eval",
+    click.echo("\n[2/3] Indexing bookmarks in ChromaDB...")
+    evaluator = ChromaEvaluator(
+        persist_directory="./chroma_db_eval",
         embedding_model=embedding_model,
         use_ollama=ollama,
         ollama_url=ollama_url
     )
+    evaluator.create_collection()
     evaluator.index_bookmarks(samples)
 
     # Step 4: Evaluate
@@ -170,7 +172,7 @@ def reset():
     click.echo("RESETTING ALL DATA")
     click.echo("="*60)
 
-    if click.confirm("This will delete all samples, queries, vector store data, and results. Continue?"):
+    if click.confirm("This will delete all samples, queries, ChromaDB data, and results. Continue?"):
         reset_data()
     else:
         click.echo("Reset cancelled.")
@@ -183,7 +185,7 @@ def analyze(results):
     with open(results, 'r') as f:
         data = json.load(f)
 
-    evaluator = VectorEvaluator()
+    evaluator = ChromaEvaluator()
     evaluator.print_metrics_summary(data)
 
     # Additional analysis

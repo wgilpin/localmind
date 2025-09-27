@@ -1,32 +1,20 @@
-import chromadb
-from chromadb.config import Settings
+import numpy as np
+import pandas as pd
 from sentence_transformers import SentenceTransformer
 from ollama_embedding import OllamaEmbedding
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Union
 from tqdm import tqdm
-import pandas as pd
 from datetime import datetime
+from sklearn.metrics.pairwise import cosine_similarity
 
-class ChromaEvaluator:
-    def __init__(self, persist_directory: str = "./chroma_db", embedding_model: str = "all-MiniLM-L6-v2", use_ollama: bool = False, ollama_url: str = "http://localhost:11434"):
+class VectorEvaluator:
+    def __init__(self, persist_directory: str = "./vector_store", embedding_model: str = "all-MiniLM-L6-v2", use_ollama: bool = False, ollama_url: str = "http://localhost:11434"):
         self.persist_directory = Path(persist_directory)
         self.persist_directory.mkdir(parents=True, exist_ok=True)
         self.use_ollama = use_ollama
         self.embedding_model_name = embedding_model
-
-        # Initialize ChromaDB client
-        self.client = chromadb.PersistentClient(
-            path=str(self.persist_directory),
-            settings=Settings(
-                anonymized_telemetry=False,
-                allow_reset=True,
-                chroma_api_impl="chromadb.api.fastapi.FastAPI",
-                chroma_server_host="localhost",
-                chroma_server_http_port="8000"
-            )
-        )
 
         # Initialize embedding model
         if use_ollama:
@@ -36,30 +24,17 @@ class ChromaEvaluator:
             self.embedding_model = SentenceTransformer(embedding_model)
             print(f"Using SentenceTransformer model: {embedding_model}")
 
-        self.collection = None
-
-    def create_collection(self, collection_name: str = "bookmarks_eval"):
-        """Create or get a collection for evaluation"""
-        try:
-            # Delete existing collection if it exists
-            self.client.delete_collection(name=collection_name)
-        except:
-            pass
-
-        # Create new collection
-        self.collection = self.client.create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"}
-        )
-
-        print(f"Created collection '{collection_name}'")
+        # Vector storage
+        self.vectors_df = None
+        self.embeddings_path = self.persist_directory / "embeddings.parquet"
+        self.metadata_path = self.persist_directory / "metadata.parquet"
 
     def index_bookmarks(self, bookmarks: List[Dict[str, Any]]):
-        """Index bookmarks into ChromaDB"""
-        if not self.collection:
-            self.create_collection()
-
+        """Index bookmarks into vector storage"""
         print(f"Indexing {len(bookmarks)} bookmarks...")
+
+        rows = []
+        embeddings = []
 
         for bookmark in tqdm(bookmarks):
             bookmark_id = bookmark.get('id', bookmark.get('guid', str(hash(bookmark['url']))))
@@ -75,54 +50,95 @@ class ChromaEvaluator:
             # Generate embedding
             embedding = self.embedding_model.encode(text_to_embed)
 
-            # Ensure embedding is a list (for Ollama compatibility)
-            if not isinstance(embedding, list):
-                embedding = embedding.tolist()
+            # Ensure embedding is a numpy array
+            if not isinstance(embedding, np.ndarray):
+                embedding = np.array(embedding)
 
-            # Add to collection
-            self.collection.add(
-                ids=[str(bookmark_id)],
-                embeddings=[embedding],
-                documents=[text_to_embed],
-                metadatas=[{
-                    'title': title,
-                    'url': bookmark['url'],
-                    'content_length': len(content)
-                }]
-            )
+            # Store metadata
+            rows.append({
+                'bookmark_id': str(bookmark_id),
+                'title': title,
+                'url': bookmark['url'],
+                'content_length': len(content),
+                'document': text_to_embed
+            })
 
-        print(f"Indexed {self.collection.count()} documents")
+            embeddings.append(embedding)
+
+        # Create embeddings DataFrame
+        embeddings_array = np.vstack(embeddings)
+        embedding_columns = [f'emb_{i}' for i in range(embeddings_array.shape[1])]
+        embeddings_df = pd.DataFrame(embeddings_array, columns=embedding_columns)
+        embeddings_df['bookmark_id'] = [row['bookmark_id'] for row in rows]
+
+        # Create metadata DataFrame
+        metadata_df = pd.DataFrame(rows)
+
+        # Save to disk efficiently
+        print(f"Saving {len(embeddings_df)} embeddings to disk...")
+        embeddings_df.to_parquet(self.embeddings_path, compression='snappy')
+        metadata_df.to_parquet(self.metadata_path, compression='snappy')
+
+        # Store in memory for search
+        self.vectors_df = embeddings_df
+        self.metadata_df = metadata_df
+
+        print(f"Indexed {len(self.vectors_df)} documents")
+
+    def load_vectors(self):
+        """Load vectors from disk if they exist"""
+        if self.embeddings_path.exists() and self.metadata_path.exists():
+            print("Loading existing embeddings from disk...")
+            self.vectors_df = pd.read_parquet(self.embeddings_path)
+            self.metadata_df = pd.read_parquet(self.metadata_path)
+            print(f"Loaded {len(self.vectors_df)} embeddings")
+            return True
+        return False
 
     def search(self, query: str, n_results: int = 10) -> List[Dict[str, Any]]:
-        """Search for documents matching the query"""
-        if not self.collection:
-            raise ValueError("Collection not initialized. Index bookmarks first.")
+        """Search for documents matching the query using cosine similarity"""
+        if self.vectors_df is None:
+            if not self.load_vectors():
+                raise ValueError("No embeddings found. Index bookmarks first.")
 
         # Generate query embedding
         query_embedding = self.embedding_model.encode(query)
+        if not isinstance(query_embedding, np.ndarray):
+            query_embedding = np.array(query_embedding)
 
-        # Ensure embedding is a list (for Ollama compatibility)
-        if not isinstance(query_embedding, list):
-            query_embedding = query_embedding.tolist()
+        # Get embedding columns
+        embedding_cols = [col for col in self.vectors_df.columns if col.startswith('emb_')]
+        document_embeddings = self.vectors_df[embedding_cols].values
 
-        # Search
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results
-        )
+        # Compute cosine similarities
+        similarities = cosine_similarity([query_embedding], document_embeddings)[0]
+
+        # Get top results
+        top_indices = np.argsort(similarities)[::-1][:n_results]
 
         # Format results
-        formatted_results = []
-        if results['ids'] and results['ids'][0]:
-            for i in range(len(results['ids'][0])):
-                formatted_results.append({
-                    'id': results['ids'][0][i],
-                    'distance': results['distances'][0][i] if results['distances'] else None,
-                    'metadata': results['metadatas'][0][i] if results['metadatas'] else {},
-                    'document': results['documents'][0][i][:200] if results['documents'] else ''
-                })
+        results = []
+        for idx in top_indices:
+            bookmark_id = self.vectors_df.iloc[idx]['bookmark_id']
+            similarity = similarities[idx]
+            distance = 1.0 - similarity  # Convert similarity to distance
 
-        return formatted_results
+            # Get metadata
+            metadata_row = self.metadata_df[self.metadata_df['bookmark_id'] == bookmark_id].iloc[0]
+
+            results.append({
+                'id': bookmark_id,
+                'distance': distance,
+                'similarity': similarity,
+                'metadata': {
+                    'title': metadata_row['title'],
+                    'url': metadata_row['url'],
+                    'content_length': metadata_row['content_length']
+                },
+                'document': metadata_row['document'][:200] if len(metadata_row['document']) > 200 else metadata_row['document']
+            })
+
+        return results
 
     def evaluate_queries(self, queries_map: Dict[str, List[str]], top_k: int = 20) -> Dict[str, Any]:
         """Evaluate all queries and calculate metrics"""
@@ -151,11 +167,13 @@ class ChromaEvaluator:
                 # Find the rank of the target bookmark
                 rank = None
                 distance = None
+                similarity = None
 
                 for i, result in enumerate(search_results):
                     if result['id'] == str(bookmark_id):
                         rank = i + 1
                         distance = result['distance']
+                        similarity = result['similarity']
                         break
 
                 query_result = {
@@ -163,8 +181,10 @@ class ChromaEvaluator:
                     'found': rank is not None,
                     'rank': rank,
                     'distance': distance,
+                    'similarity': similarity,
                     'top_result_id': search_results[0]['id'] if search_results else None,
-                    'top_result_distance': search_results[0]['distance'] if search_results else None
+                    'top_result_distance': search_results[0]['distance'] if search_results else None,
+                    'top_result_similarity': search_results[0]['similarity'] if search_results else None
                 }
 
                 bookmark_results['queries'].append(query_result)
@@ -181,6 +201,7 @@ class ChromaEvaluator:
 
         all_ranks = []
         all_distances = []
+        all_similarities = []
         found_count = 0
         total_queries = 0
 
@@ -192,6 +213,8 @@ class ChromaEvaluator:
                     all_ranks.append(query_result['rank'])
                     if query_result['distance'] is not None:
                         all_distances.append(query_result['distance'])
+                    if query_result['similarity'] is not None:
+                        all_similarities.append(query_result['similarity'])
 
         # Calculate metrics
         results['metrics'] = {
@@ -199,6 +222,7 @@ class ChromaEvaluator:
             'mean_rank': sum(all_ranks) / len(all_ranks) if all_ranks else None,
             'median_rank': sorted(all_ranks)[len(all_ranks)//2] if all_ranks else None,
             'mean_distance': sum(all_distances) / len(all_distances) if all_distances else None,
+            'mean_similarity': sum(all_similarities) / len(all_similarities) if all_similarities else None,
             'queries_found': found_count,
             'queries_total': total_queries,
             'mrr': self._calculate_mrr(results['evaluations'])  # Mean Reciprocal Rank
@@ -249,7 +273,8 @@ class ChromaEvaluator:
                     'query': query_result['query'],
                     'found': query_result['found'],
                     'rank': query_result['rank'],
-                    'distance': query_result['distance']
+                    'distance': query_result['distance'],
+                    'similarity': query_result['similarity']
                 })
 
         df = pd.DataFrame(rows)
@@ -281,6 +306,9 @@ class ChromaEvaluator:
 
         if metrics['mean_distance'] is not None:
             print(f"Mean Distance: {metrics['mean_distance']:.4f}")
+
+        if metrics['mean_similarity'] is not None:
+            print(f"Mean Similarity: {metrics['mean_similarity']:.4f}")
 
         print(f"Mean Reciprocal Rank (MRR): {metrics['mrr']:.4f}")
         print("="*60)
