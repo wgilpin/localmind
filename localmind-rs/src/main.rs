@@ -80,6 +80,33 @@ async fn get_document_count(state: State<'_, RagState>) -> Result<i64, String> {
 }
 
 #[tauri::command]
+async fn get_document(
+    id: i64,
+    state: State<'_, RagState>,
+) -> Result<SearchResult, String> {
+    println!("📝 get_document called with id: {}", id);
+    let rag_lock = state.read().await;
+    let rag = rag_lock
+        .as_ref()
+        .ok_or("RAG system not initialized")?;
+
+    let doc = rag.db
+        .get_document(id)
+        .await
+        .map_err(|e| format!("Failed to get document: {}", e))?
+        .ok_or(format!("Document with id {} not found", id))?;
+
+    Ok(SearchResult {
+        id: doc.id,
+        title: doc.title,
+        content: doc.content,
+        url: doc.url,
+        source: doc.source,
+        similarity_score: 1.0, // Not relevant for single document fetch
+    })
+}
+
+#[tauri::command]
 async fn chat_with_rag(
     message: String,
     state: State<'_, RagState>,
@@ -520,6 +547,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             search_documents,
             get_document_count,
+            get_document,
             chat_with_rag,
             add_document,
             get_ollama_models,
@@ -630,9 +658,7 @@ async fn start_bookmark_monitoring(
                                 eprintln!("❌ Failed to ingest bookmark '{}': {}", title, e);
                             }
                         }
-                    } else {
-                        println!("⏭️ Skipping existing bookmark: {}", title);
-                    }
+                    };
                 }
             }
 

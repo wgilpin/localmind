@@ -63,12 +63,99 @@ document.addEventListener('DOMContentLoaded', function() {
     // Global state to track last search query and all results
     let lastSearchQuery = '';
     let allSearchResults = []; // Cache ALL results from backend
+    let isInDocumentView = false; // Track if we're viewing a document
 
     // Initialize Tauri API (now async with timeout)
     initializeTauriAPI(() => {
         loadStats();
         setupBookmarkProgressListener();
     });
+
+    // Document view functionality
+    async function showDocumentView(docId) {
+        if (!invoke) {
+            showMessage("Tauri API not available", "error");
+            return;
+        }
+
+        try {
+            console.log("Fetching document with id:", docId);
+            isInDocumentView = true;
+
+            resultsDiv.innerHTML = `
+                <div class="document-view">
+                    <div class="loading">Loading document...</div>
+                </div>
+            `;
+
+            const doc = await invoke("get_document", { id: docId });
+            console.log("Document fetched:", doc);
+
+            resultsDiv.innerHTML = `
+                <div class="document-view">
+                    <div class="document-header">
+                        <button class="back-button" id="back-to-search-btn">← Back to Search</button>
+                        <h2>${escapeHtml(doc.title)}</h2>
+                    </div>
+                    ${doc.url ? `
+                        <div class="document-actions">
+                            <a href="${escapeHtml(doc.url)}" target="_blank" class="open-link">
+                                🔗 Open Original Page
+                            </a>
+                        </div>
+                    ` : ""}
+                    <div class="document-meta">
+                        <span class="source">Source: ${escapeHtml(doc.source)}</span>
+                        <span class="doc-id">ID: ${doc.id}</span>
+                    </div>
+                    <div class="document-content">
+                        ${escapeHtml(doc.content).replace(/\n/g, "<br>")}
+                    </div>
+                </div>
+            `;
+
+            // Add click handler for back button
+            const backBtn = document.getElementById("back-to-search-btn");
+            if (backBtn) {
+                backBtn.addEventListener("click", backToSearch);
+            }
+
+        } catch (error) {
+            console.error("Failed to fetch document:", error);
+            resultsDiv.innerHTML = `
+                <div class="document-view">
+                    <button class="back-button" id="back-to-search-btn">← Back to Search</button>
+                    <div class="error-message">Failed to load document: ${error}</div>
+                </div>
+            `;
+
+            // Add click handler for back button in error state
+            const backBtn = document.getElementById("back-to-search-btn");
+            if (backBtn) {
+                backBtn.addEventListener("click", backToSearch);
+            }
+        }
+    }
+
+    function backToSearch() {
+        isInDocumentView = false;
+        if (lastSearchQuery && allSearchResults.length > 0) {
+            const cutoff = parseFloat(similarityCutoff.value);
+            filterAndDisplayResults(cutoff);
+        } else {
+            resultsDiv.innerHTML = "";
+        }
+    }
+
+    // Add click handlers after DOM updates
+    function addClickHandlers() {
+        document.querySelectorAll(".result-item.clickable").forEach(item => {
+            item.addEventListener("click", function() {
+                const docId = parseInt(this.getAttribute("data-doc-id"));
+                showDocumentView(docId);
+            });
+        });
+    }
 
     // Handle similarity cutoff changes
     similarityCutoff.addEventListener('input', function() {
@@ -128,7 +215,7 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         } else {
             let sourcesHtml = filteredResults.map(source => `
-                <div class="result-item">
+                <div class="result-item clickable" data-doc-id="${source.doc_id}">
                     <div class="result-title">${escapeHtml(source.title)}</div>
                     <div class="result-snippet">${escapeHtml(source.content_snippet)}</div>
                     <div class="result-meta">
@@ -145,6 +232,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 <div id="ai-response-section"></div>
             `;
+
+            // Add click handlers after DOM update
+            addClickHandlers();
 
             // If we had an AI response before, regenerate it with the new filtered results
             if (filteredResults.length > 0 && filteredResults.length <= 5) {
@@ -445,7 +535,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         let sourcesHtml = searchHits.sources.map(source => `
-            <div class="result-item">
+            <div class="result-item clickable" data-doc-id="${source.doc_id}">
                 <div class="result-title">${escapeHtml(source.title)}</div>
                 <div class="result-snippet">${escapeHtml(source.content_snippet)}</div>
                 <div class="result-meta">
@@ -462,6 +552,9 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
             <div id="ai-response-section"></div>
         `;
+
+        // Add click handlers after DOM update
+        addClickHandlers();
     }
 
     function showGeneratingState() {
@@ -685,6 +778,13 @@ document.addEventListener('DOMContentLoaded', function() {
     searchInput.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             performSearch();
+        }
+    });
+
+    // ESC key handler for back to search
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && isInDocumentView) {
+            backToSearch();
         }
     });
 });
