@@ -148,6 +148,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // If we had an AI response before, regenerate it with the new filtered results
             if (filteredResults.length > 0 && filteredResults.length <= 5) {
+                // Cancel any ongoing generation first
+                invoke('cancel_generation').catch(error => {
+                    console.warn('Failed to cancel previous generation:', error);
+                });
+
                 // Only regenerate if we have a reasonable number of results
                 showGeneratingState();
                 const documentIds = filteredResults.slice(0, 5).map(s => s.doc_id);
@@ -159,6 +164,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     displayAIResponse(aiResponse);
                 }).catch(error => {
                     console.error('Failed to generate AI response for filtered results:', error);
+                    const aiSection = document.getElementById('ai-response-section');
+                    if (aiSection && error.toString().includes('cancelled')) {
+                        aiSection.innerHTML = `
+                            <div class="answer-section">
+                                <h3>🤖 AI Response:</h3>
+                                <p><em>Generation was cancelled by filter change</em></p>
+                            </div>
+                        `;
+                    }
                 });
             }
         }
@@ -291,17 +305,48 @@ document.addEventListener('DOMContentLoaded', function() {
             displaySearchHits(searchHits);
 
             if (searchHits.has_results) {
-                // Step 2: Generate AI response in background
+                // Step 2: Cancel any ongoing generation and start new one
+                try {
+                    await invoke('cancel_generation');
+                    console.log('Cancelled previous generation requests');
+                } catch (error) {
+                    console.warn('Failed to cancel previous generation:', error);
+                }
+
+                // Generate AI response in background
                 showGeneratingState();
                 const documentIds = searchHits.sources.map(s => s.doc_id);
-                const aiResponse = await invoke('generate_response', {
-                    query,
-                    contextSources: documentIds
-                });
-                console.log('AI response:', aiResponse);
 
-                // Add AI response to existing search hits
-                displayAIResponse(aiResponse);
+                try {
+                    const aiResponse = await invoke('generate_response', {
+                        query,
+                        contextSources: documentIds
+                    });
+                    console.log('AI response:', aiResponse);
+
+                    // Add AI response to existing search hits
+                    displayAIResponse(aiResponse);
+                } catch (error) {
+                    console.error('Failed to generate AI response:', error);
+                    const aiSection = document.getElementById('ai-response-section');
+                    if (aiSection) {
+                        if (error.toString().includes('cancelled')) {
+                            aiSection.innerHTML = `
+                                <div class="answer-section">
+                                    <h3>🤖 AI Response:</h3>
+                                    <p><em>Generation was cancelled by new search</em></p>
+                                </div>
+                            `;
+                        } else {
+                            aiSection.innerHTML = `
+                                <div class="answer-section">
+                                    <h3>🤖 AI Response:</h3>
+                                    <p><em>Failed to generate response: ${error}</em></p>
+                                </div>
+                            `;
+                        }
+                    }
+                }
             }
 
         } catch (error) {

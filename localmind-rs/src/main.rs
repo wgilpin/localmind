@@ -10,8 +10,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{Manager, State, Window};
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
+use std::collections::HashMap;
 
 type RagState = Arc<RwLock<Option<RAG>>>;
+type GenerationState = Arc<RwLock<HashMap<String, CancellationToken>>>;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct SearchResult {
@@ -327,16 +330,56 @@ async fn generate_response(
     query: String,
     context_sources: Vec<i64>,
     state: State<'_, RagState>,
+    generation_state: State<'_, GenerationState>,
 ) -> Result<String, String> {
     println!("📝 generate_response called with query: {}", query);
+
+    // Create a unique request ID for this generation
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let cancel_token = CancellationToken::new();
+
+    // Store the cancellation token
+    {
+        let mut gen_state = generation_state.write().await;
+
+        // Cancel any existing generation requests
+        for (_, existing_token) in gen_state.drain() {
+            existing_token.cancel();
+        }
+
+        // Store the new token
+        gen_state.insert(request_id.clone(), cancel_token.clone());
+    }
+
     let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
         .ok_or("RAG system not initialized")?;
 
-    rag.generate_answer(&query, &context_sources)
+    let result = rag.generate_answer_with_cancellation(&query, &context_sources, cancel_token)
         .await
-        .map_err(|e| format!("Failed to generate response: {}", e))
+        .map_err(|e| format!("Failed to generate response: {}", e));
+
+    // Clean up the token after completion
+    {
+        let mut gen_state = generation_state.write().await;
+        gen_state.remove(&request_id);
+    }
+
+    result
+}
+
+#[tauri::command]
+async fn cancel_generation(generation_state: State<'_, GenerationState>) -> Result<(), String> {
+    println!("📝 cancel_generation called");
+    let mut gen_state = generation_state.write().await;
+
+    // Cancel all active generation requests
+    for (_, token) in gen_state.drain() {
+        token.cancel();
+    }
+
+    Ok(())
 }
 
 fn main() {
@@ -356,6 +399,7 @@ fn main() {
     // Build and run the Tauri app
     tauri::Builder::default()
         .manage(RagState::default())
+        .manage(GenerationState::default())
         .setup(move |app| {
             println!("🔧 Tauri setup starting");
             let rag_state = app.state::<RagState>();
@@ -416,6 +460,7 @@ fn main() {
             get_stats,
             search_hits,
             generate_response,
+            cancel_generation,
             ingest_bookmarks,
         ])
         .run(tauri::generate_context!())

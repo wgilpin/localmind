@@ -5,6 +5,7 @@ use crate::{
     ollama::OllamaClient,
     document::DocumentProcessor,
 };
+use tokio_util::sync::CancellationToken;
 use std::collections::{HashSet, HashMap};
 use tokio::sync::Mutex;
 
@@ -355,6 +356,36 @@ impl RagPipeline {
         );
 
         let answer = self.ollama_client.generate_completion(&prompt).await
+            .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
+
+        Ok(answer)
+    }
+
+    pub async fn generate_answer_with_cancellation(&self, query: &str, context_doc_ids: &[i64], cancel_token: CancellationToken) -> Result<String> {
+        let mut context_parts = Vec::new();
+
+        // Get documents by IDs
+        for &doc_id in context_doc_ids {
+            if let Some(doc) = self.db.get_document(doc_id).await? {
+                let snippet = self.extract_snippet(&doc.content, query);
+                context_parts.push(format!("Source: {}\n{}", doc.title, snippet));
+            }
+        }
+
+        if context_parts.is_empty() {
+            return Ok("I couldn't find any relevant information for your query.".to_string());
+        }
+
+        let context = context_parts.join("\n\n---\n\n");
+
+        // Generate response using context
+        let prompt = format!(
+            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
+            context,
+            query
+        );
+
+        let answer = self.ollama_client.generate_completion_with_cancellation(&prompt, cancel_token).await
             .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
 
         Ok(answer)

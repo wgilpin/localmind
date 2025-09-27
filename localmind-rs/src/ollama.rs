@@ -1,6 +1,7 @@
 use crate::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Serialize)]
 struct EmbeddingRequest {
@@ -77,7 +78,7 @@ impl OllamaClient {
 
     pub async fn generate_completion(&self, prompt: &str) -> Result<String> {
         let url = format!("{}/api/generate", self.base_url);
-        
+
         let request = CompletionRequest {
             model: self.completion_model.clone(),
             prompt: prompt.to_string(),
@@ -97,6 +98,41 @@ impl OllamaClient {
 
         let completion_response: CompletionResponse = response.json().await?;
         Ok(completion_response.response)
+    }
+
+    pub async fn generate_completion_with_cancellation(&self, prompt: &str, cancel_token: CancellationToken) -> Result<String> {
+        let url = format!("{}/api/generate", self.base_url);
+
+        let request = CompletionRequest {
+            model: self.completion_model.clone(),
+            prompt: prompt.to_string(),
+            stream: false,
+        };
+
+        // Use tokio::select! to race between the request and cancellation
+        tokio::select! {
+            response_result = self.client.post(&url).json(&request).send() => {
+                let response = response_result?;
+
+                if !response.status().is_success() {
+                    return Err(format!("Ollama completion request failed: {}", response.status()).into());
+                }
+
+                // Race between response parsing and cancellation
+                tokio::select! {
+                    json_result = response.json::<CompletionResponse>() => {
+                        let completion_response = json_result?;
+                        Ok(completion_response.response)
+                    }
+                    _ = cancel_token.cancelled() => {
+                        Err("Request was cancelled".into())
+                    }
+                }
+            }
+            _ = cancel_token.cancelled() => {
+                Err("Request was cancelled".into())
+            }
+        }
     }
 
     pub async fn health_check(&self) -> Result<bool> {
