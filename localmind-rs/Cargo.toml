@@ -38,6 +38,11 @@ pdf-extract = "0.9.0"
 readability = "0.3.0"
 url = "2.5"
 
+# Additional binaries
+[[bin]]
+name = "rechunk"
+path = "src/rechunk.rs"
+
 # Build dependencies for Tauri
 [build-dependencies]
 tauri-build = { version = "1.5", features = [] }

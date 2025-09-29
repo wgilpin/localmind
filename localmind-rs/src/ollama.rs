@@ -9,6 +9,13 @@ use tokio::sync::mpsc;
 struct EmbeddingRequest {
     model: String,
     prompt: String,
+    keep_alive: String,
+    options: EmbeddingOptions,
+}
+
+#[derive(Serialize)]
+struct EmbeddingOptions {
+    num_gpu: u32,
 }
 
 #[derive(Deserialize)]
@@ -67,6 +74,10 @@ impl OllamaClient {
         let request = EmbeddingRequest {
             model: self.embedding_model.clone(),
             prompt: text.to_string(),
+            keep_alive: "30m".to_string(), // Keep model loaded for 30 minutes
+            options: EmbeddingOptions {
+                num_gpu: 999, // Force GPU usage
+            },
         };
 
         let response = self

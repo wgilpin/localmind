@@ -375,150 +375,91 @@ def evaluate_chunks(chunks, terms, embedding_model, ollama, top_k, output):
 @click.option('--embedding-model', default='all-MiniLM-L6-v2', help='Embedding model')
 @click.option('--ollama', is_flag=True, help='Use Ollama for embeddings')
 @click.option('--lmstudio', is_flag=True, help='Use LM Studio for embeddings')
-@click.option('--sentence-transformers', is_flag=True, help='Use SentenceTransformers for embeddings (default)')
 @click.option('--top-k', default=10, help='Top-K for evaluation')
 @click.option('--reset', is_flag=True, help='Reset all data first')
 @click.option('--skip-quality', is_flag=True, help='Skip LLM quality filtering, use heuristics only')
-def run_chunk_pipeline(sample_size, db_path, llm_model, embedding_model, ollama, lmstudio, sentence_transformers, top_k, reset, skip_quality):
+def run_chunk_pipeline(sample_size, db_path, llm_model, embedding_model, ollama, lmstudio, top_k, reset, skip_quality):
     """Run complete chunk-based evaluation pipeline"""
-
-    # Validate embedding backend options
-    embedding_backends = [ollama, lmstudio, sentence_transformers]
-    if sum(embedding_backends) > 1:
-        click.echo("Error: Only one embedding backend can be specified (--ollama, --lmstudio, or --sentence-transformers)")
-        return
-
-    # Default to SentenceTransformers if no backend specified
-    if not any(embedding_backends):
-        sentence_transformers = True
 
     click.echo("="*60)
     click.echo("CHUNK-BASED EVALUATION PIPELINE")
     click.echo("="*60)
 
-    # Show which embedding backend is being used
-    if ollama:
-        click.echo(f"Using Ollama embeddings with model: {embedding_model}")
-    elif lmstudio:
-        click.echo(f"Using LM Studio embeddings with model: {embedding_model}")
-    else:
-        click.echo(f"Using SentenceTransformers with model: {embedding_model}")
-
     if reset:
         reset_data()
 
-    # Comprehensive cache check - skip all preprocessing if we have everything
+    # Step 1: Sample chunks (check cache first)
     chunks_file = Path('data/sampled_chunks.json')
-    quality_file = Path('data/quality_chunks.json')
-    terms_file = Path('data/chunk_terms.json')
-
-    if (not reset and chunks_file.exists() and quality_file.exists() and terms_file.exists()):
-        click.echo("\n[CACHE CHECK] Verifying cached data...")
-
-        # Load and validate cached data
-        sampler = ChunkSampler()
+    if chunks_file.exists() and not reset:
+        # Check if cached chunks match sample size
+        sampler = ChunkSampler(db_path)
         existing_chunks = sampler.load_samples()
-
-        filter = ChunkQualityFilter(model=llm_model)
-        suitable = filter.load_filtered_chunks()
-
-        generator = ChunkQueryGenerator(model=llm_model)
-        terms_dict = generator.load_search_terms()
-
-        # Check if cache is valid for current configuration
-        if (len(existing_chunks) >= sample_size and
-            len(suitable) > 0 and
-            len(terms_dict) > 0):
-
-            click.echo(f"✅ Found complete cached data:")
-            click.echo(f"  - {len(existing_chunks)} sampled chunks (need {sample_size})")
-            click.echo(f"  - {len(suitable)} quality chunks")
-            click.echo(f"  - {len(terms_dict)} search term sets")
-            click.echo(f"[SKIP] Jumping directly to embeddings/evaluation...")
-
-            # Skip to Step 4 (embeddings)
+        if len(existing_chunks) == sample_size:
+            click.echo(f"\n[1/5] Using cached {len(existing_chunks)} chunks (same sample size)")
             chunks = existing_chunks
         else:
-            click.echo(f"❌ Cache validation failed, will regenerate...")
-            suitable = None
-            terms_dict = None
-    else:
-        click.echo("\n[CACHE CHECK] Missing cache files, starting from scratch...")
-        suitable = None
-        terms_dict = None
-
-    # Only run preprocessing steps if cache was invalid/missing
-    if suitable is None:
-        # Step 1: Sample chunks
-        if chunks_file.exists() and not reset:
-            sampler = ChunkSampler()
-            existing_chunks = sampler.load_samples()
-            if len(existing_chunks) >= sample_size:
-                click.echo(f"\n[1/5] Using cached {len(existing_chunks)} chunks")
-                chunks = existing_chunks
-            else:
-                click.echo(f"\n[1/5] Re-sampling {sample_size} chunks (cache has {len(existing_chunks)})...")
-                sampler = ChunkSampler(db_path)
-                sampler.print_statistics()
-                chunks = sampler.sample_chunks(sample_size=sample_size)
-                sampler.save_samples(chunks)
-        else:
-            click.echo(f"\n[1/5] Sampling {sample_size} chunks from database...")
-            sampler = ChunkSampler(db_path)
+            click.echo(f"\n[1/5] Re-sampling {sample_size} chunks (cache has {len(existing_chunks)})...")
             sampler.print_statistics()
             chunks = sampler.sample_chunks(sample_size=sample_size)
             sampler.save_samples(chunks)
+    else:
+        click.echo(f"\n[1/5] Sampling {sample_size} chunks from database...")
+        sampler = ChunkSampler(db_path)
+        sampler.print_statistics()
+        chunks = sampler.sample_chunks(sample_size=sample_size)
+        sampler.save_samples(chunks)
 
-        # Step 2: Filter for quality
-        if quality_file.exists() and not reset:
-            click.echo(f"\n[2/5] Using cached quality-filtered chunks...")
+    # Step 2: Filter for quality (check cache first)
+    quality_file = Path('data/quality_chunks.json')
+    if quality_file.exists() and not reset:
+        click.echo(f"\n[2/5] Using cached quality-filtered chunks...")
+        filter = ChunkQualityFilter(model=llm_model)
+        suitable = filter.load_filtered_chunks()
+        click.echo(f"  Loaded {len(suitable)} cached quality chunks")
+    else:
+        if skip_quality:
+            click.echo(f"\n[2/5] Applying heuristic quality filters only (skipping LLM)...")
             filter = ChunkQualityFilter(model=llm_model)
-            suitable = filter.load_filtered_chunks()
-            click.echo(f"  Loaded {len(suitable)} cached quality chunks")
+            suitable_chunks, rejected = filter.quick_filter(chunks)
+            click.echo(f"  Heuristic filter: {len(suitable_chunks)} passed, {len(rejected)} rejected")
+
+            # Show rejection summary for heuristic-only filtering
+            filter.print_rejection_summary(len(chunks))
+
+            # Convert to QualityChunkSample format for compatibility
+            from chunk_quality_filter import QualityChunkSample
+            suitable = []
+            for chunk in suitable_chunks:
+                suitable.append(QualityChunkSample(
+                    chunk_id=chunk.chunk_id,
+                    document_id=chunk.document_id,
+                    chunk_index=chunk.chunk_index,
+                    chunk_text=chunk.chunk_text,
+                    document_title=chunk.document_title,
+                    document_url=chunk.document_url,
+                    chunk_start=chunk.chunk_start,
+                    chunk_end=chunk.chunk_end,
+                    parent_content=chunk.parent_content,
+                    embedding_id=chunk.embedding_id,
+                    quality_status='SUITABLE',
+                    quality_reason='Passed heuristic filters',
+                    confidence_score=0.8
+                ))
+            unsuitable = []
+            filter.save_filtered_chunks(suitable, unsuitable)
         else:
-            if skip_quality:
-                click.echo(f"\n[2/5] Applying heuristic quality filters only (skipping LLM)...")
-                filter = ChunkQualityFilter(model=llm_model)
-                suitable_chunks, rejected = filter.quick_filter(chunks)
-                click.echo(f"  Heuristic filter: {len(suitable_chunks)} passed, {len(rejected)} rejected")
+            click.echo(f"\n[2/5] Filtering chunks for quality using {llm_model}...")
+            filter = ChunkQualityFilter(model=llm_model)
 
-                # Show rejection summary for heuristic-only filtering
-                filter.print_rejection_summary(len(chunks))
+            # Apply quick heuristics first
+            chunks, quick_rejected = filter.quick_filter(chunks)
+            click.echo(f"  Quick filter: {len(chunks)} passed, {len(quick_rejected)} rejected")
 
-                # Convert to QualityChunkSample format for compatibility
-                from chunk_quality_filter import QualityChunkSample
-                suitable = []
-                for chunk in suitable_chunks:
-                    suitable.append(QualityChunkSample(
-                        chunk_id=chunk.chunk_id,
-                        document_id=chunk.document_id,
-                        chunk_index=chunk.chunk_index,
-                        chunk_text=chunk.chunk_text,
-                        document_title=chunk.document_title,
-                        document_url=chunk.document_url,
-                        chunk_start=chunk.chunk_start,
-                        chunk_end=chunk.chunk_end,
-                        parent_content=chunk.parent_content,
-                        embedding_id=chunk.embedding_id,
-                        quality_status='SUITABLE',
-                        quality_reason='Passed heuristic filters',
-                        confidence_score=0.8
-                    ))
-                unsuitable = []
-                filter.save_filtered_chunks(suitable, unsuitable)
-            else:
-                click.echo(f"\n[2/5] Filtering chunks for quality using {llm_model}...")
-                filter = ChunkQualityFilter(model=llm_model)
+            suitable, unsuitable = filter.filter_chunks(chunks)
+            filter.save_filtered_chunks(suitable, unsuitable)
 
-                # Apply quick heuristics first
-                chunks, quick_rejected = filter.quick_filter(chunks)
-                click.echo(f"  Quick filter: {len(chunks)} passed, {len(quick_rejected)} rejected")
-
-                suitable, unsuitable = filter.filter_chunks(chunks)
-                filter.save_filtered_chunks(suitable, unsuitable)
-
-                # Show rejection summary
-                filter.print_rejection_summary(len(chunks))
+            # Show rejection summary
+            filter.print_rejection_summary(len(chunks))
 
     # Step 3: Generate search terms (check cache first)
     terms_file = Path('data/chunk_terms.json')

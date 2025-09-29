@@ -9,7 +9,6 @@ class OllamaEmbedding:
     def __init__(self, model_name: str, base_url: str = "http://localhost:11434"):
         self.model_name = model_name
         self.base_url = base_url.rstrip('/')
-        self.session = requests.Session()
 
         # Test connection and model availability
         self._test_connection()
@@ -18,14 +17,18 @@ class OllamaEmbedding:
         """Test if Ollama is running and model is available"""
         try:
             # Check if Ollama is running
-            response = self.session.get(f"{self.base_url}/api/tags", timeout=5)
+            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
             response.raise_for_status()
 
             # Check if our model is available
             models = response.json().get('models', [])
             model_names = [model['name'] for model in models]
 
-            if self.model_name not in model_names:
+            # Check both with and without :latest suffix
+            model_found = (self.model_name in model_names or
+                          f"{self.model_name}:latest" in model_names)
+
+            if not model_found:
                 print(f"Warning: Model '{self.model_name}' not found in Ollama.")
                 print(f"Available models: {model_names}")
                 print(f"You may need to run: ollama pull {self.model_name}")
@@ -66,13 +69,18 @@ class OllamaEmbedding:
             try:
                 payload = {
                     "model": self.model_name,
-                    "prompt": text
+                    "prompt": text,
+                    "keep_alive": "30m",  # Keep model loaded for 30 minutes
+                    "options": {
+                        "num_gpu": 999  # Force GPU usage
+                    }
                 }
 
-                response = self.session.post(
+                print(f"Requesting embedding for text length: {len(text)} chars")
+                response = requests.post(
                     f"{self.base_url}/api/embeddings",
                     json=payload,
-                    timeout=30
+                    timeout=120  # Very generous timeout for debugging
                 )
                 response.raise_for_status()
 
@@ -87,7 +95,7 @@ class OllamaEmbedding:
                 if attempt == max_retries - 1:
                     raise RuntimeError(f"Failed to get embedding after {max_retries} attempts: {e}")
 
-                print(f"Attempt {attempt + 1} failed, retrying in 1 second...")
+                print(f"Attempt {attempt + 1} failed, retrying in 1 second...{e}")
                 time.sleep(1)
 
         raise RuntimeError(f"Failed to get embedding after {max_retries} attempts")

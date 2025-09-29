@@ -147,3 +147,6 @@ cd localmind-rs && cargo test
 
 For implementation-specific details, see the respective CLAUDE.md files in each subdirectory.
 - always run cargo check before announcing a task is complete
+- There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this file
+- dont use pip install unless uv add has failed
+- always run python scripts in the correct venv: "C:/Users/wgilp/projects/localmind/.venv"
