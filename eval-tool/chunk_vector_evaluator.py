@@ -95,19 +95,125 @@ class ChunkVectorEvaluator:
             self.embedding_model = SentenceTransformer(embedding_model)
             print(f"[BOT] Using SentenceTransformer model: {embedding_model}")
 
+        # Warm up the model with a test embedding
+        self._warmup_model()
+
+        # Check if model needs special formatting
+        prefixes = self._get_instruction_prefixes()
+        if prefixes['query_prefix'] or prefixes['document_prefix']:
+            print(f"[INFO] Using model-specific formatting for {embedding_model}:")
+            if prefixes['query_prefix']:
+                print(f"  Query prefix: '{prefixes['query_prefix'][:50]}...'")
+            if prefixes['document_prefix']:
+                print(f"  Document prefix: '{prefixes['document_prefix'][:50]}...'")
+
         # Storage for indexed chunks
         self.indexed_chunks = {}  # chunk_id -> QualityChunkSample
         self.chunk_embeddings = {}  # chunk_id -> embedding vector
         self.embedding_matrix = None  # Numpy array for efficient search
 
-    def get_embedding(self, text: str) -> np.ndarray:
-        """Get embedding for text"""
+    def _warmup_model(self):
+        """Warm up the model by generating a test embedding to ensure it's loaded"""
+        print("[WARMUP] Loading model with test embedding...")
+        warmup_start = time.time()
+
+        # Test with both query and document formats to ensure both paths are warmed up
+        test_texts = [
+            "This is a test query for model warmup",
+            "This is a test document for model warmup to ensure the embedding model is fully loaded"
+        ]
+
+        try:
+            if self.use_ollama or self.use_lmstudio:
+                # For API-based models, test batch processing
+                _ = self.embedding_model.encode(test_texts)
+            else:
+                # For SentenceTransformers
+                _ = self.embedding_model.encode(test_texts, convert_to_numpy=True, show_progress_bar=False)
+
+            warmup_time = time.time() - warmup_start
+            print(f"[WARMUP] Model loaded successfully in {warmup_time:.2f}s")
+        except Exception as e:
+            print(f"[WARMUP] Warning: Model warmup failed: {e}")
+            print("[WARMUP] Continuing anyway, first real embedding may be slower")
+
+    def _get_instruction_prefixes(self):
+        """Get appropriate instruction prefixes for the embedding model"""
+        model_name = self.embedding_model_name.lower()
+
+        # Remove common suffixes for checking base model type
+        base_model_name = model_name.replace("-gpu", "").replace("text-embedding-", "")
+
+        if "embeddinggemma" in base_model_name:
+            return {
+                'query_prefix': "task: search result | query: ",
+                'document_prefix': "title: {title} | text: "
+            }
+        elif "nomic-embed-text" in base_model_name:
+            return {
+                'query_prefix': "search_query: ",
+                'document_prefix': "search_document: "
+            }
+        elif "qwen3-embedding" in base_model_name:
+            return {
+                'query_prefix': "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ",
+                'document_prefix': ""  # Qwen3 doesn't use document prefix
+            }
+        else:
+            # SentenceTransformers and other models typically don't need prefixes
+            return {
+                'query_prefix': "",
+                'document_prefix': ""
+            }
+
+    def _format_text_for_embedding(self, text: str, is_query: bool = False,
+                                  document_title: str = "", document_url: str = ""):
+        """
+        Format text with appropriate prefixes for the embedding model
+
+        Args:
+            text: The text to embed
+            is_query: Whether this is a search query (True) or document (False)
+            document_title: Title of the document (for document embeddings)
+            document_url: URL of the document (for additional context)
+        """
+        prefixes = self._get_instruction_prefixes()
+
+        if is_query:
+            return prefixes['query_prefix'] + text
+        else:
+            if "embeddinggemma" in self.embedding_model_name.lower():
+                # EmbeddingGemma uses title in the prefix
+                title = document_title if document_title else "content"
+                prefix = prefixes['document_prefix'].format(title=title)
+                return prefix + text
+            else:
+                return prefixes['document_prefix'] + text
+
+    def get_embedding(self, text: str, is_query: bool = False,
+                      document_title: str = "", document_url: str = "") -> np.ndarray:
+        """
+        Get embedding for text with appropriate formatting
+
+        Args:
+            text: The text to embed
+            is_query: Whether this is a search query (True) or document (False)
+            document_title: Title of the document (for document embeddings)
+            document_url: URL of the document (for additional context)
+        """
+        # Apply model-specific formatting
+        formatted_text = self._format_text_for_embedding(
+            text, is_query=is_query,
+            document_title=document_title,
+            document_url=document_url
+        )
+
         if self.use_ollama or self.use_lmstudio:
             # Both Ollama and LMStudio use the encode() method
-            embedding = self.embedding_model.encode(text)
+            embedding = self.embedding_model.encode(formatted_text)
             return np.array(embedding)
         else:
-            return self.embedding_model.encode(text, convert_to_numpy=True)
+            return self.embedding_model.encode(formatted_text, convert_to_numpy=True)
 
     def index_chunks(self, chunks: List[QualityChunkSample], force_reindex: bool = False):
         """
@@ -136,11 +242,54 @@ class ChunkVectorEvaluator:
         self.indexed_chunks = {chunk.chunk_id: chunk for chunk in chunks}
         self.chunk_embeddings = {}
 
-        # Generate embeddings with progress bar
-        for chunk in tqdm(chunks, desc="Generating embeddings", unit="chunk"):
-            # Get embedding for chunk text
-            embedding = self.get_embedding(chunk.chunk_text)
-            self.chunk_embeddings[chunk.chunk_id] = embedding
+        # Prepare texts for batch processing
+        texts_to_embed = []
+        chunk_ids_order = []
+
+        for chunk in chunks:
+            # Format text with document formatting
+            formatted_text = self._format_text_for_embedding(
+                chunk.chunk_text,
+                is_query=False,
+                document_title=chunk.document_title,
+                document_url=chunk.document_url
+            )
+            texts_to_embed.append(formatted_text)
+            chunk_ids_order.append(chunk.chunk_id)
+
+        # Batch process embeddings
+        if self.use_ollama or self.use_lmstudio:
+            # Use batch processing for API-based models
+            batch_size = 50  # Reasonable batch size for API calls
+            all_embeddings = []
+
+            for i in tqdm(range(0, len(texts_to_embed), batch_size),
+                         desc=f"Generating embeddings (batch size {batch_size})",
+                         unit="batch"):
+                batch = texts_to_embed[i:i + batch_size]
+                if self.use_lmstudio:
+                    # LMStudio now supports batch processing
+                    batch_embeddings = self.embedding_model.encode(batch, batch_size=len(batch))
+                else:
+                    # Ollama processes one by one (no batch support yet)
+                    batch_embeddings = [self.embedding_model.encode(text) for text in batch]
+
+                # Convert to numpy arrays
+                for emb in batch_embeddings:
+                    all_embeddings.append(np.array(emb))
+        else:
+            # SentenceTransformers naturally handles batches efficiently
+            print("Using SentenceTransformers batch processing...")
+            all_embeddings = self.embedding_model.encode(
+                texts_to_embed,
+                convert_to_numpy=True,
+                show_progress_bar=True,
+                batch_size=32  # Optimal batch size for SentenceTransformers
+            )
+
+        # Map embeddings to chunk IDs
+        for chunk_id, embedding in zip(chunk_ids_order, all_embeddings):
+            self.chunk_embeddings[chunk_id] = embedding
 
         if not chunks:
             print("No chunks to index")
@@ -183,8 +332,8 @@ class ChunkVectorEvaluator:
         if self.embedding_matrix is None:
             raise ValueError("No chunks indexed. Call index_chunks() first.")
 
-        # Get query embedding
-        query_embedding = self.get_embedding(query)
+        # Get query embedding with query formatting
+        query_embedding = self.get_embedding(query, is_query=True)
         query_embedding = query_embedding / (np.linalg.norm(query_embedding) + 1e-10)
 
         # Compute similarities
@@ -202,6 +351,79 @@ class ChunkVectorEvaluator:
             results.append((chunk_id, score))
 
         return results
+
+    def _evaluate_chunk_with_cached_embeddings(self, chunk: QualityChunkSample,
+                                              queries: List[str],
+                                              query_embeddings: Dict[str, np.ndarray],
+                                              top_k: int = 10) -> ChunkEvaluation:
+        """
+        Evaluate search performance for a single chunk using pre-computed embeddings
+
+        Args:
+            chunk: The chunk to evaluate
+            queries: List of search queries for this chunk
+            query_embeddings: Pre-computed query embeddings
+            top_k: Number of top results to consider
+
+        Returns:
+            ChunkEvaluation with results
+        """
+        search_results = []
+        ranks = []
+
+        # Get chunk IDs list once
+        chunk_ids = list(self.chunk_embeddings.keys())
+
+        for query in queries:
+            # Use pre-computed query embedding
+            query_embedding = query_embeddings[query]
+
+            # Compute similarities with vectorized operation
+            similarities = np.dot(self.embedding_matrix, query_embedding)
+
+            # Get top-k indices
+            top_indices = np.argsort(similarities)[-top_k:][::-1]
+
+            # Check if target chunk was found
+            found = False
+            rank = None
+            score = None
+            top_chunk_ids = []
+
+            for i, idx in enumerate(top_indices):
+                result_chunk_id = chunk_ids[idx]
+                top_chunk_ids.append(result_chunk_id)
+                if result_chunk_id == chunk.chunk_id:
+                    found = True
+                    rank = i + 1  # 1-indexed
+                    score = float(similarities[idx])
+
+            search_results.append(ChunkSearchResult(
+                query=query,
+                target_chunk_id=chunk.chunk_id,
+                found_in_top_k=found,
+                rank=rank,
+                score=score,
+                top_chunks=top_chunk_ids
+            ))
+
+            if rank:
+                ranks.append(rank)
+
+        # Calculate metrics
+        hit_rate = sum(1 for r in search_results if r.found_in_top_k) / len(search_results) if search_results else 0
+        avg_rank = np.mean(ranks) if ranks else None
+        mrr = np.mean([1/r for r in ranks]) if ranks else 0
+
+        return ChunkEvaluation(
+            chunk_id=chunk.chunk_id,
+            document_id=chunk.document_id,
+            chunk_preview=chunk.chunk_text[:100],
+            search_results=search_results,
+            hit_rate=hit_rate,
+            avg_rank=avg_rank,
+            mrr=mrr
+        )
 
     def evaluate_chunk(self, chunk: QualityChunkSample,
                       search_terms: ChunkSearchTerms,
@@ -281,6 +503,64 @@ class ChunkVectorEvaluator:
         print(f"\n[SEARCH] Evaluating {len(chunks)} chunks with top-{top_k} search...")
         start_time = time.time()
 
+        # Step 1: Collect all unique queries and pre-compute their embeddings
+        print("[SEARCH] Pre-computing query embeddings...")
+        all_queries = set()
+        chunk_to_queries = {}
+
+        for chunk in chunks:
+            if chunk.chunk_id not in terms_dict:
+                continue
+            search_terms = terms_dict[chunk.chunk_id]
+            chunk_queries = search_terms.search_terms
+            chunk_to_queries[chunk.chunk_id] = chunk_queries
+            all_queries.update(chunk_queries)
+
+        all_queries = list(all_queries)
+        print(f"  Found {len(all_queries)} unique queries across all chunks")
+
+        # Batch compute all query embeddings
+        query_embeddings = {}
+        batch_size = 50  # Reasonable batch size for APIs
+
+        # Format all queries as search queries
+        formatted_queries = [self._format_text_for_embedding(q, is_query=True) for q in all_queries]
+
+        if self.use_ollama or self.use_lmstudio:
+            # Process in batches for API-based models
+            for i in tqdm(range(0, len(formatted_queries), batch_size),
+                         desc=f"Computing query embeddings (batch size {batch_size})",
+                         unit="batch"):
+                batch = formatted_queries[i:i + batch_size]
+                batch_queries = all_queries[i:i + batch_size]
+
+                if self.use_lmstudio:
+                    batch_embeddings = self.embedding_model.encode(batch, batch_size=len(batch))
+                else:
+                    # Ollama with concurrent processing
+                    batch_embeddings = self.embedding_model.encode(batch, max_workers=4)
+
+                # Map embeddings to queries and normalize
+                for query, embedding in zip(batch_queries, batch_embeddings):
+                    emb_array = np.array(embedding)
+                    emb_array = emb_array / (np.linalg.norm(emb_array) + 1e-10)
+                    query_embeddings[query] = emb_array
+        else:
+            # SentenceTransformers batch processing
+            embeddings = self.embedding_model.encode(
+                formatted_queries,
+                convert_to_numpy=True,
+                show_progress_bar=True,
+                batch_size=32
+            )
+            # Map and normalize
+            for query, embedding in zip(all_queries, embeddings):
+                embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
+                query_embeddings[query] = embedding
+
+        print(f"  Pre-computed {len(query_embeddings)} query embeddings")
+
+        # Step 2: Evaluate chunks using pre-computed embeddings
         evaluations = []
         all_hit_rates = []
         all_ranks = []
@@ -288,12 +568,13 @@ class ChunkVectorEvaluator:
 
         # Progress bar for evaluation
         for chunk in tqdm(chunks, desc="Evaluating chunks", unit="chunk"):
-            if chunk.chunk_id not in terms_dict:
-                print(f"  [WARN] No search terms for chunk {chunk.chunk_id}, skipping...")
+            if chunk.chunk_id not in chunk_to_queries:
                 continue
 
-            search_terms = terms_dict[chunk.chunk_id]
-            evaluation = self.evaluate_chunk(chunk, search_terms, top_k)
+            # Use pre-computed embeddings for evaluation
+            evaluation = self._evaluate_chunk_with_cached_embeddings(
+                chunk, chunk_to_queries[chunk.chunk_id], query_embeddings, top_k
+            )
             evaluations.append(evaluation)
 
             all_hit_rates.append(evaluation.hit_rate)

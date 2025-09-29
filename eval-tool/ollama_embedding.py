@@ -2,6 +2,8 @@ import requests
 import json
 from typing import List, Union
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 
 class OllamaEmbedding:
     """Ollama embedding client that mimics SentenceTransformer interface"""
@@ -39,13 +41,14 @@ class OllamaEmbedding:
             raise ConnectionError(f"Cannot connect to Ollama at {self.base_url}. "
                                 f"Make sure Ollama is running. Error: {e}")
 
-    def encode(self, texts: Union[str, List[str]], **kwargs) -> Union[List[float], List[List[float]]]:
+    def encode(self, texts: Union[str, List[str]], max_workers: int = 4, **kwargs) -> Union[List[float], List[List[float]]]:
         """
         Generate embeddings for text(s).
         Mimics SentenceTransformer.encode() interface.
 
         Args:
             texts: Single string or list of strings to encode
+            max_workers: Number of concurrent requests for batch processing
             **kwargs: Additional arguments (ignored for compatibility)
 
         Returns:
@@ -56,11 +59,30 @@ class OllamaEmbedding:
             embedding = self._get_embedding(texts)
             return embedding
         else:
-            # List of texts
-            embeddings = []
-            for text in texts:
-                embedding = self._get_embedding(text)
-                embeddings.append(embedding)
+            # Process multiple texts concurrently for better performance
+            print(f"[OLLAMA] Processing {len(texts)} texts with {max_workers} workers")
+            embeddings = [None] * len(texts)  # Preserve order
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                future_to_index = {
+                    executor.submit(self._get_embedding, text): i
+                    for i, text in enumerate(texts)
+                }
+
+                # Collect results as they complete
+                completed = 0
+                for future in as_completed(future_to_index):
+                    index = future_to_index[future]
+                    try:
+                        embeddings[index] = future.result()
+                        completed += 1
+                        if completed % 10 == 0:
+                            print(f"[OLLAMA] Completed {completed}/{len(texts)} embeddings")
+                    except Exception as e:
+                        print(f"[OLLAMA] Error processing text at index {index}: {e}")
+                        raise
+
             return embeddings
 
     def _get_embedding(self, text: str, max_retries: int = 3) -> List[float]:
@@ -76,7 +98,7 @@ class OllamaEmbedding:
                     }
                 }
 
-                print(f"Requesting embedding for text length: {len(text)} chars")
+                # Removed verbose logging for concurrent processing
                 response = requests.post(
                     f"{self.base_url}/api/embeddings",
                     json=payload,

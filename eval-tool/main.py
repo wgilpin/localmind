@@ -407,49 +407,66 @@ def run_chunk_pipeline(sample_size, db_path, llm_model, embedding_model, ollama,
     if reset:
         reset_data()
 
-    # Comprehensive cache check - skip all preprocessing if we have everything
+    # Granular cache check - check each component separately
     chunks_file = Path('data/sampled_chunks.json')
     quality_file = Path('data/quality_chunks.json')
     terms_file = Path('data/chunk_terms.json')
 
-    if (not reset and chunks_file.exists() and quality_file.exists() and terms_file.exists()):
-        click.echo("\n[CACHE CHECK] Verifying cached data...")
+    # Check cached components
+    cached_chunks = None
+    cached_quality = None
+    cached_terms = None
 
-        # Load and validate cached data
-        sampler = ChunkSampler()
-        existing_chunks = sampler.load_samples()
+    if not reset:
+        # Check sampled chunks
+        if chunks_file.exists():
+            sampler = ChunkSampler()
+            existing_chunks = sampler.load_samples()
+            if len(existing_chunks) >= sample_size:
+                cached_chunks = existing_chunks
+                click.echo(f"✅ Found {len(existing_chunks)} cached chunks (need {sample_size})")
+            else:
+                click.echo(f"⚠️  Cached chunks insufficient: {len(existing_chunks)} < {sample_size}")
 
-        filter = ChunkQualityFilter(model=llm_model)
-        suitable = filter.load_filtered_chunks()
+        # Check quality chunks
+        if quality_file.exists():
+            filter = ChunkQualityFilter(model=llm_model)
+            suitable = filter.load_filtered_chunks()
+            if len(suitable) > 0:
+                cached_quality = suitable
+                click.echo(f"✅ Found {len(suitable)} cached quality chunks")
+            else:
+                click.echo(f"⚠️  No cached quality chunks found")
 
-        generator = ChunkQueryGenerator(model=llm_model)
-        terms_dict = generator.load_search_terms()
+        # Check search terms
+        if terms_file.exists():
+            generator = ChunkQueryGenerator(model=llm_model)
+            terms_dict = generator.load_search_terms()
+            # Terms should match quality chunks count (or at least be substantial)
+            if len(terms_dict) > 0 and cached_quality and len(terms_dict) >= len(cached_quality) * 0.9:
+                cached_terms = terms_dict
+                click.echo(f"✅ Found {len(terms_dict)} cached search term sets")
+            else:
+                click.echo(f"⚠️  Search terms insufficient: {len(terms_dict)} terms vs {len(cached_quality) if cached_quality else 0} quality chunks")
 
-        # Check if cache is valid for current configuration
-        if (len(existing_chunks) >= sample_size and
-            len(suitable) > 0 and
-            len(terms_dict) > 0):
-
-            click.echo(f"✅ Found complete cached data:")
-            click.echo(f"  - {len(existing_chunks)} sampled chunks (need {sample_size})")
-            click.echo(f"  - {len(suitable)} quality chunks")
-            click.echo(f"  - {len(terms_dict)} search term sets")
-            click.echo(f"[SKIP] Jumping directly to embeddings/evaluation...")
-
-            # Skip to Step 4 (embeddings)
-            chunks = existing_chunks
-        else:
-            click.echo(f"❌ Cache validation failed, will regenerate...")
-            suitable = None
-            terms_dict = None
+    # Check if we can skip directly to embeddings
+    if cached_chunks and cached_quality and cached_terms:
+        click.echo(f"\n🎯 All cached data valid - jumping to embeddings/evaluation!")
+        chunks = cached_chunks
+        suitable = cached_quality
+        terms_dict = cached_terms
     else:
-        click.echo("\n[CACHE CHECK] Missing cache files, starting from scratch...")
-        suitable = None
-        terms_dict = None
+        click.echo(f"\n🔄 Need to regenerate some components...")
+        suitable = cached_quality  # Keep if valid
+        terms_dict = cached_terms  # Keep if valid
 
-    # Only run preprocessing steps if cache was invalid/missing
-    if suitable is None:
-        # Step 1: Sample chunks
+    # Run only the preprocessing steps that need regeneration
+
+    # Step 1: Handle chunks (use cached if available)
+    if cached_chunks:
+        click.echo(f"\n[1/5] ✅ Using cached {len(cached_chunks)} chunks")
+        chunks = cached_chunks
+    else:
         if chunks_file.exists() and not reset:
             sampler = ChunkSampler()
             existing_chunks = sampler.load_samples()
@@ -469,7 +486,11 @@ def run_chunk_pipeline(sample_size, db_path, llm_model, embedding_model, ollama,
             chunks = sampler.sample_chunks(sample_size=sample_size)
             sampler.save_samples(chunks)
 
-        # Step 2: Filter for quality
+    # Step 2: Handle quality filtering (use cached if available)
+    if cached_quality:
+        click.echo(f"\n[2/5] ✅ Using cached {len(cached_quality)} quality chunks")
+        suitable = cached_quality
+    else:
         if quality_file.exists() and not reset:
             click.echo(f"\n[2/5] Using cached quality-filtered chunks...")
             filter = ChunkQualityFilter(model=llm_model)
@@ -520,28 +541,32 @@ def run_chunk_pipeline(sample_size, db_path, llm_model, embedding_model, ollama,
                 # Show rejection summary
                 filter.print_rejection_summary(len(chunks))
 
-    # Step 3: Generate search terms (check cache first)
-    terms_file = Path('data/chunk_terms.json')
-    if terms_file.exists() and not reset:
-        click.echo(f"\n[3/5] Using cached search terms...")
-        generator = ChunkQueryGenerator(model=llm_model)
-        terms_dict = generator.load_search_terms()
+    # Step 3: Handle search terms (use cached if available)
+    if cached_terms:
+        click.echo(f"\n[3/5] ✅ Using cached {len(cached_terms)} search term sets")
+        terms_dict = cached_terms
+    else:
+        terms_file = Path('data/chunk_terms.json')
+        if terms_file.exists() and not reset:
+            click.echo(f"\n[3/5] Using cached search terms...")
+            generator = ChunkQueryGenerator(model=llm_model)
+            terms_dict = generator.load_search_terms()
 
-        # Verify terms match current suitable chunks
-        suitable_chunk_ids = {chunk.chunk_id for chunk in suitable}
-        cached_chunk_ids = set(terms_dict.keys())
+            # Verify terms match current suitable chunks
+            suitable_chunk_ids = {chunk.chunk_id for chunk in suitable}
+            cached_chunk_ids = set(terms_dict.keys())
 
-        if suitable_chunk_ids == cached_chunk_ids:
-            click.echo(f"  Loaded {len(terms_dict)} cached search term sets")
+            if suitable_chunk_ids == cached_chunk_ids:
+                click.echo(f"  Loaded {len(terms_dict)} cached search term sets")
+            else:
+                click.echo(f"  Cache mismatch, regenerating search terms...")
+                terms_dict = generator.batch_generate(suitable, batch_size=5)
+                generator.save_search_terms(terms_dict)
         else:
-            click.echo(f"  Cache mismatch, regenerating search terms...")
+            click.echo(f"\n[3/5] Generating search terms for {len(suitable)} chunks...")
+            generator = ChunkQueryGenerator(model=llm_model)
             terms_dict = generator.batch_generate(suitable, batch_size=5)
             generator.save_search_terms(terms_dict)
-    else:
-        click.echo(f"\n[3/5] Generating search terms for {len(suitable)} chunks...")
-        generator = ChunkQueryGenerator(model=llm_model)
-        terms_dict = generator.batch_generate(suitable, batch_size=5)
-        generator.save_search_terms(terms_dict)
 
     # Step 4: Index chunks
     click.echo(f"\n[4/5] Indexing chunks with {embedding_model}...")
