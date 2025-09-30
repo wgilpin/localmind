@@ -37,7 +37,8 @@
       "Bash(sqlite3:*)",
       "Bash(\"C:/Users/wgilp/projects/localmind/.venv/Scripts/python.exe\" debug_query_gen.py)",
       "Bash(\"C:/Users/wgilp/projects/localmind/.venv/Scripts/python.exe\" test_fixed_generator.py)",
-      "Bash(\"C:/Users/wgilp/projects/localmind/.venv/Scripts/python.exe\" simple_test.py)"
+      "Bash(\"C:/Users/wgilp/projects/localmind/.venv/Scripts/python.exe\" simple_test.py)",
+      "Read(//c/Users/wgilp/AppData/Roaming/localmind/**)"
     ],
     "deny": [],
     "ask": [],

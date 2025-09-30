@@ -84,7 +84,44 @@ pub struct DocumentSource {
 }
 
 impl RagPipeline {
+    /// Initialize RAG pipeline using embedding config from database.
+    /// Falls back to Ollama if no config is found.
     pub async fn new(db: Database, ollama_client: OllamaClient) -> Result<Self> {
+        // Check if we have embedding config in the database
+        let embedding_model = db.get_embedding_model().await?;
+        let embedding_url = db.get_embedding_url().await?;
+
+        match (embedding_model, embedding_url) {
+            (Some(model), Some(url)) => {
+                println!("🔧 Using embedding config from database:");
+                println!("   Model: {}", model);
+                println!("   URL: {}", url);
+
+                // Initialize LM Studio client with configured model
+                let lmstudio_client = LMStudioClient::new(url, model);
+
+                // Test connection
+                match lmstudio_client.test_connection().await {
+                    Ok(_) => {
+                        println!("✅ LM Studio connection successful");
+                        Self::new_with_lmstudio(db, lmstudio_client, Some(ollama_client)).await
+                    }
+                    Err(e) => {
+                        println!("⚠️  LM Studio connection failed: {}", e);
+                        println!("   Falling back to Ollama for embeddings");
+                        Self::new_with_ollama_only(db, ollama_client).await
+                    }
+                }
+            }
+            _ => {
+                println!("ℹ️  No embedding config found in database, using Ollama");
+                Self::new_with_ollama_only(db, ollama_client).await
+            }
+        }
+    }
+
+    /// Initialize with Ollama only (legacy behavior)
+    pub async fn new_with_ollama_only(db: Database, ollama_client: OllamaClient) -> Result<Self> {
         let document_processor = DocumentProcessor::default();
         let mut vector_store = VectorStore::new();
 
@@ -336,8 +373,18 @@ impl RagPipeline {
         let start = best_position.saturating_sub(100);
         let end = std::cmp::min(best_position + 300, content.len());
 
+        // Ensure start and end are on UTF-8 character boundaries
+        let mut safe_start = start;
+        while safe_start > 0 && !content.is_char_boundary(safe_start) {
+            safe_start -= 1;
+        }
+
+        let mut safe_end = end;
+        while safe_end > safe_start && !content.is_char_boundary(safe_end) {
+            safe_end -= 1;
+        }
         // Make sure we don't cut in the middle of a word
-        let snippet = &content[start..end];
+        let snippet = &content[safe_start..safe_end];
         format!("...{}\n...", snippet.trim())
     }
 

@@ -110,6 +110,16 @@ impl Database {
             [],
         )?;
 
+        
+        // Create config table for storing key-value settings
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
         Ok(())
     }
 
@@ -361,15 +371,13 @@ impl Database {
         }).await
     }
 
-    pub async fn delete_chunk_embeddings_for_document(&self, document_id: i64) -> Result<()> {
+    pub async fn delete_all_embeddings(&self) -> Result<()> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
-            conn.execute(
-                "DELETE FROM embeddings WHERE document_id = ?1",
-                params![document_id],
-            )?;
+            conn.execute("DELETE FROM embeddings", [])?;
             Ok(())
         }).await
     }
+
 
     pub async fn url_exists(&self, url: &str, priority: OperationPriority) -> Result<bool> {
         self.execute_with_priority(priority, |conn| {
@@ -535,5 +543,45 @@ impl Database {
             )?;
             Ok(())
         }).await
+    }
+
+    pub async fn set_config(&self, key: &str, value: &str) -> Result<()> {
+        self.execute_with_priority(OperationPriority::UserSearch, |conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?1, ?2, CURRENT_TIMESTAMP)",
+                params![key, value],
+            )?;
+            Ok(())
+        }).await
+    }
+
+    pub async fn get_config(&self, key: &str) -> Result<Option<String>> {
+        self.execute_with_priority(OperationPriority::UserSearch, |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT value FROM config WHERE key = ?1"
+            )?;
+
+            match stmt.query_row(params![key], |row| row.get(0)) {
+                Ok(value) => Ok(Some(value)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            }
+        }).await
+    }
+
+    pub async fn get_embedding_model(&self) -> Result<Option<String>> {
+        self.get_config("embedding_model").await
+    }
+
+    pub async fn set_embedding_model(&self, model: &str) -> Result<()> {
+        self.set_config("embedding_model", model).await
+    }
+
+    pub async fn get_embedding_url(&self) -> Result<Option<String>> {
+        self.get_config("embedding_url").await
+    }
+
+    pub async fn set_embedding_url(&self, url: &str) -> Result<()> {
+        self.set_config("embedding_url", url).await
     }
 }

@@ -66,22 +66,10 @@ impl DocumentProcessor {
 
             // Ensure actual_end is on a UTF-8 character boundary
             let mut safe_actual_end = actual_end;
-            if actual_end > text_len {
-                println!("WARNING: actual_end ({}) > text_len ({}) before UTF-8 check", actual_end, text_len);
-            }
             while safe_actual_end > safe_start && !text.is_char_boundary(safe_actual_end) {
                 safe_actual_end -= 1;
             }
-            if safe_actual_end > text_len {
-                println!("WARNING: safe_actual_end ({}) > text_len ({}) AFTER UTF-8 check", safe_actual_end, text_len);
-            }
 
-            // CRITICAL: Final safety check - never allow chunks to exceed document length
-            let original_end = safe_actual_end;
-            safe_actual_end = std::cmp::min(safe_actual_end, text_len);
-            if original_end > text_len {
-                println!("WARNING: Clamping chunk end from {} to {} (doc len: {})", original_end, text_len, text_len);
-            }
             if safe_actual_end > safe_start {
                 let chunk_text = text[safe_start..safe_actual_end].trim_start().to_string();
 
@@ -150,29 +138,29 @@ impl DocumentProcessor {
 
         // Look for paragraph breaks first
         if let Some(pos) = search_text.rfind("\n\n") {
-            return std::cmp::min(safe_start + pos + 2, text.len());
+            return safe_start + pos + 2;
         }
 
         // Look for sentence endings
         if let Some(pos) = search_text.rfind(". ") {
-            return std::cmp::min(safe_start + pos + 2, text.len());
+            return safe_start + pos + 2;
         }
 
         // Look for other sentence endings
         for ending in &["! ", "? ", ": ", "; "] {
             if let Some(pos) = search_text.rfind(ending) {
-                return std::cmp::min(safe_start + pos + 2, text.len());
+                return safe_start + pos + 2;
             }
         }
 
         // Look for line breaks
         if let Some(pos) = search_text.rfind('\n') {
-            return std::cmp::min(safe_start + pos + 1, text.len());
+            return safe_start + pos + 1;
         }
 
         // Look for word boundaries within preferred size
         if let Some(pos) = search_text.rfind(' ') {
-            return std::cmp::min(safe_start + pos + 1, text.len());
+            return safe_start + pos + 1;
         }
 
         // No natural break found within preferred size.
@@ -196,25 +184,25 @@ impl DocumentProcessor {
 
                     // Look for the first word boundary after preferred_end
                     if let Some(pos) = extended_search.find(' ') {
-                        return std::cmp::min(safe_end + pos, text.len());
+                        return safe_end + pos;
                     }
 
                     // Look for line break
                     if let Some(pos) = extended_search.find('\n') {
-                        return std::cmp::min(safe_end + pos, text.len());
+                        return safe_end + pos;
                     }
 
                     // Look for punctuation that might indicate a good break
                     for punct in &[". ", "! ", "? ", ", ", "; ", ": "] {
                         if let Some(pos) = extended_search.find(punct) {
-                            return std::cmp::min(safe_end + pos + punct.len(), text.len());
+                            return safe_end + pos + punct.len();
                         }
                     }
 
                     // Look for any punctuation
                     if let Some(pos) = extended_search.find(|c: char| c.is_ascii_punctuation()) {
                         // Include the punctuation character
-                        return std::cmp::min(safe_end + pos + 1, text.len());
+                        return safe_end + pos + 1;
                     }
                 }
             }

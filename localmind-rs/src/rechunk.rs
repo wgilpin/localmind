@@ -18,8 +18,15 @@ async fn main() -> Result<()> {
     }
 
     println!("⚠️ Re-chunking {} documents and updating database", documents.len());
-    println!("💡 This will create chunk entries without embeddings");
-    println!("🚀 Embeddings will be generated when documents are accessed");
+    println!("💡 This will DELETE ALL existing embeddings and create new chunks");
+    println!("🚀 You will need to re-embed after rechunking");
+    println!();
+
+    // Delete ALL embeddings first
+    println!("🗑️  Deleting all existing embeddings...");
+    db.delete_all_embeddings().await?;
+    println!("✅ All embeddings deleted");
+    println!();
 
     let mut total_chunks = 0;
     let mut processed_docs = 0;
@@ -31,8 +38,16 @@ async fn main() -> Result<()> {
         }
 
         // Re-chunk the document with improved logic
+        let doc_len = doc.content.len();
         match document_processor.chunk_text(&doc.content) {
             Ok(chunks) => {
+                // Debug: Check if any chunks exceed document length
+                for chunk in &chunks {
+                    if chunk.end_pos > doc_len {
+                        println!("❌ CRITICAL BUG: Doc {} (len={}) has chunk ending at {} ({}chars over)!",
+                                doc.id, doc_len, chunk.end_pos, chunk.end_pos - doc_len);
+                    }
+                }
                 // Store each chunk in the database (without embeddings for now)
                 for (chunk_index, chunk) in chunks.iter().enumerate() {
                     // Create a placeholder embedding (empty bytes) - embeddings will be generated later
@@ -59,7 +74,8 @@ async fn main() -> Result<()> {
     println!("🎉 Database re-chunking complete!");
     println!("📊 Processed {} documents, created {} chunks", processed_docs, total_chunks);
     println!("💡 Chunks now use improved word-boundary logic");
-    println!("🔧 Embeddings will be generated automatically when documents are accessed");
+    println!();
+    println!("⚠️  Next step: Run reembed_batched to generate embeddings for all chunks");
 
     println!("✅ Database re-chunking completed successfully!");
 
