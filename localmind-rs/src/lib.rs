@@ -2,6 +2,7 @@ pub mod db;
 pub mod vector;
 pub mod rag;
 pub mod ollama;
+pub mod lmstudio;
 pub mod document;
 pub mod bookmark;
 pub mod fetcher;

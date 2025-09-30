@@ -491,4 +491,49 @@ impl Database {
 
         Ok(marked_dead_count)
     }
+
+    pub async fn get_all_documents(&self) -> Result<Vec<Document>> {
+        self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead
+                 FROM documents
+                 WHERE is_dead IS NULL OR is_dead = 0
+                 ORDER BY id"
+            )?;
+
+            let docs = stmt.query_map([], |row| {
+                Ok(Document {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    content: row.get(2)?,
+                    url: row.get(3)?,
+                    source: row.get(4)?,
+                    created_at: row.get(5)?,
+                    embedding: row.get(6)?,
+                    is_dead: row.get(7)?,
+                })
+            })?;
+
+            let mut results = Vec::new();
+            for doc in docs {
+                results.push(doc?);
+            }
+            Ok(results)
+        }).await
+    }
+
+    pub async fn update_chunk_embedding(
+        &self,
+        embedding_id: i64,
+        embedding_bytes: &[u8],
+        priority: OperationPriority,
+    ) -> Result<()> {
+        self.execute_with_priority(priority, move |conn| {
+            conn.execute(
+                "UPDATE embeddings SET embedding = ?1 WHERE id = ?2",
+                params![embedding_bytes, embedding_id],
+            )?;
+            Ok(())
+        }).await
+    }
 }

@@ -42,6 +42,7 @@ struct StreamCompletionResponse {
     done: bool,
 }
 
+#[derive(Clone)]
 pub struct OllamaClient {
     base_url: String,
     client: Client,
@@ -70,7 +71,7 @@ impl OllamaClient {
 
     pub async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
         let url = format!("{}/api/embeddings", self.base_url);
-        
+
         let request = EmbeddingRequest {
             model: self.embedding_model.clone(),
             prompt: text.to_string(),
@@ -156,16 +157,16 @@ impl OllamaClient {
 
     pub async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/api/tags", self.base_url);
-        
+
         let response = self.client.get(&url).send().await?;
         Ok(response.status().is_success())
     }
 
     pub async fn list_models(&self) -> Result<Vec<String>> {
         let url = format!("{}/api/tags", self.base_url);
-        
+
         let response = self.client.get(&url).send().await?;
-        
+
         if !response.status().is_success() {
             return Err(format!("Ollama models request failed: {}", response.status()).into());
         }

@@ -3,16 +3,68 @@ use crate::{
     db::{Database, Document, OperationPriority},
     vector::VectorStore,
     ollama::OllamaClient,
+    lmstudio::LMStudioClient,
     document::DocumentProcessor,
 };
 use tokio_util::sync::CancellationToken;
 use std::collections::{HashSet, HashMap};
 use tokio::sync::{Mutex, mpsc};
 
+pub enum EmbeddingClient {
+    Ollama(OllamaClient),
+    LMStudio(LMStudioClient),
+}
+
+impl EmbeddingClient {
+    async fn generate_embedding(&self, text: &str, is_query: bool, document_title: Option<&str>) -> Result<Vec<f32>> {
+        match self {
+            EmbeddingClient::Ollama(client) => client.generate_embedding(text).await,
+            EmbeddingClient::LMStudio(client) => client.generate_embedding(text, is_query, document_title).await,
+        }
+    }
+
+    async fn generate_completion(&self, prompt: &str) -> Result<String> {
+        match self {
+            EmbeddingClient::Ollama(client) => client.generate_completion(prompt).await,
+            EmbeddingClient::LMStudio(_) => {
+                Err("LM Studio does not support completion generation. Please use Ollama for completions.".into())
+            }
+        }
+    }
+
+    async fn generate_completion_with_cancellation(&self, prompt: &str, cancel_token: CancellationToken) -> Result<String> {
+        match self {
+            EmbeddingClient::Ollama(client) => client.generate_completion_with_cancellation(prompt, cancel_token).await,
+            EmbeddingClient::LMStudio(_) => {
+                Err("LM Studio does not support completion generation. Please use Ollama for completions.".into())
+            }
+        }
+    }
+
+    async fn generate_completion_stream(&self, prompt: &str, tx: mpsc::UnboundedSender<String>) -> Result<()> {
+        match self {
+            EmbeddingClient::Ollama(client) => client.generate_completion_stream(prompt, tx).await,
+            EmbeddingClient::LMStudio(_) => {
+                Err("LM Studio does not support completion generation. Please use Ollama for completions.".into())
+            }
+        }
+    }
+
+    async fn generate_completion_stream_with_cancellation(&self, prompt: &str, tx: mpsc::UnboundedSender<String>, cancel_token: CancellationToken) -> Result<()> {
+        match self {
+            EmbeddingClient::Ollama(client) => client.generate_completion_stream_with_cancellation(prompt, tx, cancel_token).await,
+            EmbeddingClient::LMStudio(_) => {
+                Err("LM Studio does not support completion generation. Please use Ollama for completions.".into())
+            }
+        }
+    }
+}
+
 pub struct RagPipeline {
     pub db: Database,
     vector_store: Mutex<VectorStore>,
-    ollama_client: OllamaClient,
+    embedding_client: EmbeddingClient,
+    ollama_client: Option<OllamaClient>, // For completions only
     document_processor: DocumentProcessor,
     query_embedding_cache: Mutex<HashMap<String, Vec<f32>>>,
 }
@@ -47,6 +99,29 @@ impl RagPipeline {
         Ok(Self {
             db,
             vector_store: Mutex::new(vector_store),
+            embedding_client: EmbeddingClient::Ollama(ollama_client.clone()),
+            ollama_client: Some(ollama_client),
+            document_processor,
+            query_embedding_cache: Mutex::new(HashMap::new()),
+        })
+    }
+
+    pub async fn new_with_lmstudio(db: Database, lmstudio_client: LMStudioClient, ollama_client: Option<OllamaClient>) -> Result<Self> {
+        let document_processor = DocumentProcessor::default();
+        let mut vector_store = VectorStore::new();
+
+        // Load existing chunk embeddings from database
+        let chunk_embeddings = db.get_all_chunk_embeddings().await?;
+        vector_store.load_chunk_vectors(chunk_embeddings)?;
+
+        // For backward compatibility, also load old document embeddings
+        let legacy_embeddings = db.get_all_embeddings().await?;
+        vector_store.load_vectors(legacy_embeddings)?;
+
+        Ok(Self {
+            db,
+            vector_store: Mutex::new(vector_store),
+            embedding_client: EmbeddingClient::LMStudio(lmstudio_client),
             ollama_client,
             document_processor,
             query_embedding_cache: Mutex::new(HashMap::new()),
@@ -63,9 +138,9 @@ impl RagPipeline {
             }
         }
 
-        // Generate new embedding
+        // Generate new embedding with query formatting
         println!("🔍 Generating new embedding for query: {}", query.chars().take(50).collect::<String>());
-        let embedding = self.ollama_client.generate_embedding(query).await?;
+        let embedding = self.embedding_client.generate_embedding(query, true, None).await?;
 
         // Cache the embedding
         {
@@ -117,8 +192,8 @@ impl RagPipeline {
 
         // Generate and store embeddings for each chunk
         for (chunk_index, chunk) in chunks.iter().enumerate() {
-            // Generate embedding for this chunk
-            let chunk_embedding = self.ollama_client.generate_embedding(&chunk.content).await?;
+            // Generate embedding for this chunk with document formatting
+            let chunk_embedding = self.embedding_client.generate_embedding(&chunk.content, false, Some(title)).await?;
             let embedding_bytes = bincode::serialize(&chunk_embedding)?;
 
             // Use actual chunk boundaries from DocumentChunk
@@ -191,7 +266,7 @@ impl RagPipeline {
             input
         );
 
-        let answer = self.ollama_client.generate_completion(&prompt).await
+        let answer = self.embedding_client.generate_completion(&prompt).await
             .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
 
         Ok(RagResponse {
@@ -355,7 +430,7 @@ impl RagPipeline {
             query
         );
 
-        let answer = self.ollama_client.generate_completion(&prompt).await
+        let answer = self.embedding_client.generate_completion(&prompt).await
             .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
 
         Ok(answer)
@@ -385,7 +460,7 @@ impl RagPipeline {
             query
         );
 
-        let answer = self.ollama_client.generate_completion_with_cancellation(&prompt, cancel_token).await
+        let answer = self.embedding_client.generate_completion_with_cancellation(&prompt, cancel_token).await
             .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
 
         Ok(answer)
@@ -403,8 +478,8 @@ impl RagPipeline {
         }
     }
 
-    pub fn ollama(&self) -> &OllamaClient {
-        &self.ollama_client
+    pub fn ollama(&self) -> Option<&OllamaClient> {
+        self.ollama_client.as_ref()
     }
 
     pub async fn generate_answer_stream(
@@ -437,7 +512,7 @@ impl RagPipeline {
             query
         );
 
-        self.ollama_client.generate_completion_stream(&prompt, tx).await
+        self.embedding_client.generate_completion_stream(&prompt, tx).await
     }
 
     pub async fn generate_answer_stream_with_cancellation(
@@ -471,6 +546,6 @@ impl RagPipeline {
             query
         );
 
-        self.ollama_client.generate_completion_stream_with_cancellation(&prompt, tx, cancel_token).await
+        self.embedding_client.generate_completion_stream_with_cancellation(&prompt, tx, cancel_token).await
     }
 }
