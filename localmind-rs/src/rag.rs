@@ -165,6 +165,13 @@ impl RagPipeline {
         })
     }
 
+    pub fn get_embedding_service_name(&self) -> &str {
+        match &self.embedding_client {
+            EmbeddingClient::Ollama(_) => "Ollama",
+            EmbeddingClient::LMStudio(_) => "LM Studio",
+        }
+    }
+
     async fn get_cached_query_embedding(&self, query: &str) -> Result<Vec<f32>> {
         // Check cache first
         {

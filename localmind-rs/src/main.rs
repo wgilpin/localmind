@@ -43,7 +43,7 @@ async fn search_documents(
     let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
-        .ok_or("RAG system not initialized")?;
+        .ok_or("System initializing... Please start your embedding service (Ollama or LM Studio with configured model) and wait a moment.")?;
 
     let results = rag
         .search(&query, 10)
@@ -71,7 +71,7 @@ async fn get_document_count(state: State<'_, RagState>) -> Result<i64, String> {
     let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
-        .ok_or("RAG system not initialized")?;
+        .ok_or("System initializing... Please start your embedding service (Ollama or LM Studio with configured model) and wait a moment.")?;
 
     rag.db
         .count_documents(OperationPriority::UserSearch)
@@ -88,7 +88,7 @@ async fn get_document(
     let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
-        .ok_or("RAG system not initialized")?;
+        .ok_or("System initializing... Please start your embedding service (Ollama or LM Studio with configured model) and wait a moment.")?;
 
     let doc = rag.db
         .get_document(id)
@@ -115,7 +115,7 @@ async fn chat_with_rag(
     let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
-        .ok_or("RAG system not initialized")?;
+        .ok_or("System initializing... Please start your embedding service (Ollama or LM Studio with configured model) and wait a moment.")?;
 
     rag.chat(&message)
         .await
@@ -134,7 +134,7 @@ async fn add_document(
     let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
-        .ok_or("RAG system not initialized")?;
+        .ok_or("System initializing... Please start your embedding service (Ollama or LM Studio with configured model) and wait a moment.")?;
 
     rag.ingest_document(&title, &content, url.as_deref(), &source)
         .await
@@ -322,7 +322,7 @@ async fn search_hits(
 
     let rag = rag_lock
         .as_ref()
-        .ok_or("RAG system not initialized")?;
+        .ok_or("System initializing... Please start your embedding service (Ollama or LM Studio with configured model) and wait a moment.")?;
 
     let search_start = Instant::now();
     let hits = rag
@@ -381,7 +381,7 @@ async fn generate_response(
     let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
-        .ok_or("RAG system not initialized")?;
+        .ok_or("System initializing... Please start your embedding service (Ollama or LM Studio with configured model) and wait a moment.")?;
 
     let result = rag.generate_answer_with_cancellation(&query, &context_sources, cancel_token)
         .await
