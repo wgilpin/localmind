@@ -90,7 +90,7 @@ fn check_end_boundary(text: &str, chunk_end: usize, doc_content: &str) -> Option
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("🔍 LocalMind Chunk Boundary Assessment Tool");
+    println!("LocalMind Chunk Boundary Assessment Tool");
     println!("============================================");
     println!();
 
@@ -98,7 +98,7 @@ async fn main() -> Result<()> {
     let db = Database::new().await?;
 
     // Get all documents
-    println!("📊 Loading documents from database...");
+    println!("Loading documents from database...");
     let documents = db.get_all_documents().await?;
 
     if documents.is_empty() {
@@ -106,10 +106,10 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    println!("📚 Found {} documents", documents.len());
+    println!("Found {} documents", documents.len());
 
     // Collect all chunks from all documents
-    println!("📦 Loading all chunks...");
+    println!("Loading all chunks...");
     let mut all_chunks = Vec::new();
 
     for doc in &documents {
@@ -120,18 +120,18 @@ async fn main() -> Result<()> {
         }
     }
 
-    println!("📦 Total chunks: {}", all_chunks.len());
+    println!("Total chunks: {}", all_chunks.len());
 
     // Randomly sample 100 chunks
     let sample_size = 100.min(all_chunks.len());
-    println!("🎲 Randomly sampling {} chunks...", sample_size);
+    println!("Randomly sampling {} chunks...", sample_size);
 
     let mut rng = thread_rng();
     all_chunks.shuffle(&mut rng);
     let sample = &all_chunks[..sample_size];
 
     println!();
-    println!("🔬 Analyzing chunk boundaries...");
+    println!("Analyzing chunk boundaries...");
     println!();
 
     let mut issues = Vec::new();
@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
                     issue_type: "BOTH".to_string(),
                     context: format!("START: {} | END: {}", start_msg, end_msg),
                 });
-                println!("❌ Chunk {}/{}: Doc '{}' Chunk #{} - BOTH BOUNDARIES BAD",
+                println!("Chunk {}/{}: Doc '{}' Chunk #{} - BOTH BOUNDARIES BAD",
                         i + 1, sample_size,
                         doc_title.chars().take(30).collect::<String>(),
                         chunk_index);
@@ -213,7 +213,7 @@ async fn main() -> Result<()> {
             (None, None) => {
                 no_issues += 1;
                 if (i + 1) % 10 == 0 {
-                    println!("✅ Chunk {}/{}: Good boundaries", i + 1, sample_size);
+                    println!("Chunk {}/{}: Good boundaries", i + 1, sample_size);
                 }
             }
         }
@@ -221,15 +221,15 @@ async fn main() -> Result<()> {
 
     println!();
     println!("============================================");
-    println!("📊 BOUNDARY ASSESSMENT REPORT");
+    println!("BOUNDARY ASSESSMENT REPORT");
     println!("============================================");
     println!();
     println!("Sample size: {}", sample_size);
     println!();
-    println!("✅ Good boundaries:       {} ({:.1}%)", no_issues, (no_issues as f64 / sample_size as f64) * 100.0);
+    println!("Good boundaries:       {} ({:.1}%)", no_issues, (no_issues as f64 / sample_size as f64) * 100.0);
     println!("⚠️  Start issues only:    {} ({:.1}%)", start_issues, (start_issues as f64 / sample_size as f64) * 100.0);
     println!("⚠️  End issues only:      {} ({:.1}%)", end_issues, (end_issues as f64 / sample_size as f64) * 100.0);
-    println!("❌ Both boundaries bad:   {} ({:.1}%)", both_issues, (both_issues as f64 / sample_size as f64) * 100.0);
+    println!("Both boundaries bad:   {} ({:.1}%)", both_issues, (both_issues as f64 / sample_size as f64) * 100.0);
     println!();
     println!("Total issues:            {} ({:.1}%)",
             issues.len(), (issues.len() as f64 / sample_size as f64) * 100.0);
@@ -237,7 +237,7 @@ async fn main() -> Result<()> {
 
     if !issues.is_empty() {
         println!("============================================");
-        println!("🔍 DETAILED ISSUE REPORT");
+        println!("DETAILED ISSUE REPORT");
         println!("============================================");
         println!();
 
@@ -261,14 +261,14 @@ async fn main() -> Result<()> {
         }
 
         println!("============================================");
-        println!("💡 RECOMMENDATION");
+        println!("RECOMMENDATION");
         println!("============================================");
         println!();
 
         let issue_rate = (issues.len() as f64 / sample_size as f64) * 100.0;
 
         if issue_rate > 50.0 {
-            println!("❌ CRITICAL: {:.1}% of chunks have boundary issues!", issue_rate);
+            println!("CRITICAL: {:.1}% of chunks have boundary issues!", issue_rate);
             println!("   Action: Run the rechunk utility to fix all chunks:");
             println!("   cargo run --bin rechunk");
         } else if issue_rate > 20.0 {
@@ -279,11 +279,11 @@ async fn main() -> Result<()> {
             println!("ℹ️  MINOR: {:.1}% of chunks have boundary issues", issue_rate);
             println!("   This is acceptable but could be improved.");
         } else {
-            println!("✅ EXCELLENT: Only {:.1}% of chunks have boundary issues", issue_rate);
+            println!("EXCELLENT: Only {:.1}% of chunks have boundary issues", issue_rate);
             println!("   Chunk boundaries are well-aligned!");
         }
     } else {
-        println!("✅ PERFECT: All sampled chunks have good word boundaries!");
+        println!("PERFECT: All sampled chunks have good word boundaries!");
     }
 
     println!();

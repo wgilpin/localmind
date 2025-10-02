@@ -33,6 +33,7 @@ pub struct LMStudioClient {
     base_url: String,
     client: Client,
     embedding_model: String,
+    completion_model: String,
 }
 
 impl LMStudioClient {
@@ -41,7 +42,13 @@ impl LMStudioClient {
             base_url: base_url.trim_end_matches('/').to_string(),
             client: Client::new(),
             embedding_model,
+            completion_model: String::new(), // Will be set later
         }
+    }
+
+    pub fn with_completion_model(mut self, completion_model: String) -> Self {
+        self.completion_model = completion_model;
+        self
     }
 
     pub async fn test_connection(&self) -> Result<()> {
@@ -200,5 +207,128 @@ impl LMStudioClient {
 
     pub fn get_model_name(&self) -> &str {
         &self.embedding_model
+    }
+
+    pub async fn generate_completion_stream(
+        &self,
+        prompt: &str,
+        tx: tokio::sync::mpsc::UnboundedSender<String>,
+    ) -> Result<()> {
+        use futures_util::StreamExt;
+
+        let url = format!("{}/v1/chat/completions", self.base_url);
+
+        let request_body = serde_json::json!({
+            "model": self.completion_model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "stream": true
+        });
+
+        println!("🚀 Calling LM Studio at: {}", url);
+        println!("📋 Model: {}", self.completion_model);
+        println!("💭 Prompt length: {} chars", prompt.len());
+
+        let response = self.client
+            .post(&url)
+            .json(&request_body)
+            .send()
+            .await?;
+
+        println!("📡 LM Studio response status: {}", response.status());
+
+        if !response.status().is_success() {
+            return Err(format!("LM Studio completion failed: {}", response.status()).into());
+        }
+
+        let mut stream = response.bytes_stream();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            let text = String::from_utf8_lossy(&chunk);
+            println!("📦 LM Studio chunk: {}", text);
+
+            for line in text.lines() {
+                if line.starts_with("data: ") {
+                    let data = &line[6..];
+                    if data == "[DONE]" {
+                        println!("✅ LM Studio stream completed");
+                        break;
+                    }
+
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                        println!("📝 Parsed JSON: {:?}", json);
+                        if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                            println!("💬 Sending content: {}", content);
+                            let _ = tx.send(content.to_string());
+                        } else {
+                            println!("⚠️  No content in delta: {:?}", json["choices"][0]["delta"]);
+                        }
+                    } else {
+                        println!("❌ Failed to parse JSON: {}", data);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn generate_completion_stream_with_cancellation(
+        &self,
+        prompt: &str,
+        tx: tokio::sync::mpsc::UnboundedSender<String>,
+        cancel_token: tokio_util::sync::CancellationToken,
+    ) -> Result<()> {
+        use futures_util::StreamExt;
+
+        let url = format!("{}/v1/chat/completions", self.base_url);
+
+        let request_body = serde_json::json!({
+            "model": self.completion_model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "stream": true
+        });
+
+        let response = self.client
+            .post(&url)
+            .json(&request_body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(format!("LM Studio completion failed: {}", response.status()).into());
+        }
+
+        let mut stream = response.bytes_stream();
+
+        while let Some(chunk) = stream.next().await {
+            if cancel_token.is_cancelled() {
+                return Ok(());
+            }
+
+            let chunk = chunk?;
+            let text = String::from_utf8_lossy(&chunk);
+
+            for line in text.lines() {
+                if line.starts_with("data: ") {
+                    let data = &line[6..];
+                    if data == "[DONE]" {
+                        break;
+                    }
+
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                            let _ = tx.send(content.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }

@@ -1,16 +1,11 @@
 <script>
-let { onSearch, similarityCutoff = 0.2, onSimilarityChange, onSettingsClick } = $props();
+let { onSearch, onSettingsClick } = $props();
 
 let query = $state('');
-let cutoff = $state(similarityCutoff);
-
-$effect(() => {
-    cutoff = similarityCutoff;
-});
 
 function handleSearch() {
     if (query.trim()) {
-        onSearch?.(query.trim(), cutoff);
+        onSearch?.(query.trim());
     }
 }
 
@@ -19,169 +14,174 @@ function handleKeypress(e) {
         handleSearch();
     }
 }
-
-function handleCutoffChange(e) {
-    const value = parseFloat(e.target.value);
-    cutoff = value;
-    onSimilarityChange?.(value);
-}
 </script>
 
-<header>
-    <h1>LocalMind</h1>
-    <button class="settings-btn" title="Settings" onclick={onSettingsClick}>⚙️</button>
+<header class="app-header">
+    <div class="header-content">
+        <div class="brand">
+            <svg class="logo" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+            </svg>
+            <h1>LocalMind <span class="version">v2</span></h1>
+        </div>
+        <button class="settings-btn" title="Settings" onclick={onSettingsClick}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
+            </svg>
+        </button>
+    </div>
+
+    <div class="search-container">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input
+            type="text"
+            bind:value={query}
+            onkeypress={handleKeypress}
+            placeholder="Search your knowledge base..."
+            class="search-input"
+        />
+        <button class="search-btn" onclick={handleSearch}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+            </svg>
+            Search
+        </button>
+    </div>
 </header>
 
-<div class="search-container">
-    <input
-        type="text"
-        bind:value={query}
-        onkeypress={handleKeypress}
-        placeholder="Search your knowledge base..."
-    />
-    <button onclick={handleSearch}>Search</button>
-</div>
-
-<div class="settings-container">
-    <div class="similarity-setting">
-        <label for="similarity-cutoff">Similarity Threshold:</label>
-        <input
-            type="range"
-            id="similarity-cutoff"
-            min="0.1"
-            max="0.9"
-            step="0.1"
-            value={cutoff}
-            oninput={handleCutoffChange}
-        />
-        <span id="similarity-value">{cutoff.toFixed(1)}</span>
-        <small>(Lower = more results, Higher = more precise)</small>
-    </div>
-</div>
-
 <style>
-header {
-    text-align: center;
-    margin-bottom: 40px;
-    position: relative;
+.app-header {
+    background: linear-gradient(135deg, #1a1f2e 0%, #0f1419 100%);
+    border-radius: 12px;
+    border: 1px solid #2d3548;
+    padding: 20px 24px;
+    margin-bottom: 20px;
 }
 
-header h1 {
-    font-size: 2.5rem;
-    color: #2563eb;
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.logo {
+    color: #8b5cf6;
+}
+
+.brand h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #e5e7eb;
+    margin: 0;
+    letter-spacing: -0.5px;
+}
+
+.version {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #6b7280;
+    margin-left: 8px;
 }
 
 .settings-btn {
-    position: absolute;
-    top: 0;
-    right: 0;
-    background: none;
-    border: none;
-    font-size: 1.5rem;
-    cursor: pointer;
+    background: #374151;
+    border: 1px solid #4b5563;
+    border-radius: 8px;
     padding: 8px;
-    border-radius: 4px;
-    transition: background-color 0.2s;
+    color: #9ca3af;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .settings-btn:hover {
-    background-color: rgba(0, 0, 0, 0.05);
+    background: #4b5563;
+    color: #e5e7eb;
+    transform: rotate(90deg);
 }
 
 .search-container {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
-}
-
-.search-container input {
-    flex: 1;
-    padding: 12px 16px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    font-size: 16px;
-}
-
-.search-container input:focus {
-    outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-.search-container button {
-    padding: 12px 24px;
-    background-color: #2563eb;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 16px;
-    cursor: pointer;
-}
-
-.search-container button:hover {
-    background-color: #1d4ed8;
-}
-
-.settings-container {
-    background: white;
-    padding: 15px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.similarity-setting {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    gap: 12px;
 }
 
-.similarity-setting label {
-    font-weight: 500;
-    color: #374151;
-    min-width: 140px;
-}
-
-#similarity-cutoff {
-    flex: 1;
-    min-width: 200px;
-    height: 6px;
-    background: #e5e7eb;
-    border-radius: 3px;
-    outline: none;
-    appearance: none;
-    cursor: pointer;
-}
-
-#similarity-cutoff::-webkit-slider-thumb {
-    appearance: none;
-    width: 20px;
-    height: 20px;
-    background: #2563eb;
-    border-radius: 50%;
-    cursor: pointer;
-}
-
-#similarity-cutoff::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
-    background: #2563eb;
-    border-radius: 50%;
-    cursor: pointer;
-    border: none;
-}
-
-#similarity-value {
-    font-weight: 600;
-    color: #2563eb;
-    min-width: 30px;
-    text-align: center;
-}
-
-.similarity-setting small {
+.search-icon {
+    position: absolute;
+    left: 16px;
     color: #6b7280;
-    font-size: 0.85rem;
-    margin-left: 10px;
+    pointer-events: none;
+}
+
+.search-input {
+    flex: 1;
+    padding: 14px 16px 14px 48px;
+    background: #0f1419;
+    border: 2px solid #2d3548;
+    border-radius: 10px;
+    font-size: 1rem;
+    color: #e5e7eb;
+    transition: all 0.2s ease;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.search-input::placeholder {
+    color: #6b7280;
+}
+
+.search-btn {
+    padding: 14px 24px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+
+.search-btn:hover {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.search-btn:active {
+    transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+    .search-container {
+        flex-direction: column;
+    }
+
+    .search-btn {
+        width: 100%;
+        justify-content: center;
+    }
 }
 </style>

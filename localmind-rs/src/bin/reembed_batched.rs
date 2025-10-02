@@ -44,7 +44,7 @@ impl EmbeddingMode {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("🔄 LocalMind Database Re-Embedding Tool (Batched)");
+    println!("LocalMind Database Re-Embedding Tool (Batched)");
     println!("==================================================");
     println!();
 
@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
                 let url = args[2].clone();
                 let model = args[3].clone();
 
-                println!("🦙 Using Ollama embeddings");
+                println!("Using Ollama embeddings");
                 println!("   URL: {}", url);
                 println!("   Model: {}", model);
                 println!("   Batch size: {} (sequential, Ollama doesn't support batching)", batch_size);
@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
                 let url = args[2].clone();
                 let model = args[3].clone();
 
-                println!("🎨 Using LM Studio embeddings (BATCHED)");
+                println!("Using LM Studio embeddings (BATCHED)");
                 println!("   URL: {}", url);
                 println!("   Model: {}", model);
                 println!("   Batch size: {}", batch_size);
@@ -105,9 +105,9 @@ async fn main() -> Result<()> {
 
                 // Test connection
                 match client.test_connection().await {
-                    Ok(_) => println!("✅ Connection test successful"),
+                    Ok(_) => println!("Connection test successful"),
                     Err(e) => {
-                        println!("❌ Connection test failed: {}", e);
+                        println!("Connection test failed: {}", e);
                         return Err(e);
                     }
                 }
@@ -123,13 +123,13 @@ async fn main() -> Result<()> {
     };
 
     println!();
-    println!("🔌 Connecting to database...");
+    println!("Connecting to database...");
 
     // Initialize database
     let db = Database::new().await?;
 
     // Get all documents with their chunks
-    println!("📊 Analyzing database...");
+    println!("Analyzing database...");
     let documents = db.get_all_documents().await?;
 
     if documents.is_empty() {
@@ -148,7 +148,7 @@ async fn main() -> Result<()> {
         chunks_by_doc.push((doc.id, doc.title.clone(), chunk_count));
     }
 
-    println!("📚 Found {} documents with {} total chunks", documents.len(), total_chunks);
+    println!("Found {} documents with {} total chunks", documents.len(), total_chunks);
     println!();
 
     // Confirm before proceeding
@@ -164,12 +164,12 @@ async fn main() -> Result<()> {
     io::stdin().read_line(&mut input)?;
 
     if input.trim().to_lowercase() != "yes" {
-        println!("❌ Aborted by user");
+        println!("Aborted by user");
         return Ok(());
     }
 
     println!();
-    println!("🚀 Starting re-embedding process with batch size {}...", batch_size);
+    println!("Starting re-embedding process with batch size {}...", batch_size);
     println!();
 
     let mut processed_chunks = 0;
@@ -193,7 +193,7 @@ async fn main() -> Result<()> {
             continue;
         }
 
-        println!("📝 Doc {}/{}: '{}' ({} chunks)",
+        println!("Doc {}/{}: '{}' ({} chunks)",
                 doc_idx + 1, documents.len(),
                 doc.title.chars().take(60).collect::<String>(),
                 chunks.len());
@@ -261,7 +261,7 @@ async fn main() -> Result<()> {
 
                 }
                 Err(e) => {
-                    println!("❌ Batch failed: {}", e);
+                    println!("Batch failed: {}", e);
                     println!("   Falling back to sequential processing for this batch...");
 
                     // Fall back to sequential for this batch
@@ -303,9 +303,9 @@ async fn main() -> Result<()> {
     let avg_chunks_per_sec = processed_chunks as f64 / total_elapsed.as_secs_f64();
 
     println!("========================================");
-    println!("🎉 Re-embedding complete!");
+    println!("Re-embedding complete!");
     println!();
-    println!("📊 Statistics:");
+    println!("Statistics:");
     println!("   Documents processed: {}/{}", processed_docs, documents.len());
     println!("   Chunks re-embedded: {}/{}", processed_chunks, total_chunks);
     println!("   Total time: {:.1}s", total_elapsed.as_secs_f64());
@@ -314,7 +314,7 @@ async fn main() -> Result<()> {
     println!();
 
     // Save embedding configuration to database
-    println!("💾 Saving embedding configuration to database...");
+    println!("Saving embedding configuration to database...");
     match &embedding_mode {
         EmbeddingMode::Ollama(_) => {
             db.set_embedding_model(&args[3]).await?;
@@ -329,8 +329,8 @@ async fn main() -> Result<()> {
     }
     println!();
 
-    println!("✅ All embeddings have been regenerated!");
-    println!("💡 You may need to restart the application to reload the vector store");
+    println!("All embeddings have been regenerated!");
+    println!("You may need to restart the application to reload the vector store");
 
     Ok(())
 }

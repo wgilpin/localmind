@@ -254,7 +254,7 @@ impl BookmarkMonitor {
         let mut result = Vec::new();
         let fetcher = WebFetcher::new();
 
-        println!("🔍 Starting bookmark ingestion for {} bookmarks", bookmarks.len());
+        println!("Starting bookmark ingestion for {} bookmarks", bookmarks.len());
 
         for bookmark in bookmarks {
             if let Some(url) = &bookmark.url {
@@ -264,11 +264,11 @@ impl BookmarkMonitor {
                     bookmark.name.clone()
                 };
 
-                println!("📖 Processing bookmark: {} ({})", title, url);
+                println!("Processing bookmark: {} ({})", title, url);
 
                 // Check if this is a YouTube URL and handle specially
                 let (processed_title, content) = if YouTubeProcessor::is_youtube_url(url) {
-                    println!("🎥 Processing YouTube bookmark: {}", url);
+                    println!("Processing YouTube bookmark: {}", url);
 
                     // Clean up YouTube title
                     let cleaned_title = YouTubeProcessor::cleanup_title(&title);
@@ -276,7 +276,7 @@ impl BookmarkMonitor {
                     // Try to get transcript first
                     match YouTubeProcessor::fetch_transcript(url).await {
                         Ok(Some(transcript)) => {
-                            println!("✅ Using YouTube transcript for bookmark: {}", cleaned_title);
+                            println!("Using YouTube transcript for bookmark: {}", cleaned_title);
                             (cleaned_title, format!("Bookmark: {}\nURL: {}\n\n{}", title, url, transcript))
                         }
                         Ok(None) => {
@@ -336,27 +336,42 @@ impl BookmarkMonitor {
 
                 let content_len = content.len();
                 result.push((processed_title.clone(), content, url.clone(), false));
-                println!("✅ Processed bookmark: {} ({} chars)", processed_title, content_len);
+                println!("Processed bookmark: {} ({} chars)", processed_title, content_len);
             }
         }
 
-        println!("📚 Processed {} bookmarks total", result.len());
+        println!("Processed {} bookmarks total", result.len());
 
         Ok(result)
     }
 
     pub async fn get_bookmarks_metadata(&self) -> Result<Vec<(String, String)>> {
-        let bookmarks = self.parse_bookmarks()?;
+        self.get_bookmarks_metadata_with_exclusion(&ExclusionRules::empty()).await
+    }
+
+    pub async fn get_bookmarks_metadata_with_exclusion(&self, exclusion_rules: &ExclusionRules) -> Result<Vec<(String, String)>> {
+        let roots = self.get_bookmark_roots()?;
+        let mut bookmarks_with_paths = Vec::new();
+
+        for root in &roots {
+            self.extract_bookmarks_with_exclusion(
+                root,
+                &mut bookmarks_with_paths,
+                exclusion_rules,
+                &[],
+                &root.id,
+            );
+        }
+
         let mut result = Vec::new();
+        println!("Found {} bookmarks for processing (after exclusions)", bookmarks_with_paths.len());
 
-        println!("🔍 Found {} bookmarks for processing", bookmarks.len());
-
-        for bookmark in bookmarks {
-            if let Some(url) = &bookmark.url {
-                let title = if bookmark.name.is_empty() {
+        for bookmark_item in bookmarks_with_paths {
+            if let Some(url) = &bookmark_item.item.url {
+                let title = if bookmark_item.item.name.is_empty() {
                     url.clone()
                 } else {
-                    bookmark.name.clone()
+                    bookmark_item.item.name.clone()
                 };
 
                 // Clean up YouTube titles
@@ -462,10 +477,10 @@ impl BookmarkMonitor {
 
         // Check if this is a YouTube URL and try to get transcript
         if YouTubeProcessor::is_youtube_url(url) {
-            println!("🎥 Processing YouTube bookmark: {}", url);
+            println!("Processing YouTube bookmark: {}", url);
             match YouTubeProcessor::fetch_transcript(url).await {
                 Ok(Some(transcript)) => {
-                    println!("✅ Using YouTube transcript for bookmark: {}", url);
+                    println!("Using YouTube transcript for bookmark: {}", url);
                     return Ok(format!("Bookmark: {}\nURL: {}\n\n{}", url, url, transcript));
                 }
                 Ok(None) => {

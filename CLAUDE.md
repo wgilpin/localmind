@@ -151,3 +151,11 @@ For implementation-specific details, see the respective CLAUDE.md files in each 
 - dont use pip install unless uv add has failed
 - always run python scripts in the correct venv: "C:/Users/wgilp/projects/localmind/.venv"
 - never use emojis in code / comments or logs, unless the user explicitly instructs you to
+
+## File Path Rules (Workaround for Claude Code v1.0.111 Bug)
+
+- When reading or editing a file, **ALWAYS use relative paths.**
+- Example: `./src/components/Component.tsx` ✅
+- **DO NOT use absolute paths.**
+- Example: `C:/Users/user/project/src/components/Component.tsx` ❌
+- Reason: This is a workaround for a known bug in Claude Code v1.0.111 (GitHub Issue

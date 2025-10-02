@@ -481,7 +481,7 @@ impl Database {
                 match client.head(url).send().await {
                     Ok(response) => {
                         if response.status() == reqwest::StatusCode::NOT_FOUND {
-                            println!("🚫 Marking {} as dead (404)", url);
+                            println!("Marking {} as dead (404)", url);
                             self.mark_url_as_dead(url).await?;
                             marked_dead_count += 1;
                         }

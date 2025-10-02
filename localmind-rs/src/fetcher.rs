@@ -30,14 +30,14 @@ impl WebFetcher {
         let response = match self.client.get(url).send().await {
             Ok(resp) => resp,
             Err(e) => {
-                println!("❌ Failed to fetch {}: {}", url, e);
+                println!("Failed to fetch {}: {}", url, e);
                 return Ok(String::new());
             }
         };
 
         // Check status
         if !response.status().is_success() {
-            println!("❌ HTTP {} for {}", response.status(), url);
+            println!("HTTP {} for {}", response.status(), url);
             return Ok(String::new());
         }
 
@@ -49,13 +49,13 @@ impl WebFetcher {
 
         // Handle PDF files
         if content_type.contains("application/pdf") || url.to_lowercase().ends_with(".pdf") {
-            println!("📄 Detected PDF file: {}", url);
+            println!("Detected PDF file: {}", url);
 
             // Get binary content for PDF
             let pdf_bytes = match response.bytes().await {
                 Ok(bytes) => bytes,
                 Err(e) => {
-                    println!("❌ Failed to get PDF bytes from {}: {}", url, e);
+                    println!("Failed to get PDF bytes from {}: {}", url, e);
                     return Ok(String::new());
                 }
             };
@@ -94,7 +94,7 @@ impl WebFetcher {
                         format!("PDF Document: {}\nURL: {}\n\n{}", filename, url, cleaned_text)
                     };
 
-                    println!("✅ Extracted {} chars of text from PDF: {}", result.len(), url);
+                    println!("Extracted {} chars of text from PDF: {}", result.len(), url);
                     return Ok(result);
                 }
                 Ok(Ok(_)) => {
@@ -133,7 +133,7 @@ impl WebFetcher {
             || content_type.contains("audio/")
             || content_type.contains("application/zip")
             || content_type.contains("application/octet-stream") {
-            println!("🚫 Skipping binary content type '{}': {}", content_type, url);
+            println!("Skipping binary content type '{}': {}", content_type, url);
             let filename = url.split('/').last().unwrap_or("file");
             return Ok(format!("Binary file: {} ({})\nURL: {}", filename, content_type, url));
         }
@@ -142,7 +142,7 @@ impl WebFetcher {
         let html = match response.text().await {
             Ok(text) => text,
             Err(e) => {
-                println!("❌ Failed to get text from {}: {}", url, e);
+                println!("Failed to get text from {}: {}", url, e);
                 return Ok(String::new());
             }
         };
@@ -150,7 +150,7 @@ impl WebFetcher {
         // Check if the content looks like binary data that was incorrectly served as text
         // PDF files often start with %PDF
         if html.starts_with("%PDF") {
-            println!("📄 Detected PDF content served as text: {}", url);
+            println!("Detected PDF content served as text: {}", url);
             let filename = url.split('/').last().unwrap_or("document.pdf");
 
             // Try to extract text from the PDF content with panic protection
@@ -168,7 +168,7 @@ impl WebFetcher {
                         .join("\n");
 
                     let result = format!("PDF Document: {}\nURL: {}\n\n{}", filename, url, cleaned_text);
-                    println!("✅ Extracted text from PDF served as text: {}", url);
+                    println!("Extracted text from PDF served as text: {}", url);
                     return Ok(result);
                 }
                 Ok(Ok(_)) | Ok(Err(_)) => {

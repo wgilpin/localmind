@@ -75,7 +75,7 @@ impl YouTubeProcessor {
             None => return Ok(None),
         };
 
-        println!("🎥 Fetching YouTube transcript for video ID: {}", video_id);
+        println!("Fetching YouTube transcript for video ID: {}", video_id);
 
         // Initialize YouTube transcript API
         let api = YouTubeTranscriptApi::new(None, None, None)
@@ -89,7 +89,7 @@ impl YouTubeProcessor {
                     println!("⚠️ Empty transcript received for video: {}", video_id);
                     Ok(None)
                 } else {
-                    println!("✅ Successfully fetched transcript ({} chars) for video: {}", text.len(), video_id);
+                    println!("Successfully fetched transcript ({} chars) for video: {}", text.len(), video_id);
                     Ok(Some(text))
                 }
             }
@@ -106,7 +106,7 @@ impl YouTubeProcessor {
             return Ok((original_title.to_string(), original_content.to_string()));
         }
 
-        println!("🎥 Processing YouTube URL: {}", url);
+        println!("Processing YouTube URL: {}", url);
 
         // Clean up title
         let cleaned_title = Self::cleanup_title(original_title);
@@ -114,7 +114,7 @@ impl YouTubeProcessor {
         // Try to fetch transcript
         match Self::fetch_transcript(url).await? {
             Some(transcript) => {
-                println!("✅ Using transcript as content for YouTube video: {}", cleaned_title);
+                println!("Using transcript as content for YouTube video: {}", cleaned_title);
                 Ok((cleaned_title, transcript))
             }
             None => {

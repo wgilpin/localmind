@@ -44,18 +44,14 @@ impl EmbeddingClient {
     async fn generate_completion_stream(&self, prompt: &str, tx: mpsc::UnboundedSender<String>) -> Result<()> {
         match self {
             EmbeddingClient::Ollama(client) => client.generate_completion_stream(prompt, tx).await,
-            EmbeddingClient::LMStudio(_) => {
-                Err("LM Studio does not support completion generation. Please use Ollama for completions.".into())
-            }
+            EmbeddingClient::LMStudio(client) => client.generate_completion_stream(prompt, tx).await,
         }
     }
 
     async fn generate_completion_stream_with_cancellation(&self, prompt: &str, tx: mpsc::UnboundedSender<String>, cancel_token: CancellationToken) -> Result<()> {
         match self {
             EmbeddingClient::Ollama(client) => client.generate_completion_stream_with_cancellation(prompt, tx, cancel_token).await,
-            EmbeddingClient::LMStudio(_) => {
-                Err("LM Studio does not support completion generation. Please use Ollama for completions.".into())
-            }
+            EmbeddingClient::LMStudio(client) => client.generate_completion_stream_with_cancellation(prompt, tx, cancel_token).await,
         }
     }
 }
@@ -93,17 +89,41 @@ impl RagPipeline {
 
         match (embedding_model, embedding_url) {
             (Some(model), Some(url)) => {
-                println!("🔧 Using embedding config from database:");
+                println!("Using embedding config from database:");
                 println!("   Model: {}", model);
                 println!("   URL: {}", url);
 
                 // Initialize LM Studio client with configured model
-                let lmstudio_client = LMStudioClient::new(url, model);
+                let mut lmstudio_client = LMStudioClient::new(url.clone(), model);
 
-                // Test connection
+                // Test connection and get available models
                 match lmstudio_client.test_connection().await {
                     Ok(_) => {
-                        println!("✅ LM Studio connection successful");
+                        println!("LM Studio connection successful");
+
+                        // Try to find Gemma 3 1B for completions, fallback to other chat models
+                        if let Ok(response) = reqwest::get(format!("{}/v1/models", url)).await {
+                            if let Ok(models_data) = response.json::<serde_json::Value>().await {
+                                if let Some(models) = models_data["data"].as_array() {
+                                    let available_models: Vec<&str> = models.iter()
+                                        .filter_map(|m| m["id"].as_str())
+                                        .filter(|id| !id.contains("embedding") && !id.starts_with("text-embedding"))
+                                        .collect();
+
+                                    // Priority: Gemma 3 1B > other Gemma > Qwen > first available
+                                    let completion_model = available_models.iter()
+                                        .find(|id| id.contains("gemma-3-1b") || id.contains("gemma3-1b"))
+                                        .or_else(|| available_models.iter().find(|id| id.contains("gemma")))
+                                        .or_else(|| available_models.iter().find(|id| id.contains("qwen")))
+                                        .or_else(|| available_models.first())
+                                        .unwrap_or(&"gemma-3-1b-it-qat");
+
+                                    println!("Using LM Studio completion model: {}", completion_model);
+                                    lmstudio_client = lmstudio_client.with_completion_model(completion_model.to_string());
+                                }
+                            }
+                        }
+
                         Self::new_with_lmstudio(db, lmstudio_client, Some(ollama_client)).await
                     }
                     Err(e) => {
@@ -177,13 +197,13 @@ impl RagPipeline {
         {
             let cache = self.query_embedding_cache.lock().await;
             if let Some(cached_embedding) = cache.get(query) {
-                println!("🔍 Using cached embedding for query: {}", query.chars().take(50).collect::<String>());
+                println!("Using cached embedding for query: {}", query.chars().take(50).collect::<String>());
                 return Ok(cached_embedding.clone());
             }
         }
 
         // Generate new embedding with query formatting
-        println!("🔍 Generating new embedding for query: {}", query.chars().take(50).collect::<String>());
+        println!("Generating new embedding for query: {}", query.chars().take(50).collect::<String>());
         let embedding = self.embedding_client.generate_embedding(query, true, None).await?;
 
         // Cache the embedding
@@ -214,11 +234,11 @@ impl RagPipeline {
         let chunks = self.document_processor.chunk_text(content)?;
 
         if chunks.is_empty() {
-            println!("❌ Document produced no chunks, returning error");
+            println!("Document produced no chunks, returning error");
             return Err("Document produced no chunks".into());
         }
 
-        println!("📝 Processing document: '{}' → {} chunks (content: {} chars)",
+        println!("Processing document: '{}' → {} chunks (content: {} chars)",
                  title.chars().take(60).collect::<String>(),
                  chunks.len(),
                  content.len());
@@ -268,7 +288,7 @@ impl RagPipeline {
             }
         }
 
-        println!("🎉 ingest_document completed successfully for: {} ({} chunks indexed)", title, chunks.len());
+        println!("ingest_document completed successfully for: {} ({} chunks indexed)", title, chunks.len());
         Ok(doc_id)
     }
 
@@ -566,7 +586,12 @@ impl RagPipeline {
             query
         );
 
-        self.embedding_client.generate_completion_stream(&prompt, tx).await
+        // Use ollama_client if available, otherwise fall back to embedding_client
+        if let Some(ollama) = &self.ollama_client {
+            ollama.generate_completion_stream(&prompt, tx).await
+        } else {
+            self.embedding_client.generate_completion_stream(&prompt, tx).await
+        }
     }
 
     pub async fn generate_answer_stream_with_cancellation(
@@ -600,6 +625,11 @@ impl RagPipeline {
             query
         );
 
-        self.embedding_client.generate_completion_stream_with_cancellation(&prompt, tx, cancel_token).await
+        // Use ollama_client if available, otherwise fall back to embedding_client
+        if let Some(ollama) = &self.ollama_client {
+            ollama.generate_completion_stream_with_cancellation(&prompt, tx, cancel_token).await
+        } else {
+            self.embedding_client.generate_completion_stream_with_cancellation(&prompt, tx, cancel_token).await
+        }
     }
 }

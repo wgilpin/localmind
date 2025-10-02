@@ -3,13 +3,14 @@ import { onMount } from 'svelte';
 import { initializeTauriAPI, getTauriAPI } from './tauri.svelte.js';
 import SearchBar from './components/SearchBar.svelte';
 import SearchResults from './components/SearchResults.svelte';
+import AIPanel from './components/AIPanel.svelte';
 import DocumentView from './components/DocumentView.svelte';
 import SettingsModal from './components/SettingsModal.svelte';
 import Toast from './components/Toast.svelte';
 
 const tauri = getTauriAPI();
 
-let similarityCutoff = $state(0.2);
+let similarityCutoff = $state(0.3);
 let searchResults = $state([]);
 let allResults = $state([]);
 let lastQuery = $state('');
@@ -69,11 +70,15 @@ function setupBookmarkProgressListener() {
 
         if (progress.completed) {
             console.log('Bookmark processing completed!');
-            showToast(progress.current_title, 'success', 3000);
+            if (currentProgressToast) {
+                toasts = toasts.filter(t => t !== currentProgressToast);
+                currentProgressToast = null;
+            }
+            showToast(progress.current_title, 'success', 5000);
             setTimeout(loadStats, 1000);
         } else {
             const percentage = Math.round((progress.current / progress.total) * 100);
-            const message = `📚 Processing bookmarks... ${progress.current}/${progress.total} (${percentage}%)\nCurrent: ${progress.current_title}`;
+            const message = `Processing bookmarks... ${progress.current}/${progress.total} (${percentage}%)\nCurrent: ${progress.current_title}`;
             console.log('Showing progress toast:', message);
             showToast(message, 'info', 0);
         }
@@ -134,55 +139,6 @@ async function handleSearch(query, cutoff) {
         }
 
         loading = false;
-
-        if (searchResults.length > 0) {
-            try {
-                await tauri.invoke('cancel_generation');
-            } catch (error) {
-                console.warn('Failed to cancel previous generation:', error);
-            }
-
-            streaming = true;
-            const documentIds = searchResults.map(s => s.doc_id);
-
-            if (tauri.listen) {
-                const unlistenChunk = await tauri.listen('llm-stream-chunk', (event) => {
-                    aiResponse += event.payload;
-                });
-
-                const unlistenComplete = await tauri.listen('llm-stream-complete', () => {
-                    console.log('Stream completed');
-                    streaming = false;
-                    unlistenChunk();
-                    unlistenComplete();
-                });
-
-                try {
-                    await tauri.invoke('generate_response_stream', {
-                        query,
-                        contextSources: documentIds
-                    });
-                } catch (error) {
-                    console.error('Failed to start streaming:', error);
-                    unlistenChunk();
-                    unlistenComplete();
-                    streaming = false;
-
-                    const response = await tauri.invoke('generate_response', {
-                        query,
-                        contextSources: documentIds
-                    });
-                    aiResponse = response;
-                }
-            } else {
-                const response = await tauri.invoke('generate_response', {
-                    query,
-                    contextSources: documentIds
-                });
-                aiResponse = response;
-                streaming = false;
-            }
-        }
     } catch (error) {
         console.error('Search error:', error);
         showToast('Search failed: ' + error, 'error');
@@ -190,21 +146,20 @@ async function handleSearch(query, cutoff) {
     }
 }
 
-function handleSimilarityChange(value) {
-    similarityCutoff = value;
+function handleLoadMore() {
+    const newCutoff = Math.max(0.0, similarityCutoff - 0.1);
+    console.log('Loading more results, lowering threshold to:', newCutoff);
+    similarityCutoff = newCutoff;
 
     if (lastQuery && allResults.length > 0) {
-        console.log('Filtering results with new cutoff:', value);
-        const filteredResults = allResults.filter(s => s.similarity >= value);
+        const filteredResults = allResults.filter(s => s.similarity >= newCutoff);
         searchResults = filteredResults;
-
-        if (filteredResults.length > 0 && filteredResults.length <= 5) {
-            regenerateAIResponse(filteredResults);
-        }
     }
 }
 
-async function regenerateAIResponse(filteredResults) {
+async function generateSynthesis() {
+    if (searchResults.length === 0) return;
+
     try {
         await tauri.invoke('cancel_generation');
     } catch (error) {
@@ -213,7 +168,7 @@ async function regenerateAIResponse(filteredResults) {
 
     streaming = true;
     aiResponse = '';
-    const documentIds = filteredResults.slice(0, 5).map(s => s.doc_id);
+    const documentIds = searchResults.map(r => r.doc_id);
 
     if (tauri.listen) {
         const unlistenChunk = await tauri.listen('llm-stream-chunk', (event) => {
@@ -221,7 +176,6 @@ async function regenerateAIResponse(filteredResults) {
         });
 
         const unlistenComplete = await tauri.listen('llm-stream-complete', () => {
-            console.log('Stream completed for filtered results');
             streaming = false;
             unlistenChunk();
             unlistenComplete();
@@ -233,7 +187,7 @@ async function regenerateAIResponse(filteredResults) {
                 contextSources: documentIds
             });
         } catch (error) {
-            console.error('Streaming failed:', error);
+            console.error('Failed to start streaming:', error);
             unlistenChunk();
             unlistenComplete();
             streaming = false;
@@ -244,6 +198,13 @@ async function regenerateAIResponse(filteredResults) {
             });
             aiResponse = response;
         }
+    } else {
+        const response = await tauri.invoke('generate_response', {
+            query: lastQuery,
+            contextSources: documentIds
+        });
+        aiResponse = response;
+        streaming = false;
     }
 }
 
@@ -305,28 +266,37 @@ function handleKeydown(e) {
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="container">
+<div class="app-container">
     <SearchBar
         onSearch={handleSearch}
-        similarityCutoff={similarityCutoff}
-        onSimilarityChange={handleSimilarityChange}
         onSettingsClick={() => showSettings = true}
     />
 
-    <main>
-        {#if currentDocument}
-            <DocumentView document={currentDocument} onBack={handleBack} />
-        {:else}
-            <SearchResults
-                results={searchResults}
-                query={lastQuery}
-                loading={loading}
-                aiResponse={aiResponse}
-                streaming={streaming}
-                onDocumentClick={handleDocumentClick}
-            />
-        {/if}
-    </main>
+    {#if currentDocument}
+        <DocumentView document={currentDocument} onBack={handleBack} />
+    {:else if lastQuery || aiResponse}
+        <div class="two-panel-layout" class:single-panel={!aiResponse && !streaming}>
+            {#if lastQuery}
+                <SearchResults
+                    results={searchResults}
+                    query={lastQuery}
+                    loading={loading}
+                    onDocumentClick={handleDocumentClick}
+                    onSynthesize={generateSynthesis}
+                    onLoadMore={handleLoadMore}
+                    hasMore={similarityCutoff > 0.0 && allResults.length > searchResults.length}
+                />
+            {/if}
+            {#if aiResponse || streaming}
+                <AIPanel
+                    response={aiResponse}
+                    streaming={streaming}
+                    sources={searchResults}
+                    query={lastQuery}
+                />
+            {/if}
+        </div>
+    {/if}
 </div>
 
 <div class="toast-container">
@@ -354,15 +324,34 @@ function handleKeydown(e) {
 }
 
 :global(body) {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background-color: #f5f5f5;
-    color: #333;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #0f1419;
+    color: #e5e7eb;
+    line-height: 1.6;
 }
 
-.container {
-    max-width: 1000px;
+.app-container {
+    max-width: 1800px;
     margin: 0 auto;
     padding: 20px;
+    min-height: 100vh;
+}
+
+.two-panel-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.two-panel-layout.single-panel {
+    grid-template-columns: 1fr;
+}
+
+@media (max-width: 900px) {
+    .two-panel-layout {
+        grid-template-columns: 1fr !important;
+    }
 }
 
 .toast-container {
