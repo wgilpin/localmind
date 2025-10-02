@@ -360,8 +360,82 @@ impl BookmarkMonitor {
     }
 
     pub fn get_bookmark_folders(&self) -> Vec<BookmarkFolder> {
-        // Stub: Return empty vector
-        Vec::new()
+        match self.parse_bookmarks_with_folders() {
+            Ok(folders) => {
+                println!("Successfully parsed {} bookmark folders", folders.len());
+                folders
+            },
+            Err(e) => {
+                eprintln!("ERROR: Failed to parse bookmark folders: {}", e);
+                eprintln!("Bookmarks path: {:?}", self.bookmarks_path);
+                Vec::new()
+            }
+        }
+    }
+
+    fn parse_bookmarks_with_folders(&self) -> Result<Vec<BookmarkFolder>> {
+        let content = fs::read_to_string(&self.bookmarks_path)?;
+        let chrome_bookmarks: ChromeBookmarks = serde_json::from_str(&content)?;
+
+        let mut folders = Vec::new();
+
+        // Extract folders from bookmark bar
+        self.extract_folders(&chrome_bookmarks.roots.bookmark_bar, &mut folders, &[]);
+
+        // Extract folders from other bookmarks
+        self.extract_folders(&chrome_bookmarks.roots.other, &mut folders, &[]);
+
+        // Extract synced bookmarks if present
+        if let Some(synced) = &chrome_bookmarks.roots.synced {
+            self.extract_folders(synced, &mut folders, &[]);
+        }
+
+        Ok(folders)
+    }
+
+    fn extract_folders(&self, item: &BookmarkItem, folders: &mut Vec<BookmarkFolder>, current_path: &[String]) {
+        // If this item has children, it's a folder
+        if let Some(children) = &item.children {
+            // Count bookmarks in this folder (recursively)
+            let bookmark_count = self.count_bookmarks_in_folder(item);
+
+            // Build the path for this folder
+            let mut folder_path = current_path.to_vec();
+            if !item.name.is_empty() {
+                folder_path.push(item.name.clone());
+            }
+
+            // Add this folder to the list (only if it has a name and isn't a root)
+            if !item.name.is_empty() {
+                folders.push(BookmarkFolder {
+                    id: item.id.clone(),
+                    name: item.name.clone(),
+                    path: folder_path.clone(),
+                    bookmark_count,
+                });
+            }
+
+            // Recursively process child folders
+            for child in children {
+                self.extract_folders(child, folders, &folder_path);
+            }
+        }
+    }
+
+    fn count_bookmarks_in_folder(&self, item: &BookmarkItem) -> usize {
+        let mut count = 0;
+
+        if item.url.is_some() {
+            count += 1;
+        }
+
+        if let Some(children) = &item.children {
+            for child in children {
+                count += self.count_bookmarks_in_folder(child);
+            }
+        }
+
+        count
     }
 
     pub async fn fetch_bookmark_content(&self, url: &str) -> Result<String> {
@@ -514,11 +588,21 @@ mod tests {
     #[test]
     fn test_get_bookmark_folders_structure() {
         // Test that we can extract folder structure from Chrome bookmarks
-        // This will be a stub that returns empty for now
         let monitor = BookmarkMonitor::new().unwrap().0;
         let folders = monitor.get_bookmark_folders();
 
-        // Should return empty vec initially (stub)
-        assert_eq!(folders.len(), 0);
+        // Should return folders from actual Chrome bookmarks file (if it exists)
+        // This will be > 0 if Chrome bookmarks exist, 0 otherwise
+        println!("Found {} bookmark folders", folders.len());
+
+        // Verify structure if folders exist
+        if !folders.is_empty() {
+            for folder in folders.iter().take(3) {
+                assert!(!folder.id.is_empty(), "Folder ID should not be empty");
+                assert!(!folder.name.is_empty(), "Folder name should not be empty");
+                assert!(folder.bookmark_count >= 0, "Bookmark count should be non-negative");
+                println!("  Folder: {} (ID: {}, Count: {})", folder.name, folder.id, folder.bookmark_count);
+            }
+        }
     }
 }

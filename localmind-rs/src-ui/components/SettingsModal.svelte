@@ -3,7 +3,7 @@ import { getTauriAPI } from '../tauri.svelte.js';
 
 let { show = false, onClose, onSave } = $props();
 
-const { invoke } = getTauriAPI();
+const tauri = getTauriAPI();
 
 let excludedFolders = $state([]);
 let excludedDomains = $state([]);
@@ -23,7 +23,7 @@ $effect(() => {
 async function loadSettings() {
     loading = true;
     try {
-        const rules = await invoke('get_exclusion_rules');
+        const rules = await tauri.invoke('get_exclusion_rules');
         excludedFolders = rules.excluded_folders || [];
         excludedDomains = rules.excluded_domains || [];
         originalFolders = [...excludedFolders];
@@ -38,7 +38,7 @@ async function loadSettings() {
 
 async function loadFolders() {
     try {
-        folders = await invoke('get_bookmark_folders');
+        folders = await tauri.invoke('get_bookmark_folders');
     } catch (error) {
         console.error('Failed to load folders:', error);
         folders = [];
@@ -62,7 +62,7 @@ async function addPattern() {
     if (!pattern) return;
 
     try {
-        const validation = await invoke('validate_domain_pattern', { pattern });
+        const validation = await tauri.invoke('validate_domain_pattern', { pattern });
 
         if (!validation.valid) {
             patternValidation = { message: validation.error_message, valid: false };
@@ -90,7 +90,7 @@ async function validatePattern(pattern) {
     }
 
     try {
-        const validation = await invoke('validate_domain_pattern', { pattern });
+        const validation = await tauri.invoke('validate_domain_pattern', { pattern });
         if (validation.valid) {
             patternValidation = { message: 'Valid pattern', valid: true };
         } else {
@@ -119,9 +119,28 @@ function hasChanges() {
     return foldersChanged || domainsChanged;
 }
 
+function getPreviewText() {
+    if (!hasChanges()) {
+        return 'No changes - configure exclusions above';
+    }
+
+    const addedFolders = excludedFolders.filter(f => !originalFolders.includes(f)).length;
+    const removedFolders = originalFolders.filter(f => !excludedFolders.includes(f)).length;
+    const addedDomains = excludedDomains.filter(d => !originalDomains.includes(d)).length;
+    const removedDomains = originalDomains.filter(d => !excludedDomains.includes(d)).length;
+
+    let changes = [];
+    if (addedFolders > 0) changes.push(`${addedFolders} folder(s) will be excluded`);
+    if (removedFolders > 0) changes.push(`${removedFolders} folder(s) will be included`);
+    if (addedDomains > 0) changes.push(`${addedDomains} domain pattern(s) added`);
+    if (removedDomains > 0) changes.push(`${removedDomains} domain pattern(s) removed`);
+
+    return changes.join(', ');
+}
+
 async function saveSettings() {
     try {
-        const result = await invoke('set_exclusion_rules', {
+        const result = await tauri.invoke('set_exclusion_rules', {
             folders: excludedFolders,
             domains: excludedDomains
         });
@@ -224,7 +243,7 @@ function handleKeydown(e) {
 
                 <section class="settings-section">
                     <div class="preview-info" class:has-changes={hasChanges()}>
-                        <span>{hasChanges() ? 'You have unsaved changes' : 'No changes'}</span>
+                        <span>{getPreviewText()}</span>
                     </div>
                 </section>
             </div>

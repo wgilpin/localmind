@@ -7,7 +7,7 @@ import DocumentView from './components/DocumentView.svelte';
 import SettingsModal from './components/SettingsModal.svelte';
 import Toast from './components/Toast.svelte';
 
-const { invoke, listen } = getTauriAPI();
+const tauri = getTauriAPI();
 
 let similarityCutoff = $state(0.2);
 let searchResults = $state([]);
@@ -33,10 +33,10 @@ onMount(async () => {
 });
 
 async function loadStats() {
-    if (!invoke) return;
+    if (!tauri.invoke) return;
 
     try {
-        const stats = await invoke('get_stats');
+        const stats = await tauri.invoke('get_stats');
         console.log('System stats:', stats);
 
         if (stats.status === 'initializing') {
@@ -51,14 +51,14 @@ async function loadStats() {
 }
 
 function setupBookmarkProgressListener() {
-    if (!listen) {
+    if (!tauri.listen) {
         console.warn('Tauri event listener not available');
         return;
     }
 
     console.log('Setting up bookmark progress listener');
 
-    listen('bookmark-progress', (event) => {
+    tauri.listen('bookmark-progress', (event) => {
         console.log('Bookmark progress event received:', event);
         const progress = event.payload;
 
@@ -103,7 +103,7 @@ function calculateOptimalThreshold(results) {
 }
 
 async function handleSearch(query, cutoff) {
-    if (!invoke) {
+    if (!tauri.invoke) {
         showToast('Tauri API not available', 'error');
         return;
     }
@@ -116,7 +116,7 @@ async function handleSearch(query, cutoff) {
     try {
         console.log('Searching for:', query, 'with cutoff:', cutoff);
 
-        const searchHits = await invoke('search_hits', { query, cutoff: 0.0 });
+        const searchHits = await tauri.invoke('search_hits', { query, cutoff: 0.0 });
         console.log('Search hits:', searchHits);
 
         if (searchHits.sources) {
@@ -137,7 +137,7 @@ async function handleSearch(query, cutoff) {
 
         if (searchResults.length > 0) {
             try {
-                await invoke('cancel_generation');
+                await tauri.invoke('cancel_generation');
             } catch (error) {
                 console.warn('Failed to cancel previous generation:', error);
             }
@@ -145,12 +145,12 @@ async function handleSearch(query, cutoff) {
             streaming = true;
             const documentIds = searchResults.map(s => s.doc_id);
 
-            if (listen) {
-                const unlistenChunk = await listen('llm-stream-chunk', (event) => {
+            if (tauri.listen) {
+                const unlistenChunk = await tauri.listen('llm-stream-chunk', (event) => {
                     aiResponse += event.payload;
                 });
 
-                const unlistenComplete = await listen('llm-stream-complete', () => {
+                const unlistenComplete = await tauri.listen('llm-stream-complete', () => {
                     console.log('Stream completed');
                     streaming = false;
                     unlistenChunk();
@@ -158,7 +158,7 @@ async function handleSearch(query, cutoff) {
                 });
 
                 try {
-                    await invoke('generate_response_stream', {
+                    await tauri.invoke('generate_response_stream', {
                         query,
                         contextSources: documentIds
                     });
@@ -168,14 +168,14 @@ async function handleSearch(query, cutoff) {
                     unlistenComplete();
                     streaming = false;
 
-                    const response = await invoke('generate_response', {
+                    const response = await tauri.invoke('generate_response', {
                         query,
                         contextSources: documentIds
                     });
                     aiResponse = response;
                 }
             } else {
-                const response = await invoke('generate_response', {
+                const response = await tauri.invoke('generate_response', {
                     query,
                     contextSources: documentIds
                 });
@@ -206,7 +206,7 @@ function handleSimilarityChange(value) {
 
 async function regenerateAIResponse(filteredResults) {
     try {
-        await invoke('cancel_generation');
+        await tauri.invoke('cancel_generation');
     } catch (error) {
         console.warn('Failed to cancel previous generation:', error);
     }
@@ -215,12 +215,12 @@ async function regenerateAIResponse(filteredResults) {
     aiResponse = '';
     const documentIds = filteredResults.slice(0, 5).map(s => s.doc_id);
 
-    if (listen) {
-        const unlistenChunk = await listen('llm-stream-chunk', (event) => {
+    if (tauri.listen) {
+        const unlistenChunk = await tauri.listen('llm-stream-chunk', (event) => {
             aiResponse += event.payload;
         });
 
-        const unlistenComplete = await listen('llm-stream-complete', () => {
+        const unlistenComplete = await tauri.listen('llm-stream-complete', () => {
             console.log('Stream completed for filtered results');
             streaming = false;
             unlistenChunk();
@@ -228,7 +228,7 @@ async function regenerateAIResponse(filteredResults) {
         });
 
         try {
-            await invoke('generate_response_stream', {
+            await tauri.invoke('generate_response_stream', {
                 query: lastQuery,
                 contextSources: documentIds
             });
@@ -238,7 +238,7 @@ async function regenerateAIResponse(filteredResults) {
             unlistenComplete();
             streaming = false;
 
-            const response = await invoke('generate_response', {
+            const response = await tauri.invoke('generate_response', {
                 query: lastQuery,
                 contextSources: documentIds
             });
@@ -248,14 +248,14 @@ async function regenerateAIResponse(filteredResults) {
 }
 
 async function handleDocumentClick(docId) {
-    if (!invoke) {
+    if (!tauri.invoke) {
         showToast('Tauri API not available', 'error');
         return;
     }
 
     try {
         console.log('Fetching document with id:', docId);
-        const doc = await invoke('get_document', { id: docId });
+        const doc = await tauri.invoke('get_document', { id: docId });
         console.log('Document fetched:', doc);
         currentDocument = doc;
     } catch (error) {
