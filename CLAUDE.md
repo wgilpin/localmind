@@ -150,3 +150,4 @@ For implementation-specific details, see the respective CLAUDE.md files in each 
 - There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this file
 - dont use pip install unless uv add has failed
 - always run python scripts in the correct venv: "C:/Users/wgilp/projects/localmind/.venv"
+- never use emojis in code / comments or logs, unless the user explicitly instructs you to

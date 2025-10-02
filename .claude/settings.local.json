@@ -39,7 +39,11 @@
       "Bash(\"C:/Users/wgilp/projects/localmind/.venv/Scripts/python.exe\" test_fixed_generator.py)",
       "Bash(\"C:/Users/wgilp/projects/localmind/.venv/Scripts/python.exe\" simple_test.py)",
       "Read(//c/Users/wgilp/AppData/Roaming/localmind/**)",
-      "Bash(\"C:/Users/wgilp/projects/localmind/.venv/Scripts/python.exe\" -c \"\nfrom PIL import Image\nimg = Image.new(''RGBA'', (256, 256), color=(73, 109, 137, 255))\nimg.save(''localmind-rs/icons/icon.ico'', format=''ICO'', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])\nprint(''Icon created successfully'')\n\")"
+      "Bash(\"C:/Users/wgilp/projects/localmind/.venv/Scripts/python.exe\" -c \"\nfrom PIL import Image\nimg = Image.new(''RGBA'', (256, 256), color=(73, 109, 137, 255))\nimg.save(''localmind-rs/icons/icon.ico'', format=''ICO'', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])\nprint(''Icon created successfully'')\n\")",
+      "Bash(timeout 10 cargo run)",
+      "Bash(timeout 5 cargo run)",
+      "Bash(target/debug/localmind-rs.exe:*)",
+      "Bash(echo \"Exit code: $?\")"
     ],
     "deny": [],
     "ask": [],

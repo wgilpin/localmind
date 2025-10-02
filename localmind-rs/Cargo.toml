@@ -2,6 +2,12 @@
 name = "localmind-rs"
 version = "0.1.0"
 edition = "2021"
+default-run = "localmind-rs"
+
+[features]
+# This feature is used for production builds where `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
 # Async runtime
@@ -33,8 +39,8 @@ toml = "0.8"
 dirs = "5.0"
 
 notify = "6.0"
-# GUI Framework (Tauri)
-tauri = { version = "1.5", features = ["api-all"] }
+# GUI Framework (Tauri) - using selective features to match allowlist and avoid DLL issues
+tauri = { version = "1.5", features = ["shell-open", "window-all", "fs-all", "path-all", "protocol-all", "http-all"] }
 pdf-extract = "0.9.0"
 readability = "0.3.0"
 url = "2.5"
