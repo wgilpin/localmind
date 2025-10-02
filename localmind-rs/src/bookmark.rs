@@ -1,4 +1,4 @@
-use crate::{Result, fetcher::WebFetcher, youtube::YouTubeProcessor};
+use crate::{Result, fetcher::WebFetcher, youtube::YouTubeProcessor, bookmark_exclusion::ExclusionRules};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::fs;
@@ -13,6 +13,21 @@ pub struct BookmarkItem {
     pub name: String,
     pub url: Option<String>,
     pub children: Option<Vec<BookmarkItem>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BookmarkItemWithPath {
+    pub item: BookmarkItem,
+    pub folder_path: Vec<String>,
+    pub folder_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BookmarkFolder {
+    pub id: String,
+    pub name: String,
+    pub path: Vec<String>,
+    pub bookmark_count: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +129,50 @@ impl BookmarkMonitor {
         if let Some(children) = &item.children {
             for child in children {
                 self.extract_bookmarks(child, bookmarks);
+            }
+        }
+    }
+
+    fn extract_bookmarks_with_exclusion(
+        &self,
+        item: &BookmarkItem,
+        bookmarks: &mut Vec<BookmarkItemWithPath>,
+        exclusion_rules: &ExclusionRules,
+        current_path: &[String],
+        current_folder_id: &str,
+    ) {
+        // Check if current folder is excluded
+        if exclusion_rules.is_folder_excluded(current_folder_id) {
+            return; // Skip entire folder and all children
+        }
+
+        if let Some(url) = &item.url {
+            // This is a bookmark (leaf node)
+            if !url.is_empty() {
+                // Check if URL matches exclusion pattern
+                if !exclusion_rules.is_url_excluded(url) {
+                    bookmarks.push(BookmarkItemWithPath {
+                        item: item.clone(),
+                        folder_path: current_path.to_vec(),
+                        folder_id: current_folder_id.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Recursively process children (folders)
+        if let Some(children) = &item.children {
+            let mut new_path = current_path.to_vec();
+            new_path.push(item.name.clone());
+
+            for child in children {
+                self.extract_bookmarks_with_exclusion(
+                    child,
+                    bookmarks,
+                    exclusion_rules,
+                    &new_path,
+                    &item.id,
+                );
             }
         }
     }
@@ -300,6 +359,11 @@ impl BookmarkMonitor {
         Ok(result)
     }
 
+    pub fn get_bookmark_folders(&self) -> Vec<BookmarkFolder> {
+        // Stub: Return empty vector
+        Vec::new()
+    }
+
     pub async fn fetch_bookmark_content(&self, url: &str) -> Result<String> {
         let fetcher = WebFetcher::new();
 
@@ -343,5 +407,118 @@ impl BookmarkMonitor {
 impl Default for BookmarkMonitor {
     fn default() -> Self {
         Self::new().unwrap().0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_bookmarks_with_exclusion_rules() {
+        // This test will verify that exclusion rules filter out bookmarks
+        let monitor = BookmarkMonitor::new().unwrap().0;
+        let exclusion_rules = ExclusionRules::new(
+            vec!["excluded_folder_id".to_string()],
+            vec!["*.internal.com".to_string()],
+        );
+
+        // Create a test bookmark structure
+        let mut bookmarks = Vec::new();
+        let test_item = BookmarkItem {
+            date_added: "1234567890".to_string(),
+            date_modified: None,
+            id: "test_id".to_string(),
+            name: "Test Bookmark".to_string(),
+            url: Some("https://example.com".to_string()),
+            children: None,
+        };
+
+        monitor.extract_bookmarks_with_exclusion(&test_item, &mut bookmarks, &exclusion_rules, &[], "root");
+
+        // Should not be excluded
+        assert_eq!(bookmarks.len(), 1);
+    }
+
+    #[test]
+    fn test_extract_bookmarks_excludes_by_folder() {
+        let monitor = BookmarkMonitor::new().unwrap().0;
+        let exclusion_rules = ExclusionRules::new(
+            vec!["excluded_folder".to_string()],
+            vec![],
+        );
+
+        let mut bookmarks = Vec::new();
+        let test_item = BookmarkItem {
+            date_added: "1234567890".to_string(),
+            date_modified: None,
+            id: "test_id".to_string(),
+            name: "Test Bookmark".to_string(),
+            url: Some("https://example.com".to_string()),
+            children: None,
+        };
+
+        monitor.extract_bookmarks_with_exclusion(&test_item, &mut bookmarks, &exclusion_rules, &[], "excluded_folder");
+
+        // Should be excluded
+        assert_eq!(bookmarks.len(), 0);
+    }
+
+    #[test]
+    fn test_extract_bookmarks_excludes_by_domain() {
+        let monitor = BookmarkMonitor::new().unwrap().0;
+        let exclusion_rules = ExclusionRules::new(
+            vec![],
+            vec!["*.internal.com".to_string()],
+        );
+
+        let mut bookmarks = Vec::new();
+        let test_item = BookmarkItem {
+            date_added: "1234567890".to_string(),
+            date_modified: None,
+            id: "test_id".to_string(),
+            name: "Internal Site".to_string(),
+            url: Some("https://foo.internal.com/page".to_string()),
+            children: None,
+        };
+
+        monitor.extract_bookmarks_with_exclusion(&test_item, &mut bookmarks, &exclusion_rules, &[], "root");
+
+        // Should be excluded
+        assert_eq!(bookmarks.len(), 0);
+    }
+
+    #[test]
+    fn test_extract_bookmarks_tracks_folder_path() {
+        let monitor = BookmarkMonitor::new().unwrap().0;
+        let exclusion_rules = ExclusionRules::empty();
+
+        let mut bookmarks = Vec::new();
+        let test_item = BookmarkItem {
+            date_added: "1234567890".to_string(),
+            date_modified: None,
+            id: "test_id".to_string(),
+            name: "Test Bookmark".to_string(),
+            url: Some("https://example.com".to_string()),
+            children: None,
+        };
+
+        let folder_path = vec!["Bookmark Bar".to_string(), "Work".to_string()];
+        monitor.extract_bookmarks_with_exclusion(&test_item, &mut bookmarks, &exclusion_rules, &folder_path, "folder_123");
+
+        assert_eq!(bookmarks.len(), 1);
+        assert_eq!(bookmarks[0].folder_path, folder_path);
+        assert_eq!(bookmarks[0].folder_id, "folder_123");
+    }
+
+    #[test]
+    fn test_get_bookmark_folders_structure() {
+        // Test that we can extract folder structure from Chrome bookmarks
+        // This will be a stub that returns empty for now
+        let monitor = BookmarkMonitor::new().unwrap().0;
+        let folders = monitor.get_bookmark_folders();
+
+        // Should return empty vec initially (stub)
+        assert_eq!(folders.len(), 0);
     }
 }

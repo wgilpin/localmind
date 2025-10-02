@@ -5,6 +5,7 @@ pub mod ollama;
 pub mod lmstudio;
 pub mod document;
 pub mod bookmark;
+pub mod bookmark_exclusion;
 pub mod fetcher;
 pub mod youtube;
 

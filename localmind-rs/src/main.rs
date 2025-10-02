@@ -4,7 +4,8 @@
 use localmind_rs::{
     db::OperationPriority,
     rag::RagPipeline as RAG,
-    bookmark::BookmarkMonitor,
+    bookmark::{BookmarkMonitor, BookmarkFolder},
+    bookmark_exclusion::ExclusionRules,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -32,6 +33,24 @@ struct BookmarkProgress {
     total: usize,
     current_title: String,
     completed: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ExclusionRulesResponse {
+    excluded_folders: Vec<String>,
+    excluded_domains: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReprocessingStatus {
+    bookmarks_removed: usize,
+    bookmarks_added: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ValidationResult {
+    valid: bool,
+    error_message: Option<String>,
 }
 
 #[tauri::command]
@@ -475,6 +494,89 @@ async fn generate_response_stream(
     Ok(())
 }
 
+#[tauri::command]
+async fn get_exclusion_rules(state: State<'_, RagState>) -> Result<ExclusionRulesResponse, String> {
+    println!("get_exclusion_rules called");
+    let rag_lock = state.read().await;
+    let rag = rag_lock
+        .as_ref()
+        .ok_or("System initializing...")?;
+
+    let folders = rag.db.get_excluded_folders().await
+        .map_err(|e| format!("Failed to get excluded folders: {}", e))?;
+    let domains = rag.db.get_excluded_domains().await
+        .map_err(|e| format!("Failed to get excluded domains: {}", e))?;
+
+    Ok(ExclusionRulesResponse {
+        excluded_folders: folders,
+        excluded_domains: domains,
+    })
+}
+
+#[tauri::command]
+async fn set_exclusion_rules(
+    folders: Vec<String>,
+    domains: Vec<String>,
+    state: State<'_, RagState>,
+) -> Result<ReprocessingStatus, String> {
+    println!("set_exclusion_rules called");
+    let rag_lock = state.read().await;
+    let rag = rag_lock
+        .as_ref()
+        .ok_or("System initializing...")?;
+
+    // Save new exclusion rules
+    rag.db.set_excluded_folders(&folders).await
+        .map_err(|e| format!("Failed to set excluded folders: {}", e))?;
+    rag.db.set_excluded_domains(&domains).await
+        .map_err(|e| format!("Failed to set excluded domains: {}", e))?;
+
+    // Delete bookmarks matching exclusion rules
+    let mut removed_count = 0;
+    for domain in &domains {
+        removed_count += rag.db.delete_bookmarks_by_url_pattern(domain).await
+            .map_err(|e| format!("Failed to delete bookmarks: {}", e))?;
+    }
+
+    for folder_id in &folders {
+        removed_count += rag.db.delete_bookmarks_by_folder(folder_id).await
+            .map_err(|e| format!("Failed to delete bookmarks by folder: {}", e))?;
+    }
+
+    // TODO: Re-index previously excluded bookmarks if rules were relaxed
+    let added_count = 0;
+
+    Ok(ReprocessingStatus {
+        bookmarks_removed: removed_count,
+        bookmarks_added: added_count,
+    })
+}
+
+#[tauri::command]
+async fn get_bookmark_folders() -> Result<Vec<BookmarkFolder>, String> {
+    println!("get_bookmark_folders called");
+    let monitor = BookmarkMonitor::new()
+        .map_err(|e| format!("Failed to initialize bookmark monitor: {}", e))?
+        .0;
+
+    Ok(monitor.get_bookmark_folders())
+}
+
+#[tauri::command]
+async fn validate_domain_pattern(pattern: String) -> Result<ValidationResult, String> {
+    println!("validate_domain_pattern called for: {}", pattern);
+    match ExclusionRules::validate_pattern(&pattern) {
+        Ok(()) => Ok(ValidationResult {
+            valid: true,
+            error_message: None,
+        }),
+        Err(e) => Ok(ValidationResult {
+            valid: false,
+            error_message: Some(e.to_string()),
+        }),
+    }
+}
+
 fn main() {
     println!("🚀 Starting LocalMind application");
 
@@ -557,6 +659,10 @@ fn main() {
             generate_response_stream,
             cancel_generation,
             ingest_bookmarks,
+            get_exclusion_rules,
+            set_exclusion_rules,
+            get_bookmark_folders,
+            validate_domain_pattern,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

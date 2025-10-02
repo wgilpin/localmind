@@ -584,4 +584,174 @@ impl Database {
     pub async fn set_embedding_url(&self, url: &str) -> Result<()> {
         self.set_config("embedding_url", url).await
     }
+
+    pub async fn get_excluded_folders(&self) -> Result<Vec<String>> {
+        match self.get_config("bookmark_exclude_folders").await? {
+            Some(json_str) => {
+                let folders: Vec<String> = serde_json::from_str(&json_str)
+                    .map_err(|e| format!("Failed to parse excluded folders: {}", e))?;
+                Ok(folders)
+            }
+            None => Ok(Vec::new()),
+        }
+    }
+
+    pub async fn set_excluded_folders(&self, folders: &[String]) -> Result<()> {
+        let json_str = serde_json::to_string(folders)
+            .map_err(|e| format!("Failed to serialize excluded folders: {}", e))?;
+        self.set_config("bookmark_exclude_folders", &json_str).await
+    }
+
+    pub async fn get_excluded_domains(&self) -> Result<Vec<String>> {
+        match self.get_config("bookmark_exclude_domains").await? {
+            Some(json_str) => {
+                let domains: Vec<String> = serde_json::from_str(&json_str)
+                    .map_err(|e| format!("Failed to parse excluded domains: {}", e))?;
+                Ok(domains)
+            }
+            None => Ok(Vec::new()),
+        }
+    }
+
+    pub async fn set_excluded_domains(&self, domains: &[String]) -> Result<()> {
+        let json_str = serde_json::to_string(domains)
+            .map_err(|e| format!("Failed to serialize excluded domains: {}", e))?;
+        self.set_config("bookmark_exclude_domains", &json_str).await
+    }
+
+    pub async fn delete_bookmarks_by_url_pattern(&self, pattern: &str) -> Result<usize> {
+        use crate::bookmark_exclusion::ExclusionRules;
+
+        let rules = ExclusionRules::new(vec![], vec![pattern.to_string()]);
+        let documents = self.get_live_documents_with_urls().await?;
+
+        let mut deleted_count = 0;
+        for doc in documents {
+            if let Some(url) = &doc.url {
+                if rules.is_url_excluded(url) {
+                    self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
+                        conn.execute("DELETE FROM documents WHERE id = ?1", params![doc.id])?;
+                        Ok(())
+                    }).await?;
+                    deleted_count += 1;
+                }
+            }
+        }
+
+        Ok(deleted_count)
+    }
+
+    pub async fn delete_bookmarks_by_folder(&self, folder_id: &str) -> Result<usize> {
+        // This will be implemented once we track folder IDs in documents
+        // For now, return 0 as a placeholder
+        let _ = folder_id;
+        Ok(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_excluded_folders_config() {
+        let db = Database::new().await.unwrap();
+
+        // Initially empty
+        let folders = db.get_excluded_folders().await.unwrap();
+        assert_eq!(folders.len(), 0);
+
+        // Set folders
+        let test_folders = vec!["123".to_string(), "456".to_string(), "789".to_string()];
+        db.set_excluded_folders(&test_folders).await.unwrap();
+
+        // Retrieve and verify
+        let retrieved = db.get_excluded_folders().await.unwrap();
+        assert_eq!(retrieved, test_folders);
+
+        // Update folders
+        let updated_folders = vec!["111".to_string(), "222".to_string()];
+        db.set_excluded_folders(&updated_folders).await.unwrap();
+
+        let retrieved = db.get_excluded_folders().await.unwrap();
+        assert_eq!(retrieved, updated_folders);
+    }
+
+    #[tokio::test]
+    async fn test_excluded_domains_config() {
+        let db = Database::new().await.unwrap();
+
+        // Initially empty
+        let domains = db.get_excluded_domains().await.unwrap();
+        assert_eq!(domains.len(), 0);
+
+        // Set domains
+        let test_domains = vec![
+            "*.internal.com".to_string(),
+            "private.example.org".to_string(),
+            "localhost:*".to_string(),
+        ];
+        db.set_excluded_domains(&test_domains).await.unwrap();
+
+        // Retrieve and verify
+        let retrieved = db.get_excluded_domains().await.unwrap();
+        assert_eq!(retrieved, test_domains);
+
+        // Update domains
+        let updated_domains = vec!["example.com".to_string()];
+        db.set_excluded_domains(&updated_domains).await.unwrap();
+
+        let retrieved = db.get_excluded_domains().await.unwrap();
+        assert_eq!(retrieved, updated_domains);
+    }
+
+    #[tokio::test]
+    async fn test_delete_bookmarks_by_url_pattern() {
+        let db = Database::new().await.unwrap();
+
+        // Insert test bookmarks
+        db.insert_document(
+            "Internal Site",
+            "Content from internal site",
+            Some("https://foo.internal.com/page"),
+            "bookmark",
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+        ).await.unwrap();
+
+        db.insert_document(
+            "Public Site",
+            "Content from public site",
+            Some("https://example.com/page"),
+            "bookmark",
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+        ).await.unwrap();
+
+        db.insert_document(
+            "Another Internal Site",
+            "More internal content",
+            Some("https://bar.internal.com/page"),
+            "bookmark",
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+        ).await.unwrap();
+
+        // Delete by pattern
+        let deleted = db.delete_bookmarks_by_url_pattern("*.internal.com").await.unwrap();
+        assert_eq!(deleted, 2);
+
+        // Verify remaining documents
+        let docs = db.get_live_documents_with_urls().await.unwrap();
+        let urls: Vec<String> = docs.iter()
+            .filter_map(|d| d.url.clone())
+            .collect();
+
+        assert!(urls.contains(&"https://example.com/page".to_string()));
+        assert!(!urls.contains(&"https://foo.internal.com/page".to_string()));
+        assert!(!urls.contains(&"https://bar.internal.com/page".to_string()));
+    }
 }
