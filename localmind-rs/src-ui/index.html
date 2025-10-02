@@ -7,74 +7,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>LocalMind</h1>
-            <button id="settings-btn" class="settings-btn" title="Settings">⚙️</button>
-        </header>
-        <main>
-            <div class="search-container">
-                <input type="text" id="search-input" placeholder="Search your knowledge base..." />
-                <button id="search-btn">Search</button>
-            </div>
-            <div class="settings-container">
-                <div class="similarity-setting">
-                    <label for="similarity-cutoff">Similarity Threshold:</label>
-                    <input type="range" id="similarity-cutoff" min="0.1" max="0.9" step="0.1" value="0.2" />
-                    <span id="similarity-value">0.2</span>
-                    <small>(Lower = more results, Higher = more precise)</small>
-                </div>
-            </div>
-            <div class="results" id="results">
-                <!-- Search results will appear here -->
-            </div>
-        </main>
-    </div>
-
-    <!-- Toast notification container -->
-    <div id="toast-container" class="toast-container"></div>
-
-    <!-- Settings Modal -->
-    <div id="settings-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Settings</h2>
-                <button id="close-settings-btn" class="close-btn">×</button>
-            </div>
-            <div class="modal-body">
-                <section class="settings-section">
-                    <h3>Excluded Bookmark Folders</h3>
-                    <div id="folder-tree" class="folder-tree">
-                        <div class="loading">Loading folders...</div>
-                    </div>
-                </section>
-
-                <section class="settings-section">
-                    <h3>Excluded Domain Patterns</h3>
-                    <div id="domain-patterns-list" class="domain-patterns-list">
-                        <div class="empty-state">No domain patterns excluded.</div>
-                    </div>
-                    <div class="add-pattern-container">
-                        <input type="text" id="pattern-input" placeholder="Enter domain pattern (e.g., *.internal.com)" />
-                        <button id="add-pattern-btn">+ Add Pattern</button>
-                    </div>
-                    <div id="pattern-validation" class="validation-message"></div>
-                </section>
-
-                <section class="settings-section">
-                    <div id="preview-info" class="preview-info">
-                        <span id="preview-text">No changes</span>
-                    </div>
-                </section>
-            </div>
-            <div class="modal-footer">
-                <button id="cancel-settings-btn" class="btn-secondary">Cancel</button>
-                <button id="save-settings-btn" class="btn-primary">Save Changes</button>
-            </div>
-        </div>
-    </div>
-
-    <script src="app.js"></script>
-    <script src="settings.js"></script>
+    <div id="app"></div>
+    <script type="module" src="main.js"></script>
 </body>
 </html>

@@ -43,7 +43,8 @@
       "Bash(timeout 10 cargo run)",
       "Bash(timeout 5 cargo run)",
       "Bash(target/debug/localmind-rs.exe:*)",
-      "Bash(echo \"Exit code: $?\")"
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(npm init:*)"
     ],
     "deny": [],
     "ask": [],

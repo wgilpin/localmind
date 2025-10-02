@@ -1,0 +1,6 @@
+@echo off
+echo Starting Vite dev server in background...
+start /b npm run dev
+timeout /t 3 /nobreak > nul
+echo Starting Tauri...
+cargo run
