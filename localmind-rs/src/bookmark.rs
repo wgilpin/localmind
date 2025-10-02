@@ -117,6 +117,20 @@ impl BookmarkMonitor {
         Ok(all_bookmarks)
     }
 
+    pub fn get_bookmark_roots(&self) -> Result<Vec<BookmarkItem>> {
+        let content = fs::read_to_string(&self.bookmarks_path)?;
+        let chrome_bookmarks: ChromeBookmarks = serde_json::from_str(&content)?;
+
+        let mut roots = Vec::new();
+        roots.push(chrome_bookmarks.roots.bookmark_bar);
+        roots.push(chrome_bookmarks.roots.other);
+        if let Some(synced) = chrome_bookmarks.roots.synced {
+            roots.push(synced);
+        }
+
+        Ok(roots)
+    }
+
     fn extract_bookmarks(&self, item: &BookmarkItem, bookmarks: &mut Vec<BookmarkItem>) {
         if let Some(url) = &item.url {
             // This is a bookmark (leaf node)
@@ -133,7 +147,7 @@ impl BookmarkMonitor {
         }
     }
 
-    fn extract_bookmarks_with_exclusion(
+    pub fn extract_bookmarks_with_exclusion(
         &self,
         item: &BookmarkItem,
         bookmarks: &mut Vec<BookmarkItemWithPath>,
@@ -394,6 +408,11 @@ impl BookmarkMonitor {
     }
 
     fn extract_folders(&self, item: &BookmarkItem, folders: &mut Vec<BookmarkFolder>, current_path: &[String]) {
+        // Skip if this is a bookmark (has a URL)
+        if item.url.is_some() {
+            return;
+        }
+
         // If this item has children, it's a folder
         if let Some(children) = &item.children {
             // Count bookmarks in this folder (recursively)

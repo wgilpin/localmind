@@ -642,50 +642,154 @@ impl Database {
     }
 
     pub async fn delete_bookmarks_by_folder(&self, folder_id: &str) -> Result<usize> {
-        // This will be implemented once we track folder IDs in documents
-        // For now, return 0 as a placeholder
-        let _ = folder_id;
-        Ok(0)
+        use crate::bookmark::BookmarkMonitor;
+
+        // Get bookmark monitor to parse Chrome bookmarks
+        let monitor = BookmarkMonitor::new()?.0;
+
+        // Get all bookmarks from Chrome
+        let all_bookmarks = monitor.get_bookmark_roots()?;
+
+        // Find the specific folder and collect all URLs in it
+        let mut urls_to_delete = Vec::new();
+
+        fn find_and_collect_urls(
+            item: &crate::bookmark::BookmarkItem,
+            target_folder_id: &str,
+            urls: &mut Vec<String>,
+        ) -> bool {
+            // Check if this is the target folder
+            if item.id == target_folder_id {
+                println!("Found folder '{}' (ID: {})", item.name, item.id);
+                // Collect all URLs in this folder and subfolders
+                collect_all_urls(item, urls);
+                return true;
+            }
+
+            // Recursively search in children
+            if let Some(children) = &item.children {
+                for child in children {
+                    if find_and_collect_urls(child, target_folder_id, urls) {
+                        return true;
+                    }
+                }
+            }
+
+            false
+        }
+
+        fn collect_all_urls(item: &crate::bookmark::BookmarkItem, urls: &mut Vec<String>) {
+            if let Some(url) = &item.url {
+                if !url.is_empty() {
+                    urls.push(url.clone());
+                }
+            }
+            if let Some(children) = &item.children {
+                for child in children {
+                    collect_all_urls(child, urls);
+                }
+            }
+        }
+
+        // Search through all bookmark roots
+        for item in &all_bookmarks {
+            if find_and_collect_urls(item, folder_id, &mut urls_to_delete) {
+                break;
+            }
+        }
+
+        println!("Found {} URLs in Chrome for folder {}", urls_to_delete.len(), folder_id);
+
+        // Check how many actually exist in the database
+        let mut exists_count = 0;
+        for url in &urls_to_delete {
+            let count: i64 = self.execute_with_priority(OperationPriority::BackgroundIngest, {
+                let url = url.clone();
+                move |conn| {
+                    let count: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM documents WHERE url = ?1 AND source = 'chrome_bookmark'",
+                        params![&url],
+                        |row| row.get(0)
+                    )?;
+                    Ok(count)
+                }
+            }).await?;
+
+            if count > 0 {
+                exists_count += 1;
+            }
+        }
+
+        println!("Of those, {} URLs exist in database for folder {}", exists_count, folder_id);
+
+        // Delete each URL from the database
+        let mut deleted_count = 0;
+        for url in urls_to_delete {
+            let result = self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
+                conn.execute(
+                    "DELETE FROM documents WHERE url = ?1 AND source = 'chrome_bookmark'",
+                    params![&url]
+                )?;
+                Ok(())
+            }).await;
+
+            if result.is_ok() {
+                deleted_count += 1;
+            }
+        }
+
+        Ok(deleted_count)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+    use std::path::PathBuf;
+
+    async fn create_test_db() -> (Database, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test_localmind.db");
+
+        let conn = Connection::open(&db_path).unwrap();
+        let db = Database {
+            conn: Arc::new(Mutex::new(conn)),
+            search_semaphore: Arc::new(Semaphore::new(10)),
+            ingest_semaphore: Arc::new(Semaphore::new(1)),
+        };
+
+        db.init_schema().await.unwrap();
+        (db, temp_dir)
+    }
 
     #[tokio::test]
     async fn test_excluded_folders_config() {
-        let db = Database::new().await.unwrap();
+        let (db, _temp) = create_test_db().await;
 
-        // Initially empty
         let folders = db.get_excluded_folders().await.unwrap();
-        assert_eq!(folders.len(), 0);
+        assert_eq!(folders.len(), 0, "Initially should have no excluded folders");
 
-        // Set folders
-        let test_folders = vec!["123".to_string(), "456".to_string(), "789".to_string()];
+        let test_folders = vec!["folder_123".to_string(), "folder_456".to_string(), "folder_789".to_string()];
         db.set_excluded_folders(&test_folders).await.unwrap();
 
-        // Retrieve and verify
         let retrieved = db.get_excluded_folders().await.unwrap();
-        assert_eq!(retrieved, test_folders);
+        assert_eq!(retrieved, test_folders, "Should retrieve same folders that were set");
 
-        // Update folders
-        let updated_folders = vec!["111".to_string(), "222".to_string()];
+        let updated_folders = vec!["folder_abc".to_string(), "folder_xyz".to_string()];
         db.set_excluded_folders(&updated_folders).await.unwrap();
 
         let retrieved = db.get_excluded_folders().await.unwrap();
-        assert_eq!(retrieved, updated_folders);
+        assert_eq!(retrieved, updated_folders, "Should update to new folder list");
     }
 
     #[tokio::test]
     async fn test_excluded_domains_config() {
-        let db = Database::new().await.unwrap();
+        let (db, _temp) = create_test_db().await;
 
-        // Initially empty
         let domains = db.get_excluded_domains().await.unwrap();
-        assert_eq!(domains.len(), 0);
+        assert_eq!(domains.len(), 0, "Initially should have no excluded domains");
 
-        // Set domains
         let test_domains = vec![
             "*.internal.com".to_string(),
             "private.example.org".to_string(),
@@ -693,28 +797,25 @@ mod tests {
         ];
         db.set_excluded_domains(&test_domains).await.unwrap();
 
-        // Retrieve and verify
         let retrieved = db.get_excluded_domains().await.unwrap();
-        assert_eq!(retrieved, test_domains);
+        assert_eq!(retrieved, test_domains, "Should retrieve same domains that were set");
 
-        // Update domains
         let updated_domains = vec!["example.com".to_string()];
         db.set_excluded_domains(&updated_domains).await.unwrap();
 
         let retrieved = db.get_excluded_domains().await.unwrap();
-        assert_eq!(retrieved, updated_domains);
+        assert_eq!(retrieved, updated_domains, "Should update to new domain list");
     }
 
     #[tokio::test]
     async fn test_delete_bookmarks_by_url_pattern() {
-        let db = Database::new().await.unwrap();
+        let (db, _temp) = create_test_db().await;
 
-        // Insert test bookmarks
         db.insert_document(
             "Internal Site",
             "Content from internal site",
             Some("https://foo.internal.com/page"),
-            "bookmark",
+            "chrome_bookmark",
             None,
             None,
             OperationPriority::BackgroundIngest,
@@ -724,7 +825,7 @@ mod tests {
             "Public Site",
             "Content from public site",
             Some("https://example.com/page"),
-            "bookmark",
+            "chrome_bookmark",
             None,
             None,
             OperationPriority::BackgroundIngest,
@@ -734,24 +835,162 @@ mod tests {
             "Another Internal Site",
             "More internal content",
             Some("https://bar.internal.com/page"),
-            "bookmark",
+            "chrome_bookmark",
             None,
             None,
             OperationPriority::BackgroundIngest,
         ).await.unwrap();
 
-        // Delete by pattern
         let deleted = db.delete_bookmarks_by_url_pattern("*.internal.com").await.unwrap();
-        assert_eq!(deleted, 2);
+        assert_eq!(deleted, 2, "Should delete 2 bookmarks matching *.internal.com");
 
-        // Verify remaining documents
         let docs = db.get_live_documents_with_urls().await.unwrap();
         let urls: Vec<String> = docs.iter()
             .filter_map(|d| d.url.clone())
             .collect();
 
-        assert!(urls.contains(&"https://example.com/page".to_string()));
-        assert!(!urls.contains(&"https://foo.internal.com/page".to_string()));
-        assert!(!urls.contains(&"https://bar.internal.com/page".to_string()));
+        assert!(urls.contains(&"https://example.com/page".to_string()), "Public site should remain");
+        assert!(!urls.contains(&"https://foo.internal.com/page".to_string()), "foo.internal.com should be deleted");
+        assert!(!urls.contains(&"https://bar.internal.com/page".to_string()), "bar.internal.com should be deleted");
+    }
+
+    #[tokio::test]
+    async fn test_delete_bookmarks_by_url_pattern_wildcard_subdomain() {
+        let (db, _temp) = create_test_db().await;
+
+        db.insert_document(
+            "Dev Site",
+            "Dev content",
+            Some("https://dev.mycompany.com/page"),
+            "chrome_bookmark",
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+        ).await.unwrap();
+
+        db.insert_document(
+            "Staging Site",
+            "Staging content",
+            Some("https://staging.mycompany.com/page"),
+            "chrome_bookmark",
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+        ).await.unwrap();
+
+        db.insert_document(
+            "External Site",
+            "External content",
+            Some("https://external.com/page"),
+            "chrome_bookmark",
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+        ).await.unwrap();
+
+        let deleted = db.delete_bookmarks_by_url_pattern("*.mycompany.com").await.unwrap();
+        assert_eq!(deleted, 2, "Should delete 2 mycompany.com bookmarks");
+
+        let docs = db.get_live_documents_with_urls().await.unwrap();
+        assert_eq!(docs.len(), 1, "Only 1 bookmark should remain");
+        assert_eq!(docs[0].url.as_ref().unwrap(), "https://external.com/page");
+    }
+
+    #[tokio::test]
+    async fn test_delete_bookmarks_by_url_pattern_exact_domain() {
+        let (db, _temp) = create_test_db().await;
+
+        db.insert_document(
+            "Exact Match",
+            "Content",
+            Some("https://example.com/page"),
+            "chrome_bookmark",
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+        ).await.unwrap();
+
+        db.insert_document(
+            "Subdomain",
+            "Content",
+            Some("https://sub.example.com/page"),
+            "chrome_bookmark",
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+        ).await.unwrap();
+
+        let deleted = db.delete_bookmarks_by_url_pattern("example.com").await.unwrap();
+        assert_eq!(deleted, 1, "Should delete only exact domain match");
+
+        let docs = db.get_live_documents_with_urls().await.unwrap();
+        assert_eq!(docs.len(), 1, "Subdomain should remain");
+        assert_eq!(docs[0].url.as_ref().unwrap(), "https://sub.example.com/page");
+    }
+
+    #[tokio::test]
+    async fn test_excluded_folders_persistence() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test_persistence.db");
+
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            let db = Database {
+                conn: Arc::new(Mutex::new(conn)),
+                search_semaphore: Arc::new(Semaphore::new(10)),
+                ingest_semaphore: Arc::new(Semaphore::new(1)),
+            };
+            db.init_schema().await.unwrap();
+
+            let folders = vec!["folder_1".to_string(), "folder_2".to_string()];
+            db.set_excluded_folders(&folders).await.unwrap();
+        }
+
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            let db = Database {
+                conn: Arc::new(Mutex::new(conn)),
+                search_semaphore: Arc::new(Semaphore::new(10)),
+                ingest_semaphore: Arc::new(Semaphore::new(1)),
+            };
+
+            let retrieved = db.get_excluded_folders().await.unwrap();
+            assert_eq!(retrieved.len(), 2, "Folders should persist across database reopens");
+            assert_eq!(retrieved[0], "folder_1");
+            assert_eq!(retrieved[1], "folder_2");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_excluded_domains_persistence() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test_persistence.db");
+
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            let db = Database {
+                conn: Arc::new(Mutex::new(conn)),
+                search_semaphore: Arc::new(Semaphore::new(10)),
+                ingest_semaphore: Arc::new(Semaphore::new(1)),
+            };
+            db.init_schema().await.unwrap();
+
+            let domains = vec!["*.internal.com".to_string(), "localhost".to_string()];
+            db.set_excluded_domains(&domains).await.unwrap();
+        }
+
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            let db = Database {
+                conn: Arc::new(Mutex::new(conn)),
+                search_semaphore: Arc::new(Semaphore::new(10)),
+                ingest_semaphore: Arc::new(Semaphore::new(1)),
+            };
+
+            let retrieved = db.get_excluded_domains().await.unwrap();
+            assert_eq!(retrieved.len(), 2, "Domains should persist across database reopens");
+            assert_eq!(retrieved[0], "*.internal.com");
+            assert_eq!(retrieved[1], "localhost");
+        }
     }
 }

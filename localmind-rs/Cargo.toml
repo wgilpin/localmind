@@ -50,6 +50,9 @@ url = "2.5"
 name = "rechunk"
 path = "src/rechunk.rs"
 
+[dev-dependencies]
+tempfile = "3.8"
+
 # Build dependencies for Tauri
 [build-dependencies]
 tauri-build = { version = "1.5", features = [] }

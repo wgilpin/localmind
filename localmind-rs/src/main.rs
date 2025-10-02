@@ -507,6 +507,9 @@ async fn get_exclusion_rules(state: State<'_, RagState>) -> Result<ExclusionRule
     let domains = rag.db.get_excluded_domains().await
         .map_err(|e| format!("Failed to get excluded domains: {}", e))?;
 
+    println!("Database has excluded_folders: {:?}", folders);
+    println!("Database has excluded_domains: {:?}", domains);
+
     Ok(ExclusionRulesResponse {
         excluded_folders: folders,
         excluded_domains: domains,
@@ -520,6 +523,8 @@ async fn set_exclusion_rules(
     state: State<'_, RagState>,
 ) -> Result<ReprocessingStatus, String> {
     println!("set_exclusion_rules called");
+    println!("Received folder IDs from UI: {:?}", folders);
+    println!("Received domain patterns from UI: {:?}", domains);
     let rag_lock = state.read().await;
     let rag = rag_lock
         .as_ref()
