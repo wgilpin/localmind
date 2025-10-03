@@ -1,5 +1,6 @@
 <script>
 import { getTauriAPI } from '../tauri.svelte.js';
+import FolderTreeNode from './FolderTreeNode.svelte';
 
 let { show = false, onClose, onSave } = $props();
 
@@ -47,6 +48,37 @@ async function loadFolders() {
         folders = [];
     }
 }
+
+function buildFolderTree(folders) {
+    const tree = {};
+
+    for (const folder of folders) {
+        let current = tree;
+
+        for (let i = 0; i < folder.path.length; i++) {
+            const pathPart = folder.path[i];
+
+            if (!current[pathPart]) {
+                current[pathPart] = {
+                    name: pathPart,
+                    children: {},
+                    folder: null,
+                    expanded: true
+                };
+            }
+
+            if (i === folder.path.length - 1) {
+                current[pathPart].folder = folder;
+            }
+
+            current = current[pathPart].children;
+        }
+    }
+
+    return tree;
+}
+
+let folderTree = $derived(buildFolderTree(folders));
 
 function toggleFolder(folderId) {
     if (excludedFolders.includes(folderId)) {
@@ -183,7 +215,13 @@ function handleKeydown(e) {
 <svelte:window onkeydown={handleKeydown} />
 
 {#if show}
-    <div class="modal show" onclick={(e) => e.target.classList.contains('modal') && handleClose()}>
+    <div
+        class="modal show"
+        role="button"
+        tabindex="-1"
+        onclick={(e) => e.target.classList.contains('modal') && handleClose()}
+        onkeydown={(e) => e.key === 'Enter' && e.target.classList.contains('modal') && handleClose()}
+    >
         <div class="modal-content">
             <div class="modal-header">
                 <h2>Settings</h2>
@@ -193,25 +231,20 @@ function handleKeydown(e) {
             <div class="modal-body">
                 <section class="settings-section">
                     <h3>Excluded Bookmark Folders</h3>
+
                     <div class="folder-tree">
                         {#if loading}
                             <div class="loading">Loading folders...</div>
                         {:else if folders.length === 0}
                             <div class="empty-state">No bookmark folders found.</div>
                         {:else}
-                            {#each folders as folder}
-                                <div class="folder-item">
-                                    <input
-                                        type="checkbox"
-                                        id="folder-{folder.id}"
-                                        checked={excludedFolders.includes(folder.id)}
-                                        onchange={() => toggleFolder(folder.id)}
-                                    />
-                                    <label for="folder-{folder.id}">
-                                        {folder.path.join(' > ') || folder.name}
-                                    </label>
-                                    <span class="folder-count">({folder.bookmark_count})</span>
-                                </div>
+                            {#each Object.values(folderTree) as rootNode}
+                                <FolderTreeNode
+                                    node={rootNode}
+                                    depth={0}
+                                    {excludedFolders}
+                                    onToggle={toggleFolder}
+                                />
                             {/each}
                         {/if}
                     </div>
@@ -271,7 +304,7 @@ function handleKeydown(e) {
     top: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(0, 0, 0, 0.7);
 }
 
 .modal.show {
@@ -281,19 +314,20 @@ function handleKeydown(e) {
 }
 
 .modal-content {
-    background-color: white;
+    background-color: #1a1f2e;
+    border: 1px solid #2d3548;
     border-radius: 8px;
     width: 90%;
     max-width: 700px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .modal-header {
     padding: 20px;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid #2d3548;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -301,7 +335,8 @@ function handleKeydown(e) {
 
 .modal-header h2 {
     margin: 0;
-    color: #2563eb;
+    color: #60a5fa;
+    font-size: 1.5rem;
 }
 
 .modal-header .close-btn {
@@ -309,15 +344,16 @@ function handleKeydown(e) {
     border: none;
     font-size: 2rem;
     cursor: pointer;
-    color: #6b7280;
+    color: #9ca3af;
     line-height: 1;
     padding: 0;
     width: 32px;
     height: 32px;
+    transition: color 0.2s;
 }
 
 .modal-header .close-btn:hover {
-    color: #374151;
+    color: #e5e7eb;
 }
 
 .modal-body {
@@ -328,7 +364,7 @@ function handleKeydown(e) {
 
 .modal-footer {
     padding: 20px;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid #2d3548;
     display: flex;
     justify-content: flex-end;
     gap: 10px;
@@ -340,46 +376,25 @@ function handleKeydown(e) {
 
 .settings-section h3 {
     margin-bottom: 15px;
-    color: #374151;
+    color: #e5e7eb;
     font-size: 1.1rem;
 }
 
 .folder-tree {
-    border: 1px solid #e5e7eb;
+    border: 1px solid #2d3548;
     border-radius: 4px;
     padding: 15px;
     max-height: 200px;
     overflow-y: auto;
-    background: #f9fafb;
-}
-
-.folder-item {
-    padding: 5px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.folder-item input[type="checkbox"] {
-    cursor: pointer;
-}
-
-.folder-item label {
-    cursor: pointer;
-    flex: 1;
-}
-
-.folder-count {
-    color: #6b7280;
-    font-size: 0.9rem;
+    background: #0f1419;
 }
 
 .domain-patterns-list {
-    border: 1px solid #e5e7eb;
+    border: 1px solid #2d3548;
     border-radius: 4px;
     padding: 15px;
     min-height: 100px;
-    background: #f9fafb;
+    background: #0f1419;
     margin-bottom: 15px;
 }
 
@@ -388,8 +403,8 @@ function handleKeydown(e) {
     align-items: center;
     justify-content: space-between;
     padding: 8px 12px;
-    background: white;
-    border: 1px solid #e5e7eb;
+    background: #1a1f2e;
+    border: 1px solid #2d3548;
     border-radius: 4px;
     margin-bottom: 8px;
 }
@@ -401,6 +416,7 @@ function handleKeydown(e) {
 .pattern-text {
     flex: 1;
     font-family: 'Courier New', monospace;
+    color: #d1d5db;
 }
 
 .pattern-actions button {
@@ -410,15 +426,17 @@ function handleKeydown(e) {
     font-size: 1.2rem;
     padding: 4px;
     border-radius: 4px;
-    transition: background-color 0.2s;
+    color: #9ca3af;
+    transition: all 0.2s;
 }
 
 .pattern-actions button:hover {
-    background-color: #f3f4f6;
+    background-color: #2d3548;
+    color: #e5e7eb;
 }
 
 .empty-state {
-    color: #9ca3af;
+    color: #6b7280;
     text-align: center;
     padding: 20px;
     font-style: italic;
@@ -433,29 +451,32 @@ function handleKeydown(e) {
 .add-pattern-container input {
     flex: 1;
     padding: 10px;
-    border: 1px solid #d1d5db;
+    border: 1px solid #2d3548;
     border-radius: 4px;
     font-size: 1rem;
+    background: #0f1419;
+    color: #e5e7eb;
 }
 
 .add-pattern-container input:focus {
     outline: none;
-    border-color: #2563eb;
+    border-color: #60a5fa;
 }
 
 .add-pattern-container button {
     padding: 10px 20px;
-    background-color: #2563eb;
-    color: white;
+    background-color: #60a5fa;
+    color: #0f1419;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-size: 1rem;
+    font-weight: 500;
     transition: background-color 0.2s;
 }
 
 .add-pattern-container button:hover {
-    background-color: #1d4ed8;
+    background-color: #3b82f6;
 }
 
 .validation-message {
@@ -465,52 +486,54 @@ function handleKeydown(e) {
 }
 
 .validation-message.error {
-    color: #dc2626;
+    color: #f87171;
 }
 
 .validation-message.success {
-    color: #16a34a;
+    color: #4ade80;
 }
 
 .preview-info {
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
+    background: #1e3a5f;
+    border: 1px solid #2d5a8c;
     border-radius: 4px;
     padding: 15px;
-    color: #1e40af;
+    color: #93c5fd;
 }
 
 .preview-info.has-changes {
-    background: #fef3c7;
-    border-color: #fcd34d;
-    color: #92400e;
+    background: #422006;
+    border-color: #78350f;
+    color: #fbbf24;
 }
 
 .btn-primary {
     padding: 10px 24px;
-    background-color: #2563eb;
-    color: white;
+    background-color: #60a5fa;
+    color: #0f1419;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-size: 1rem;
+    font-weight: 500;
     transition: background-color 0.2s;
 }
 
 .btn-primary:hover {
-    background-color: #1d4ed8;
+    background-color: #3b82f6;
 }
 
 .btn-primary:disabled {
-    background-color: #9ca3af;
+    background-color: #4b5563;
+    color: #6b7280;
     cursor: not-allowed;
 }
 
 .btn-secondary {
     padding: 10px 24px;
-    background-color: #f3f4f6;
-    color: #374151;
-    border: 1px solid #d1d5db;
+    background-color: #2d3548;
+    color: #e5e7eb;
+    border: 1px solid #4b5563;
     border-radius: 4px;
     cursor: pointer;
     font-size: 1rem;
@@ -518,12 +541,12 @@ function handleKeydown(e) {
 }
 
 .btn-secondary:hover {
-    background-color: #e5e7eb;
+    background-color: #374151;
 }
 
 .loading {
     text-align: center;
-    color: #6b7280;
+    color: #9ca3af;
     padding: 20px;
 }
 </style>
