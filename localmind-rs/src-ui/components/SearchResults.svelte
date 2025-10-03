@@ -17,9 +17,16 @@ function getSimilarityColor(similarity) {
 <div class="panel retrieval-panel">
     <div class="panel-header">
         <h2>Retrieval Results</h2>
-        {#if results.length > 0}
-            <div class="result-count">{results.length} documents</div>
-        {/if}
+        <div class="header-actions">
+            {#if results.length > 0}
+                <div class="result-count">{results.length} documents</div>
+                <button class="synthesize-icon-btn" onclick={onSynthesize} title="Synthesize results">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                    </svg>
+                </button>
+            {/if}
+        </div>
     </div>
 
     <div class="panel-content">
@@ -51,19 +58,11 @@ function getSimilarityColor(similarity) {
             </div>
 
             <div class="action-bar">
-                {#if hasMore}
-                    <button class="more-btn" onclick={onLoadMore}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="6 9 12 15 18 9"></polyline>
-                        </svg>
-                        More...
-                    </button>
-                {/if}
-                <button class="synthesize-btn" onclick={onSynthesize}>
+                <button class="more-btn" onclick={onLoadMore} disabled={!hasMore}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                        <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
-                    Synthesize
+                    {hasMore ? 'More...' : 'No more results'}
                 </button>
             </div>
         {:else}
@@ -104,12 +103,40 @@ function getSimilarityColor(similarity) {
     margin: 0;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .result-count {
     background: #374151;
     padding: 4px 12px;
     border-radius: 12px;
     font-size: 0.875rem;
     color: #9ca3af;
+}
+
+.synthesize-icon-btn {
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.synthesize-icon-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+.synthesize-icon-btn:active {
+    transform: scale(0.95);
 }
 
 .panel-content {
@@ -268,13 +295,7 @@ function getSimilarityColor(similarity) {
 }
 
 .action-bar {
-    position: sticky;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    padding: 16px;
-    background: linear-gradient(to top, #1a1f2e 80%, transparent);
-    margin: -16px -16px 0;
+    padding: 16px 0 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -311,29 +332,18 @@ function getSimilarityColor(similarity) {
     transform: translateY(2px);
 }
 
-.synthesize-btn {
-    width: 100%;
-    padding: 12px 20px;
-    background: linear-gradient(135deg, #8b5cf6, #6366f1);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    transition: all 0.2s ease;
+.more-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
-.synthesize-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 8px 20px rgba(139, 92, 246, 0.3);
+.more-btn:disabled:hover {
+    background: #374151;
+    color: #9ca3af;
+    border-color: #4b5563;
 }
 
-.synthesize-btn:active {
-    transform: translateY(0);
+.more-btn:disabled:hover svg {
+    transform: none;
 }
 </style>
