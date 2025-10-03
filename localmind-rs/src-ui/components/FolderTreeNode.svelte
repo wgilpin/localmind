@@ -1,4 +1,6 @@
 <script>
+import FolderTreeNode from './FolderTreeNode.svelte';
+
 let { node, depth = 0, excludedFolders, onToggle } = $props();
 </script>
 
@@ -18,7 +20,7 @@ let { node, depth = 0, excludedFolders, onToggle } = $props();
     </div>
 {/if}
 {#each Object.values(node.children) as child}
-    <svelte:self node={child} depth={depth + 1} {excludedFolders} {onToggle} />
+    <FolderTreeNode node={child} depth={depth + 1} {excludedFolders} {onToggle} />
 {/each}
 
 <style>
