@@ -1,6 +1,7 @@
 // Tauri API integration with Svelte 5
 let invoke = null;
 let listen = null;
+let shell = null;
 let isInitialized = false;
 
 export function initializeTauriAPI() {
@@ -34,10 +35,17 @@ export function initializeTauriAPI() {
                     console.warn('Tauri event.listen not found');
                 }
 
+                if (window.__TAURI__.shell) {
+                    console.log('Found shell at window.__TAURI__.shell');
+                    shell = window.__TAURI__.shell;
+                } else {
+                    console.warn('Tauri shell not found');
+                }
+
                 if (invoke) {
                     console.log('Successfully initialized Tauri API');
                     isInitialized = true;
-                    resolve({ invoke, listen });
+                    resolve({ invoke, listen, shell });
                 } else {
                     console.error('Tauri invoke function not found');
                     reject(new Error('Tauri API not properly initialized'));
@@ -54,6 +62,7 @@ export function getTauriAPI() {
     return {
         get invoke() { return invoke; },
         get listen() { return listen; },
+        get shell() { return shell; },
         get isInitialized() { return isInitialized; }
     };
 }
