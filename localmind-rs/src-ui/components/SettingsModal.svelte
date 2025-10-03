@@ -28,8 +28,8 @@ async function loadSettings() {
         console.log('loadSettings: received rules from backend =', rules);
         excludedFolders = rules.excluded_folders || [];
         excludedDomains = rules.excluded_domains || [];
-        console.log('loadSettings: excludedFolders =', excludedFolders);
-        console.log('loadSettings: excludedDomains =', excludedDomains);
+        console.log('loadSettings: excludedFolders =', $state.snapshot(excludedFolders));
+        console.log('loadSettings: excludedDomains =', $state.snapshot(excludedDomains));
         originalFolders = [...excludedFolders];
         originalDomains = [...excludedDomains];
 
@@ -175,8 +175,8 @@ function getPreviewText() {
 
 async function saveSettings() {
     try {
-        console.log('saveSettings: excludedFolders =', excludedFolders);
-        console.log('saveSettings: excludedDomains =', excludedDomains);
+        console.log('saveSettings: excludedFolders =', $state.snapshot(excludedFolders));
+        console.log('saveSettings: excludedDomains =', $state.snapshot(excludedDomains));
 
         const result = await tauri.invoke('set_exclusion_rules', {
             folders: excludedFolders,
