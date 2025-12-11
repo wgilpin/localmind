@@ -28,9 +28,9 @@ LocalMind-rs is a standalone desktop application that allows you to store and in
 
 - Rust (latest stable)
 - Node.js 18+ and npm
-- [LM Studio](https://lmstudio.ai/) or [Ollama](https://ollama.ai/)
-- An embedding model (e.g., `nomic-embed-text`, `text-embedding-embeddinggemma-300m-qat`)
-- A chat model (e.g., `qwen2.5-coder`, `gemma-3`)
+- [LM Studio](https://lmstudio.ai/) running at `http://localhost:1234`
+- **Required:** LM Studio must have `text-embedding-embeddinggemma-300m-qat` model loaded (hard-coded)
+- A chat model (e.g., `qwen2.5-coder`, `gemma-3-1b-it`)
 
 ## Development Setup
 
