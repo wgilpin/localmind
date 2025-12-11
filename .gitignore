@@ -39,3 +39,4 @@ eval-tool/run-gemma.sh
 /eval-tool/chunk_embeddings_cache
 localmind-rs/node_modules/
 localmind-rs/src-ui/*.old
+localmind-rs/dist/

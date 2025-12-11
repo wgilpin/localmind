@@ -50,6 +50,27 @@ cargo check
 cargo update
 ```
 
+### First-time Setup with LM Studio
+
+For easy installation, use the automated startup script that ensures all required models are installed:
+
+```bash
+# Linux/macOS/Git Bash on Windows
+./start_lmstudio.sh
+
+# Windows Command Prompt
+start_lmstudio.bat
+```
+
+This script will:
+1. Check if LM Studio and lms CLI are installed
+2. Start LM Studio if not running
+3. Verify required models are downloaded (nomic-embed-text, Llama 3.1 8B)
+4. Load models into memory
+5. Launch LocalMind
+
+See [MODEL_SETUP.md](MODEL_SETUP.md) for detailed model setup instructions.
+
 ### Development
 
 ```bash
