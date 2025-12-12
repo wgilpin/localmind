@@ -107,13 +107,17 @@ async function startServer() {
 
   app.post("/documents", async (req: any, res: any) => {
     try {
-      let { title, content, url } = req.body;
+      let { title, content, url, extractionMethod } = req.body;
 
       if (!title || !content) {
         return res
           .status(400)
           .json({ message: "Title and content are required." });
       }
+
+      // Log extraction method for analytics
+      const method = extractionMethod || 'unknown';
+      console.log(`Document from ${method} extraction: ${title}`);
 
       if (url && url.includes("youtube.com/watch")) {
         try {
@@ -132,8 +136,18 @@ async function startServer() {
         }
       }
 
-      await ragService.addDocuments([{ title, content, url }]);
-      res.status(200).json({ message: "Document added successfully." });
+      // Add document with extraction method metadata
+      await ragService.addDocuments([{ 
+        title, 
+        content, 
+        url,
+        metadata: { extractionMethod: extractionMethod || 'dom' }
+      }]);
+      
+      res.status(200).json({ 
+        message: "Document added successfully.",
+        extractionMethod: extractionMethod || 'dom'
+      });
     } catch (error) {
       console.error("Error adding document:", error);
       res.status(500).json({ message: "Failed to add document." });

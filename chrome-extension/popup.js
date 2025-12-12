@@ -7,15 +7,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusMessage = document.getElementById('status-message');
 
   saveButton.addEventListener('click', () => {
-    statusMessage.textContent = ''; // Clear previous messages
+    statusMessage.textContent = 'Extracting content...'; // Clear previous messages
+    statusMessage.style.color = 'blue';
+    
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const activeTab = tabs[0];
       if (activeTab) {
+        // Inject required scripts in sequence
         chrome.scripting.executeScript({
           target: { tabId: activeTab.id },
-          files: ['content.js']
+          files: ['config-manager.js', 'content-clipboard.js', 'ui/dialogs.js', 'content.js']
         }, () => {
-          console.log('Content script executed.');
+          console.log('Content scripts executed.');
         });
       }
     });
@@ -68,6 +71,16 @@ document.addEventListener('DOMContentLoaded', () => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'pageDetails') {
     const statusMessage = document.getElementById('status-message');
+    
+    // Check extraction method and show appropriate status
+    if (message.data.extractionMethod === 'clipboard') {
+      statusMessage.textContent = 'Using clipboard extraction for canvas content...';
+      statusMessage.style.color = 'blue';
+    } else if (message.data.fallback) {
+      statusMessage.textContent = 'Using fallback extraction...';
+      statusMessage.style.color = 'orange';
+    }
+    
     chrome.runtime.sendMessage({
       action: 'sendPageData',
       data: message.data

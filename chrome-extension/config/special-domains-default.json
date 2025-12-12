@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "enabled": true,
+  "domains": [
+    {
+      "pattern": "docs.google.com",
+      "description": "Google Docs (canvas-rendered)",
+      "enabled": true,
+      "match_type": "domain"
+    }
+  ]
+}
+

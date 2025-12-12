@@ -4,7 +4,10 @@
   "version": "1.0",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "clipboardRead",
+    "clipboardWrite",
+    "storage"
   ],
   "host_permissions": [
     "http://localhost:3000/*"
@@ -30,7 +33,8 @@
       "resources": [
         "images/icon16.png",
         "images/icon48.png",
-        "images/icon128.png"
+        "images/icon128.png",
+        "config/special-domains-default.json"
       ],
       "matches": [
         "<all_urls>"

@@ -26,10 +26,10 @@ This is a Chrome Extension project with backend integration:
 
 **Purpose**: Project initialization and build system setup
 
-- [ ] T001 Create chrome-extension build configuration directory structure
-- [ ] T002 Initialize package.json with webpack dependencies in chrome-extension/package.json
-- [ ] T003 [P] Create webpack.config.js in chrome-extension/webpack.config.js
-- [ ] T004 [P] Create default JSON configuration file in chrome-extension/config/special-domains-default.json
+- [x] T001 Create chrome-extension build configuration directory structure
+- [x] T002 Initialize package.json with webpack dependencies in chrome-extension/package.json
+- [x] T003 [P] Create webpack.config.js in chrome-extension/webpack.config.js
+- [x] T004 [P] Create default JSON configuration file in chrome-extension/config/special-domains-default.json
 
 ---
 
@@ -39,14 +39,14 @@ This is a Chrome Extension project with backend integration:
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Implement ConfigManager class in chrome-extension/config-manager.js
-- [ ] T006 Add loadConfig() method with chrome.storage.local integration in chrome-extension/config-manager.js
-- [ ] T007 Add saveConfig() method with validation in chrome-extension/config-manager.js
-- [ ] T008 Implement isSpecialDomain() URL matching logic in chrome-extension/config-manager.js
-- [ ] T009 Implement matchesDomain() with support for exact, subdomain, and pattern matching in chrome-extension/config-manager.js
-- [ ] T010 Implement validateConfig() with JSON schema validation in chrome-extension/config-manager.js
-- [ ] T011 Add getHardcodedDefaults() with docs.google.com preset in chrome-extension/config-manager.js
-- [ ] T012 Update manifest.json to add clipboardRead, clipboardWrite, and storage permissions in chrome-extension/manifest.json
+- [x] T005 Implement ConfigManager class in chrome-extension/config-manager.js
+- [x] T006 Add loadConfig() method with chrome.storage.local integration in chrome-extension/config-manager.js
+- [x] T007 Add saveConfig() method with validation in chrome-extension/config-manager.js
+- [x] T008 Implement isSpecialDomain() URL matching logic in chrome-extension/config-manager.js
+- [x] T009 Implement matchesDomain() with support for exact, subdomain, and pattern matching in chrome-extension/config-manager.js
+- [x] T010 Implement validateConfig() with JSON schema validation in chrome-extension/config-manager.js
+- [x] T011 Add getHardcodedDefaults() with docs.google.com preset in chrome-extension/config-manager.js
+- [x] T012 Update manifest.json to add clipboardRead, clipboardWrite, and storage permissions in chrome-extension/manifest.json
 
 **Checkpoint**: Configuration system ready - user story implementation can now begin
 
@@ -62,56 +62,56 @@ This is a Chrome Extension project with backend integration:
 
 #### Clipboard Extraction Core
 
-- [ ] T013 [P] [US1] Implement checkClipboardPermission() function in chrome-extension/content-clipboard.js
-- [ ] T014 [P] [US1] Implement readClipboard() function in chrome-extension/content-clipboard.js
-- [ ] T015 [P] [US1] Implement writeClipboard() function in chrome-extension/content-clipboard.js
-- [ ] T016 [P] [US1] Implement isContentEmpty() validation function in chrome-extension/content-clipboard.js
-- [ ] T017 [US1] Implement performClipboardExtraction() main workflow in chrome-extension/content-clipboard.js
-- [ ] T018 [US1] Add clipboard save logic before extraction in chrome-extension/content-clipboard.js
-- [ ] T019 [US1] Add select-all and copy commands (document.execCommand) in chrome-extension/content-clipboard.js
-- [ ] T020 [US1] Add clipboard restore logic after extraction in chrome-extension/content-clipboard.js
-- [ ] T021 [US1] Add content validation with 10-character threshold in chrome-extension/content-clipboard.js
+- [x] T013 [P] [US1] Implement checkClipboardPermission() function in chrome-extension/content-clipboard.js
+- [x] T014 [P] [US1] Implement readClipboard() function in chrome-extension/content-clipboard.js
+- [x] T015 [P] [US1] Implement writeClipboard() function in chrome-extension/content-clipboard.js
+- [x] T016 [P] [US1] Implement isContentEmpty() validation function in chrome-extension/content-clipboard.js
+- [x] T017 [US1] Implement performClipboardExtraction() main workflow in chrome-extension/content-clipboard.js
+- [x] T018 [US1] Add clipboard save logic before extraction in chrome-extension/content-clipboard.js
+- [x] T019 [US1] Add select-all and copy commands (document.execCommand) in chrome-extension/content-clipboard.js
+- [x] T020 [US1] Add clipboard restore logic after extraction in chrome-extension/content-clipboard.js
+- [x] T021 [US1] Add content validation with 10-character threshold in chrome-extension/content-clipboard.js
 
 #### Error Handling Dialogs
 
-- [ ] T022 [P] [US1] Create ExtractionDialogs class structure in chrome-extension/ui/dialogs.js
-- [ ] T023 [P] [US1] Implement showPermissionDialog() with grant/fallback options in chrome-extension/ui/dialogs.js
-- [ ] T024 [P] [US1] Implement showEmptyContentDialog() with retry/save options in chrome-extension/ui/dialogs.js
-- [ ] T025 [P] [US1] Implement showProgressIndicator() for extraction feedback in chrome-extension/ui/dialogs.js
-- [ ] T026 [P] [US1] Implement showError() for general error messages in chrome-extension/ui/dialogs.js
-- [ ] T027 [P] [US1] Create modal CSS styles in chrome-extension/ui/dialogs.css
-- [ ] T028 [P] [US1] Add overlay CSS styles in chrome-extension/ui/dialogs.css
-- [ ] T029 [P] [US1] Add button and warning styles in chrome-extension/ui/dialogs.css
+- [x] T022 [P] [US1] Create ExtractionDialogs class structure in chrome-extension/ui/dialogs.js
+- [x] T023 [P] [US1] Implement showPermissionDialog() with grant/fallback options in chrome-extension/ui/dialogs.js
+- [x] T024 [P] [US1] Implement showEmptyContentDialog() with retry/save options in chrome-extension/ui/dialogs.js
+- [x] T025 [P] [US1] Implement showProgressIndicator() for extraction feedback in chrome-extension/ui/dialogs.js
+- [x] T026 [P] [US1] Implement showError() for general error messages in chrome-extension/ui/dialogs.js
+- [x] T027 [P] [US1] Create modal CSS styles in chrome-extension/ui/dialogs.css
+- [x] T028 [P] [US1] Add overlay CSS styles in chrome-extension/ui/dialogs.css
+- [x] T029 [P] [US1] Add button and warning styles in chrome-extension/ui/dialogs.css
 
 #### Error Handlers
 
-- [ ] T030 [US1] Implement handlePermissionDenied() with dialog integration in chrome-extension/content-clipboard.js
-- [ ] T031 [US1] Implement handleEmptyContent() with dialog integration in chrome-extension/content-clipboard.js
-- [ ] T032 [US1] Implement handleExtractionError() for general failures in chrome-extension/content-clipboard.js
-- [ ] T033 [US1] Add fallback to standard DOM extraction when user chooses fallback in chrome-extension/content-clipboard.js
+- [x] T030 [US1] Implement handlePermissionDenied() with dialog integration in chrome-extension/content-clipboard.js
+- [x] T031 [US1] Implement handleEmptyContent() with dialog integration in chrome-extension/content-clipboard.js
+- [x] T032 [US1] Implement handleExtractionError() for general failures in chrome-extension/content-clipboard.js
+- [x] T033 [US1] Add fallback to standard DOM extraction when user chooses fallback in chrome-extension/content-clipboard.js
 
 #### Content Script Integration
 
-- [ ] T034 [US1] Update content.js to load ConfigManager in chrome-extension/content.js
-- [ ] T035 [US1] Add special domain detection logic in chrome-extension/content.js
-- [ ] T036 [US1] Add clipboard extraction branch for special domains in chrome-extension/content.js
-- [ ] T037 [US1] Add standard DOM extraction branch for normal domains in chrome-extension/content.js
-- [ ] T038 [US1] Add extractionMethod field to message payload in chrome-extension/content.js
+- [x] T034 [US1] Update content.js to load ConfigManager in chrome-extension/content.js
+- [x] T035 [US1] Add special domain detection logic in chrome-extension/content.js
+- [x] T036 [US1] Add clipboard extraction branch for special domains in chrome-extension/content.js
+- [x] T037 [US1] Add standard DOM extraction branch for normal domains in chrome-extension/content.js
+- [x] T038 [US1] Add extractionMethod field to message payload in chrome-extension/content.js
 
 #### Popup Integration
 
-- [ ] T039 [US1] Update popup.js to inject content-clipboard.js script in chrome-extension/popup.js
-- [ ] T040 [US1] Update popup.js to inject config-manager.js script in chrome-extension/popup.js
-- [ ] T041 [US1] Add extraction method detection in message handler in chrome-extension/popup.js
-- [ ] T042 [US1] Add "Using clipboard extraction" status message in chrome-extension/popup.js
+- [x] T039 [US1] Update popup.js to inject content-clipboard.js script in chrome-extension/popup.js
+- [x] T040 [US1] Update popup.js to inject config-manager.js script in chrome-extension/popup.js
+- [x] T041 [US1] Add extraction method detection in message handler in chrome-extension/popup.js
+- [x] T042 [US1] Add "Using clipboard extraction" status message in chrome-extension/popup.js
 
 #### Backend Integration
 
-- [ ] T043 [P] [US1] Update /documents endpoint to accept extractionMethod parameter in desktop-daemon/src/index.ts
-- [ ] T044 [P] [US1] Add extraction method logging to /documents endpoint in desktop-daemon/src/index.ts
-- [ ] T045 [P] [US1] Update document metadata to include extractionMethod in desktop-daemon/src/index.ts
-- [ ] T046 [US1] Add extraction_method column to documents table schema in desktop-daemon/src/services/database.ts
-- [ ] T047 [US1] Create database migration for extraction_method column in desktop-daemon/src/services/database.ts
+- [x] T043 [P] [US1] Update /documents endpoint to accept extractionMethod parameter in desktop-daemon/src/index.ts
+- [x] T044 [P] [US1] Add extraction method logging to /documents endpoint in desktop-daemon/src/index.ts
+- [x] T045 [P] [US1] Update document metadata to include extractionMethod in desktop-daemon/src/index.ts
+- [x] T046 [US1] Add extraction_method column to documents table schema in desktop-daemon/src/services/database.ts
+- [x] T047 [US1] Create database migration for extraction_method column in desktop-daemon/src/services/database.ts
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - users can bookmark from docs.google.com with clipboard extraction
 
@@ -166,21 +166,21 @@ This is a Chrome Extension project with backend integration:
 
 #### Extraction Method Routing
 
-- [ ] T066 [US3] Add extraction method logging to content.js in chrome-extension/content.js
-- [ ] T067 [US3] Add extraction method to returned data object in chrome-extension/content.js
-- [ ] T068 [US3] Verify standard DOM extraction path still works in chrome-extension/content.js
+- [x] T066 [US3] Add extraction method logging to content.js in chrome-extension/content.js
+- [x] T067 [US3] Add extraction method to returned data object in chrome-extension/content.js
+- [x] T068 [US3] Verify standard DOM extraction path still works in chrome-extension/content.js
 
 #### Domain Matching Edge Cases
 
-- [ ] T069 [US3] Test subdomain matching (docs.google.com/document/...) in chrome-extension/config-manager.js
-- [ ] T070 [US3] Test wildcard pattern matching (*.figma.com) in chrome-extension/config-manager.js
-- [ ] T071 [US3] Test exact domain matching (docs.google.com) in chrome-extension/config-manager.js
+- [x] T069 [US3] Test subdomain matching (docs.google.com/document/...) in chrome-extension/config-manager.js
+- [x] T070 [US3] Test wildcard pattern matching (*.figma.com) in chrome-extension/config-manager.js
+- [x] T071 [US3] Test exact domain matching (docs.google.com) in chrome-extension/config-manager.js
 
 #### Mixed Content Handling
 
-- [ ] T072 [US3] Verify background.js handles both extraction methods in chrome-extension/background.js
-- [ ] T073 [US3] Verify backend accepts extractionMethod parameter as optional in desktop-daemon/src/index.ts
-- [ ] T074 [US3] Add default value handling for missing extractionMethod in desktop-daemon/src/index.ts
+- [x] T072 [US3] Verify background.js handles both extraction methods in chrome-extension/background.js
+- [x] T073 [US3] Verify backend accepts extractionMethod parameter as optional in desktop-daemon/src/index.ts
+- [x] T074 [US3] Add default value handling for missing extractionMethod in desktop-daemon/src/index.ts
 
 **Checkpoint**: All user stories complete - system handles any combination of special and standard domains
 

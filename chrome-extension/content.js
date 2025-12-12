@@ -1,14 +1,50 @@
-(() => {
-  const pageTitle = document.title;
-  const pageUrl = window.location.href;
-  const pageContent = document.body.innerText; // Simplified content
-
-  chrome.runtime.sendMessage({
-    action: 'pageDetails',
-    data: {
-      title: pageTitle,
-      url: pageUrl,
-      content: pageContent
+(async () => {
+  try {
+    // Initialize ConfigManager
+    const configManager = new ConfigManager();
+    await configManager.loadConfig();
+    
+    const currentUrl = window.location.href;
+    const isSpecial = configManager.isSpecialDomain(currentUrl);
+    
+    let extractionData;
+    
+    if (isSpecial) {
+      // Use clipboard-based extraction for special domains
+      console.log('Special domain detected, using clipboard extraction');
+      extractionData = await performClipboardExtraction(currentUrl);
+    } else {
+      // Standard DOM extraction for regular domains
+      console.log('Standard domain, using DOM extraction');
+      extractionData = {
+        title: document.title,
+        url: currentUrl,
+        content: document.body.innerText,
+        extractionMethod: 'dom',
+        success: true
+      };
     }
-  });
+    
+    // Send extracted data to popup
+    chrome.runtime.sendMessage({
+      action: 'pageDetails',
+      data: extractionData
+    });
+    
+  } catch (error) {
+    console.error('Content extraction failed:', error);
+    
+    // Fallback to basic extraction
+    chrome.runtime.sendMessage({
+      action: 'pageDetails',
+      data: {
+        title: document.title,
+        url: window.location.href,
+        content: document.body.innerText,
+        extractionMethod: 'dom',
+        success: true,
+        error: error.message
+      }
+    });
+  }
 })();

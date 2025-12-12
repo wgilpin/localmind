@@ -63,6 +63,14 @@ export class DatabaseService {
     } catch (error) {
       // Column already exists, ignore error
     }
+
+    // Add extraction_method column if it doesn't exist (migration)
+    try {
+      this.db.exec(`ALTER TABLE documents ADD COLUMN extraction_method TEXT DEFAULT 'dom'`);
+      console.log('Added extraction_method column to documents table');
+    } catch (error) {
+      // Column already exists, ignore error
+    }
   }
 
   /**

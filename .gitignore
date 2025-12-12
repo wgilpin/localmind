@@ -40,3 +40,9 @@ eval-tool/run-gemma.sh
 localmind-rs/node_modules/
 localmind-rs/src-ui/*.old
 localmind-rs/dist/
+
+# Chrome Extension build artifacts
+chrome-extension/node_modules/
+chrome-extension/dist/
+chrome-extension/*.log
+chrome-extension/.env*

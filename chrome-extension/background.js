@@ -1,12 +1,21 @@
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'sendPageData') {
-    const { title, content, url } = message.data;
+    const { title, content, url, extractionMethod } = message.data;
+    
+    // Log extraction method for debugging
+    console.log(`Sending document via ${extractionMethod || 'unknown'} extraction: ${title}`);
+    
     fetch('http://localhost:3000/documents', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ title, content, url })
+      body: JSON.stringify({ 
+        title, 
+        content, 
+        url, 
+        extractionMethod: extractionMethod || 'dom' 
+      })
     })
     .then(response => {
       if (response.ok) {
