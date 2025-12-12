@@ -1,0 +1,139 @@
+openapi: 3.0.3
+info:
+  title: LocalMind HTTP API
+  description: HTTP REST API for Chrome extension integration
+  version: 1.0.0
+  contact:
+    name: LocalMind
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server (may use alternative ports 3001-3010)
+
+paths:
+  /documents:
+    post:
+      summary: Add a document to the knowledge base
+      description: |
+        Accepts document data from Chrome extension and stores it in the RAG system.
+        Supports YouTube URL detection with automatic transcript fetching.
+      operationId: addDocument
+      tags:
+        - Documents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentRequest'
+            examples:
+              basic:
+                summary: Basic document
+                value:
+                  title: "Example Web Page"
+                  content: "This is the content of the web page."
+                  url: "https://example.com/page"
+                  extractionMethod: "dom"
+              youtube:
+                summary: YouTube video
+                value:
+                  title: "(1) Amazing Video Title"
+                  content: "Video page HTML content..."
+                  url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                  extractionMethod: "dom"
+      responses:
+        '200':
+          description: Document added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                message: "Document added successfully."
+                extractionMethod: "dom"
+        '400':
+          description: Bad request - validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Title and content are required."
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Request payload exceeds 10MB limit."
+        '503':
+          description: Service unavailable - system initializing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "System initializing. Please wait a moment and try again."
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Failed to add document."
+
+components:
+  schemas:
+    DocumentRequest:
+      type: object
+      required:
+        - title
+        - content
+      properties:
+        title:
+          type: string
+          description: Document title (required, non-empty)
+          example: "Example Web Page"
+        content:
+          type: string
+          description: Document content (required, non-empty)
+          example: "This is the full content of the document."
+        url:
+          type: string
+          format: uri
+          description: Source URL (optional)
+          example: "https://example.com/page"
+        extractionMethod:
+          type: string
+          description: Extraction method used (optional, defaults to "dom")
+          default: "dom"
+          example: "dom"
+      additionalProperties: false
+
+    SuccessResponse:
+      type: object
+      required:
+        - message
+        - extractionMethod
+      properties:
+        message:
+          type: string
+          example: "Document added successfully."
+        extractionMethod:
+          type: string
+          description: The extraction method from the request, or 'dom' if not provided
+          example: "dom"
+
+    ErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Title and content are required."
+
+  securitySchemes: {}
