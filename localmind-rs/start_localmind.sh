@@ -10,7 +10,7 @@ echo ""
 
 # Configuration
 EMBEDDING_MODEL="google/embeddinggemma-300m-qat-GGUF"
-COMPLETION_MODEL="lmstudio-community/gemma-2-2b-it-GGUF"
+COMPLETION_MODEL="lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF"
 LMSTUDIO_PORT=1234
 
 # Colors for output
@@ -87,9 +87,9 @@ check_model_downloaded() {
     echo "$DOWNLOADED_MODELS" | grep -q "$model_id"
 }
 
-# Check embedding model
+# Check embedding model (check for any part of the name)
 echo "Checking embedding model: $EMBEDDING_MODEL"
-if check_model_downloaded "$EMBEDDING_MODEL"; then
+if check_model_downloaded "embeddinggemma"; then
     echo -e "${GREEN}✓ Embedding model already downloaded${NC}"
 else
     echo -e "${YELLOW}⚠ Embedding model not found${NC}"
@@ -104,9 +104,9 @@ else
     read -r
 fi
 
-# Check completion model
+# Check completion model (check for Llama 3 chat model - case insensitive)
 echo "Checking completion model: $COMPLETION_MODEL"
-if check_model_downloaded "$COMPLETION_MODEL"; then
+if echo "$DOWNLOADED_MODELS" | grep -qi "llama"; then
     echo -e "${GREEN}✓ Completion model already downloaded${NC}"
 else
     echo -e "${YELLOW}⚠ Completion model not found${NC}"
@@ -135,19 +135,22 @@ if check_model_loaded "embeddinggemma"; then
     echo -e "${GREEN}✓ Embedding model already loaded${NC}"
 else
     echo "Loading embedding model..."
-    lms load "$EMBEDDING_MODEL" --gpu=max --yes 2>/dev/null || {
+    # Use the actual model name that LM Studio recognizes
+    lms load "text-embedding-embeddinggemma-300m-qat" --gpu=max --yes 2>/dev/null || {
         echo -e "${YELLOW}⚠ Could not auto-load embedding model${NC}"
-        echo "Please load the embedding model manually in LM Studio"
+        echo "Please load 'text-embedding-embeddinggemma-300m-qat' manually in LM Studio"
     }
 fi
 
-if check_model_loaded "Llama-3.1-8B"; then
+if echo "$LOADED_MODELS" | grep -qi "llama"; then
     echo -e "${GREEN}✓ Completion model already loaded${NC}"
 else
     echo "Loading completion model..."
-    lms load "$COMPLETION_MODEL" --gpu=max --yes 2>/dev/null || {
+    # Try common Llama model names
+    lms load "meta-llama-3.1-8b-instruct" --gpu=max --yes 2>/dev/null || \
+    lms load "llama-3.1-8b-instruct" --gpu=max --yes 2>/dev/null || {
         echo -e "${YELLOW}⚠ Could not auto-load completion model${NC}"
-        echo "Please load the completion model manually in LM Studio"
+        echo "Please load a Llama 3 chat model manually in LM Studio"
     }
 fi
 echo ""
@@ -159,6 +162,10 @@ cleanup() {
     if [ ! -z "$APP_PID" ] && kill -0 $APP_PID 2>/dev/null; then
         echo "Stopping LocalMind app (PID: $APP_PID)..."
         kill $APP_PID 2>/dev/null
+    fi
+    if [ ! -z "$VITE_PID" ] && kill -0 $VITE_PID 2>/dev/null; then
+        echo "Stopping frontend dev server (PID: $VITE_PID)..."
+        kill $VITE_PID 2>/dev/null
     fi
     echo "LM Studio will continue running in the background"
     echo "To stop LM Studio, close it manually or run: lms unload --all"
@@ -181,6 +188,25 @@ echo ""
 
 # Build and run the app
 cd "$(dirname "$0")"
+
+echo "Starting frontend dev server..."
+npm run dev &
+VITE_PID=$!
+
+echo "Waiting for frontend to be ready..."
+# Wait for Vite to start (max 30 seconds)
+for i in {1..30}; do
+    if curl -s http://localhost:5173 > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ Frontend ready on http://localhost:5173${NC}"
+        break
+    fi
+    sleep 1
+    if [ $i -eq 30 ]; then
+        echo -e "${RED}✗ Frontend failed to start${NC}"
+        echo "Check if port 5173 is already in use"
+        exit 1
+    fi
+done
 
 echo "Building and starting LocalMind app..."
 echo "Press Ctrl+C to stop"

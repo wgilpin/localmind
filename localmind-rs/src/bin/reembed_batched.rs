@@ -59,8 +59,8 @@ async fn main() -> Result<()> {
         println!("  lmstudio <url> <model> [batch_size]  - Use LM Studio for embeddings");
         println!();
         println!("Examples:");
-        println!("  reembed_batched ollama http://localhost:11434 nomic-embed-text 32");
-        println!("  reembed_batched lmstudio http://localhost:1234 text-embedding-nomic-embed-text-v1.5 50");
+        println!("  reembed_batched ollama http://localhost:11434 qwen3-embedding:0.6b 32");
+        println!("  reembed_batched lmstudio http://localhost:1234 text-embedding-embeddinggemma-300m-qat 50");
         println!();
         println!("Default batch size: 32");
         println!();

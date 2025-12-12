@@ -80,61 +80,52 @@ pub struct DocumentSource {
 }
 
 impl RagPipeline {
-    /// Initialize RAG pipeline using embedding config from database.
-    /// Falls back to Ollama if no config is found.
+    /// Initialize RAG pipeline with hard-coded Gemma embedding model.
     pub async fn new(db: Database, ollama_client: OllamaClient) -> Result<Self> {
-        // Check if we have embedding config in the database
-        let embedding_model = db.get_embedding_model().await?;
-        let embedding_url = db.get_embedding_url().await?;
+        // Hard-coded embedding configuration (Gemma embedding)
+        let model = "text-embedding-embeddinggemma-300m-qat".to_string();
+        let url = "http://localhost:1234".to_string();
 
-        match (embedding_model, embedding_url) {
-            (Some(model), Some(url)) => {
-                println!("Using embedding config from database:");
-                println!("   Model: {}", model);
-                println!("   URL: {}", url);
+        println!("Using hard-coded embedding config:");
+        println!("   Model: {}", model);
+        println!("   URL: {}", url);
 
-                // Initialize LM Studio client with configured model
-                let mut lmstudio_client = LMStudioClient::new(url.clone(), model);
+        // Initialize LM Studio client with hard-coded model
+        let mut lmstudio_client = LMStudioClient::new(url.clone(), model);
 
-                // Test connection and get available models
-                match lmstudio_client.test_connection().await {
-                    Ok(_) => {
-                        println!("LM Studio connection successful");
+        // Test connection and get available models
+        match lmstudio_client.test_connection().await {
+            Ok(_) => {
+                println!("LM Studio connection successful");
 
-                        // Try to find Gemma 3 1B for completions, fallback to other chat models
-                        if let Ok(response) = reqwest::get(format!("{}/v1/models", url)).await {
-                            if let Ok(models_data) = response.json::<serde_json::Value>().await {
-                                if let Some(models) = models_data["data"].as_array() {
-                                    let available_models: Vec<&str> = models.iter()
-                                        .filter_map(|m| m["id"].as_str())
-                                        .filter(|id| !id.contains("embedding") && !id.starts_with("text-embedding"))
-                                        .collect();
+                // Try to find Gemma 3 1B for completions, fallback to other chat models
+                if let Ok(response) = reqwest::get(format!("{}/v1/models", url)).await {
+                    if let Ok(models_data) = response.json::<serde_json::Value>().await {
+                        if let Some(models) = models_data["data"].as_array() {
+                            let available_models: Vec<&str> = models.iter()
+                                .filter_map(|m| m["id"].as_str())
+                                .filter(|id| !id.contains("embedding") && !id.starts_with("text-embedding"))
+                                .collect();
 
-                                    // Priority: Gemma 3 1B > other Gemma > Qwen > first available
-                                    let completion_model = available_models.iter()
-                                        .find(|id| id.contains("gemma-3-1b") || id.contains("gemma3-1b"))
-                                        .or_else(|| available_models.iter().find(|id| id.contains("gemma")))
-                                        .or_else(|| available_models.iter().find(|id| id.contains("qwen")))
-                                        .or_else(|| available_models.first())
-                                        .unwrap_or(&"gemma-3-1b-it-qat");
+                            // Priority: Gemma 3 1B > other Gemma > Qwen > first available
+                            let completion_model = available_models.iter()
+                                .find(|id| id.contains("gemma-3-1b") || id.contains("gemma3-1b"))
+                                .or_else(|| available_models.iter().find(|id| id.contains("gemma")))
+                                .or_else(|| available_models.iter().find(|id| id.contains("qwen")))
+                                .or_else(|| available_models.first())
+                                .unwrap_or(&"gemma-3-1b-it-qat");
 
-                                    println!("Using LM Studio completion model: {}", completion_model);
-                                    lmstudio_client = lmstudio_client.with_completion_model(completion_model.to_string());
-                                }
-                            }
+                            println!("Using LM Studio completion model: {}", completion_model);
+                            lmstudio_client = lmstudio_client.with_completion_model(completion_model.to_string());
                         }
-
-                        Self::new_with_lmstudio(db, lmstudio_client, Some(ollama_client)).await
-                    }
-                    Err(e) => {
-                        println!("⚠️  LM Studio connection failed: {}", e);
-                        println!("   Falling back to Ollama for embeddings");
-                        Self::new_with_ollama_only(db, ollama_client).await
                     }
                 }
+
+                Self::new_with_lmstudio(db, lmstudio_client, Some(ollama_client)).await
             }
-            _ => {
-                println!("ℹ️  No embedding config found in database, using Ollama");
+            Err(e) => {
+                println!("⚠️  LM Studio connection failed: {}", e);
+                println!("   Falling back to Ollama for embeddings");
                 Self::new_with_ollama_only(db, ollama_client).await
             }
         }
