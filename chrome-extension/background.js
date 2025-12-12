@@ -26,13 +26,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else {
         return response.json().then(error => {
           console.error('Error:', error);
-          sendResponse({ success: false, error: error });
+          const errorMessage = error.message || JSON.stringify(error);
+          sendResponse({ success: false, error: errorMessage });
+        }).catch(() => {
+          // If response is not JSON, return status text
+          sendResponse({ 
+            success: false, 
+            error: `Server returned error: ${response.status} ${response.statusText}` 
+          });
         });
       }
     })
     .catch((error) => {
       console.error('Error:', error);
-      sendResponse({ success: false, error: error.message });
+      let errorMessage = error.message || 'Unknown error';
+      
+      // Provide more helpful error messages for common issues
+      if (errorMessage.includes('Failed to fetch') || 
+          errorMessage.includes('NetworkError') ||
+          errorMessage.includes('ERR_CONNECTION_REFUSED')) {
+        errorMessage = 'Cannot connect to LocalMind backend server. Please ensure the desktop-daemon server is running on http://localhost:3000. You can start it by running "npm run dev" from the desktop-daemon directory.';
+      }
+      
+      sendResponse({ success: false, error: errorMessage });
     });
     return true; // Indicates that sendResponse will be called asynchronously
   } else if (message.action === 'addNote') {
@@ -53,13 +69,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else {
         return response.json().then(error => {
           console.error('Error adding note:', error);
-          sendResponse({ success: false, error: error });
+          const errorMessage = error.message || JSON.stringify(error);
+          sendResponse({ success: false, error: errorMessage });
+        }).catch(() => {
+          sendResponse({ 
+            success: false, 
+            error: `Server returned error: ${response.status} ${response.statusText}` 
+          });
         });
       }
     })
     .catch((error) => {
       console.error('Error adding note:', error);
-      sendResponse({ success: false, error: error.message });
+      let errorMessage = error.message || 'Unknown error';
+      
+      if (errorMessage.includes('Failed to fetch') || 
+          errorMessage.includes('NetworkError') ||
+          errorMessage.includes('ERR_CONNECTION_REFUSED')) {
+        errorMessage = 'Cannot connect to LocalMind backend server. Please ensure the desktop-daemon server is running on http://localhost:3000.';
+      }
+      
+      sendResponse({ success: false, error: errorMessage });
     });
     return true; // Indicates that sendResponse will be called asynchronously
   }
