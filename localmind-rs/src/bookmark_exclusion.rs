@@ -92,12 +92,10 @@ impl ExclusionRules {
     fn matches_domain_pattern(url: &str, pattern: &str) -> bool {
         // Parse URL to extract host
         let host = match Url::parse(url) {
-            Ok(parsed_url) => {
-                match parsed_url.host_str() {
-                    Some(h) => h.to_string(),
-                    None => return false,
-                }
-            }
+            Ok(parsed_url) => match parsed_url.host_str() {
+                Some(h) => h.to_string(),
+                None => return false,
+            },
             Err(_) => {
                 // If URL parsing fails, try treating the input as just a host
                 url.to_string()
@@ -106,12 +104,10 @@ impl ExclusionRules {
 
         // Get port if present
         let full_host = match Url::parse(url) {
-            Ok(parsed_url) => {
-                match parsed_url.port() {
-                    Some(port) => format!("{}:{}", host, port),
-                    None => host.clone(),
-                }
-            }
+            Ok(parsed_url) => match parsed_url.port() {
+                Some(port) => format!("{}:{}", host, port),
+                None => host.clone(),
+            },
             Err(_) => host.clone(),
         };
 
@@ -121,9 +117,7 @@ impl ExclusionRules {
             Self::wildcard_match(&full_host, pattern) || Self::wildcard_match(&host, pattern)
         } else {
             // Exact match (with www. handling)
-            host == pattern
-                || host == format!("www.{}", pattern)
-                || full_host == pattern
+            host == pattern || host == format!("www.{}", pattern) || full_host == pattern
         }
     }
 
@@ -356,10 +350,7 @@ mod tests {
 
     #[test]
     fn test_is_folder_excluded() {
-        let rules = ExclusionRules::new(
-            vec!["123".to_string(), "456".to_string()],
-            vec![],
-        );
+        let rules = ExclusionRules::new(vec!["123".to_string(), "456".to_string()], vec![]);
         assert!(rules.is_folder_excluded("123"));
         assert!(rules.is_folder_excluded("456"));
         assert!(!rules.is_folder_excluded("789"));
@@ -369,7 +360,10 @@ mod tests {
     fn test_is_url_excluded() {
         let rules = ExclusionRules::new(
             vec![],
-            vec!["*.internal.com".to_string(), "private.example.org".to_string()],
+            vec![
+                "*.internal.com".to_string(),
+                "private.example.org".to_string(),
+            ],
         );
         assert!(rules.is_url_excluded("https://foo.internal.com/page"));
         assert!(rules.is_url_excluded("https://private.example.org/page"));

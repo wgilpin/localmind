@@ -1,6 +1,6 @@
 use crate::Result;
-use yt_transcript_rs::YouTubeTranscriptApi;
 use url::Url;
+use yt_transcript_rs::YouTubeTranscriptApi;
 
 pub struct YouTubeProcessor;
 
@@ -15,7 +15,7 @@ impl YouTubeProcessor {
                         || host == "youtu.be"
                         || host == "www.youtu.be"
                         || host == "m.youtube.com"
-                },
+                }
                 None => false,
             }
         } else {
@@ -29,9 +29,7 @@ impl YouTubeProcessor {
             match parsed_url.host_str() {
                 Some("youtu.be") | Some("www.youtu.be") => {
                     // Format: https://youtu.be/VIDEO_ID
-                    parsed_url.path()
-                        .strip_prefix('/')
-                        .map(|id| id.to_string())
+                    parsed_url.path().strip_prefix('/').map(|id| id.to_string())
                 }
                 Some("youtube.com") | Some("www.youtube.com") | Some("m.youtube.com") => {
                     // Format: https://www.youtube.com/watch?v=VIDEO_ID
@@ -89,19 +87,30 @@ impl YouTubeProcessor {
                     println!("⚠️ Empty transcript received for video: {}", video_id);
                     Ok(None)
                 } else {
-                    println!("Successfully fetched transcript ({} chars) for video: {}", text.len(), video_id);
+                    println!(
+                        "Successfully fetched transcript ({} chars) for video: {}",
+                        text.len(),
+                        video_id
+                    );
                     Ok(Some(text))
                 }
             }
             Err(e) => {
-                println!("⚠️ Failed to fetch YouTube transcript for {}: {}", video_id, e);
+                println!(
+                    "⚠️ Failed to fetch YouTube transcript for {}: {}",
+                    video_id, e
+                );
                 Ok(None)
             }
         }
     }
 
     /// Process YouTube URL and return enhanced content if transcript is available
-    pub async fn process_youtube_content(url: &str, original_title: &str, original_content: &str) -> Result<(String, String)> {
+    pub async fn process_youtube_content(
+        url: &str,
+        original_title: &str,
+        original_content: &str,
+    ) -> Result<(String, String)> {
         if !Self::is_youtube_url(url) {
             return Ok((original_title.to_string(), original_content.to_string()));
         }
@@ -114,11 +123,17 @@ impl YouTubeProcessor {
         // Try to fetch transcript
         match Self::fetch_transcript(url).await? {
             Some(transcript) => {
-                println!("Using transcript as content for YouTube video: {}", cleaned_title);
+                println!(
+                    "Using transcript as content for YouTube video: {}",
+                    cleaned_title
+                );
                 Ok((cleaned_title, transcript))
             }
             None => {
-                println!("⚠️ No transcript available, using original content for: {}", cleaned_title);
+                println!(
+                    "⚠️ No transcript available, using original content for: {}",
+                    cleaned_title
+                );
                 Ok((cleaned_title, original_content.to_string()))
             }
         }
@@ -131,10 +146,18 @@ mod tests {
 
     #[test]
     fn test_youtube_url_detection() {
-        assert!(YouTubeProcessor::is_youtube_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
-        assert!(YouTubeProcessor::is_youtube_url("https://youtube.com/watch?v=dQw4w9WgXcQ"));
-        assert!(YouTubeProcessor::is_youtube_url("https://youtu.be/dQw4w9WgXcQ"));
-        assert!(YouTubeProcessor::is_youtube_url("https://m.youtube.com/watch?v=dQw4w9WgXcQ"));
+        assert!(YouTubeProcessor::is_youtube_url(
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        ));
+        assert!(YouTubeProcessor::is_youtube_url(
+            "https://youtube.com/watch?v=dQw4w9WgXcQ"
+        ));
+        assert!(YouTubeProcessor::is_youtube_url(
+            "https://youtu.be/dQw4w9WgXcQ"
+        ));
+        assert!(YouTubeProcessor::is_youtube_url(
+            "https://m.youtube.com/watch?v=dQw4w9WgXcQ"
+        ));
 
         assert!(!YouTubeProcessor::is_youtube_url("https://example.com"));
         assert!(!YouTubeProcessor::is_youtube_url("https://google.com"));
@@ -156,7 +179,10 @@ mod tests {
             Some("dQw4w9WgXcQ".to_string())
         );
 
-        assert_eq!(YouTubeProcessor::extract_video_id("https://example.com"), None);
+        assert_eq!(
+            YouTubeProcessor::extract_video_id("https://example.com"),
+            None
+        );
         assert_eq!(YouTubeProcessor::extract_video_id("not a url"), None);
     }
 

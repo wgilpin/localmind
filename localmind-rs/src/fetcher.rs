@@ -1,7 +1,7 @@
-use reqwest;
-use std::time::Duration;
 use pdf_extract;
 use readability::extractor;
+use reqwest;
+use std::time::Duration;
 use url::Url;
 
 pub struct WebFetcher {
@@ -19,7 +19,10 @@ impl WebFetcher {
         Self { client }
     }
 
-    pub async fn fetch_page_content(&self, url: &str) -> Result<String, Box<dyn std::error::Error>> {
+    pub async fn fetch_page_content(
+        &self,
+        url: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         // Skip non-HTTP(S) URLs
         if !url.starts_with("http://") && !url.starts_with("https://") {
             println!("⏭️ Skipping non-HTTP URL: {}", url);
@@ -42,7 +45,8 @@ impl WebFetcher {
         }
 
         // Check content type to handle different file types properly
-        let content_type = response.headers()
+        let content_type = response
+            .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|ct| ct.to_str().ok())
             .unwrap_or("");
@@ -64,9 +68,8 @@ impl WebFetcher {
             let filename = url.split('/').last().unwrap_or("document.pdf");
 
             // Use catch_unwind to prevent panics from the pdf_extract library
-            let pdf_result = std::panic::catch_unwind(|| {
-                pdf_extract::extract_text_from_mem(&pdf_bytes)
-            });
+            let pdf_result =
+                std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(&pdf_bytes));
 
             match pdf_result {
                 Ok(Ok(text)) if !text.trim().is_empty() => {
@@ -91,7 +94,10 @@ impl WebFetcher {
                             format!("PDF Document: {}\nURL: {}\n\n{}...\n\n[PDF content truncated at {} chars]", filename, url, &cleaned_text[..boundary], boundary)
                         }
                     } else {
-                        format!("PDF Document: {}\nURL: {}\n\n{}", filename, url, cleaned_text)
+                        format!(
+                            "PDF Document: {}\nURL: {}\n\n{}",
+                            filename, url, cleaned_text
+                        )
                     };
 
                     println!("Extracted {} chars of text from PDF: {}", result.len(), url);
@@ -132,10 +138,14 @@ impl WebFetcher {
             || content_type.contains("video/")
             || content_type.contains("audio/")
             || content_type.contains("application/zip")
-            || content_type.contains("application/octet-stream") {
+            || content_type.contains("application/octet-stream")
+        {
             println!("Skipping binary content type '{}': {}", content_type, url);
             let filename = url.split('/').last().unwrap_or("file");
-            return Ok(format!("Binary file: {} ({})\nURL: {}", filename, content_type, url));
+            return Ok(format!(
+                "Binary file: {} ({})\nURL: {}",
+                filename, content_type, url
+            ));
         }
 
         // Get HTML text (only for text-based content)
@@ -154,9 +164,8 @@ impl WebFetcher {
             let filename = url.split('/').last().unwrap_or("document.pdf");
 
             // Try to extract text from the PDF content with panic protection
-            let pdf_result = std::panic::catch_unwind(|| {
-                pdf_extract::extract_text_from_mem(html.as_bytes())
-            });
+            let pdf_result =
+                std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(html.as_bytes()));
 
             match pdf_result {
                 Ok(Ok(text)) if !text.trim().is_empty() => {
@@ -167,7 +176,10 @@ impl WebFetcher {
                         .collect::<Vec<_>>()
                         .join("\n");
 
-                    let result = format!("PDF Document: {}\nURL: {}\n\n{}", filename, url, cleaned_text);
+                    let result = format!(
+                        "PDF Document: {}\nURL: {}\n\n{}",
+                        filename, url, cleaned_text
+                    );
                     println!("Extracted text from PDF served as text: {}", url);
                     return Ok(result);
                 }
@@ -186,7 +198,10 @@ impl WebFetcher {
                         "PDF Document: {}\nURL: {}\n\n[PDF text extraction panicked due to corrupted/invalid PDF structure served as text. Document indexed for reference.]",
                         filename, url
                     );
-                    println!("⚠️ PDF text extraction panicked for PDF served as text: {}", url);
+                    println!(
+                        "⚠️ PDF text extraction panicked for PDF served as text: {}",
+                        url
+                    );
                     return Ok(placeholder);
                 }
             }
@@ -257,7 +272,11 @@ impl WebFetcher {
             if boundary == 0 {
                 format!("[Content too large and unable to find safe UTF-8 boundary]")
             } else {
-                format!("{}...\n[Content truncated at {} chars]", &cleaned[..boundary], boundary)
+                format!(
+                    "{}...\n[Content truncated at {} chars]",
+                    &cleaned[..boundary],
+                    boundary
+                )
             }
         } else {
             cleaned

@@ -1,8 +1,8 @@
 use localmind_rs::{
     db::{Database, OperationPriority},
-    ollama::OllamaClient,
     lmstudio::LMStudioClient,
-    Result
+    ollama::OllamaClient,
+    Result,
 };
 use std::env;
 
@@ -16,12 +16,18 @@ impl EmbeddingMode {
         match self {
             EmbeddingMode::Ollama(client) => client.generate_embedding(text).await,
             EmbeddingMode::LMStudio(client) => {
-                client.generate_embedding(text, false, Some(document_title)).await
+                client
+                    .generate_embedding(text, false, Some(document_title))
+                    .await
             }
         }
     }
 
-    async fn generate_embeddings_batch(&self, texts: Vec<String>, document_title: &str) -> Result<Vec<Vec<f32>>> {
+    async fn generate_embeddings_batch(
+        &self,
+        texts: Vec<String>,
+        document_title: &str,
+    ) -> Result<Vec<Vec<f32>>> {
         match self {
             EmbeddingMode::Ollama(_client) => {
                 // Ollama doesn't support batch - fall back to sequential
@@ -33,7 +39,8 @@ impl EmbeddingMode {
             }
             EmbeddingMode::LMStudio(client) => {
                 // Format all texts with document prefix
-                let formatted_texts: Vec<String> = texts.iter()
+                let formatted_texts: Vec<String> = texts
+                    .iter()
                     .map(|text| client.format_text_for_embedding(text, false, Some(document_title)))
                     .collect();
                 client.generate_embeddings(formatted_texts).await
@@ -84,7 +91,10 @@ async fn main() -> Result<()> {
                 println!("Using Ollama embeddings");
                 println!("   URL: {}", url);
                 println!("   Model: {}", model);
-                println!("   Batch size: {} (sequential, Ollama doesn't support batching)", batch_size);
+                println!(
+                    "   Batch size: {} (sequential, Ollama doesn't support batching)",
+                    batch_size
+                );
 
                 let client = OllamaClient::with_models(url, model, "".to_string());
                 EmbeddingMode::Ollama(client)
@@ -148,7 +158,11 @@ async fn main() -> Result<()> {
         chunks_by_doc.push((doc.id, doc.title.clone(), chunk_count));
     }
 
-    println!("Found {} documents with {} total chunks", documents.len(), total_chunks);
+    println!(
+        "Found {} documents with {} total chunks",
+        documents.len(),
+        total_chunks
+    );
     println!();
 
     // Confirm before proceeding
@@ -169,7 +183,10 @@ async fn main() -> Result<()> {
     }
 
     println!();
-    println!("Starting re-embedding process with batch size {}...", batch_size);
+    println!(
+        "Starting re-embedding process with batch size {}...",
+        batch_size
+    );
     println!();
 
     let mut processed_chunks = 0;
@@ -187,16 +204,22 @@ async fn main() -> Result<()> {
         let chunks = db.get_chunk_embeddings_for_document(doc.id).await?;
 
         if chunks.is_empty() {
-            println!("⚠️  Doc {}/{}: '{}' has no chunks, skipping",
-                    doc_idx + 1, documents.len(),
-                    doc.title.chars().take(60).collect::<String>());
+            println!(
+                "⚠️  Doc {}/{}: '{}' has no chunks, skipping",
+                doc_idx + 1,
+                documents.len(),
+                doc.title.chars().take(60).collect::<String>()
+            );
             continue;
         }
 
-        println!("Doc {}/{}: '{}' ({} chunks)",
-                doc_idx + 1, documents.len(),
-                doc.title.chars().take(60).collect::<String>(),
-                chunks.len());
+        println!(
+            "Doc {}/{}: '{}' ({} chunks)",
+            doc_idx + 1,
+            documents.len(),
+            doc.title.chars().take(60).collect::<String>(),
+            chunks.len()
+        );
 
         let content_len = doc.content.len(); // byte length
 
@@ -211,7 +234,8 @@ async fn main() -> Result<()> {
             let mut valid_indices = Vec::new();
 
             for (local_idx, chunk_embedding) in batch.iter().enumerate() {
-                let (chunk_id, _chunk_index, chunk_start, chunk_end, _old_embedding) = chunk_embedding;
+                let (chunk_id, _chunk_index, chunk_start, chunk_end, _old_embedding) =
+                    chunk_embedding;
 
                 if *chunk_end > content_len + BOUNDARY_LEEWAY {
                     // Extract what we can for debugging
@@ -231,7 +255,10 @@ async fn main() -> Result<()> {
 
                 // Clamp chunk_end to actual content length for extraction
                 let actual_chunk_end = (*chunk_end).min(content_len);
-                let chunk_text = std::str::from_utf8(&doc.content.as_bytes()[*chunk_start..actual_chunk_end]).unwrap_or("").to_string();
+                let chunk_text =
+                    std::str::from_utf8(&doc.content.as_bytes()[*chunk_start..actual_chunk_end])
+                        .unwrap_or("")
+                        .to_string();
                 chunk_texts.push(chunk_text);
                 chunk_ids.push(*chunk_id);
                 valid_indices.push(local_idx);
@@ -244,7 +271,10 @@ async fn main() -> Result<()> {
             // Generate embeddings for the entire batch
             io::stdout().flush()?;
 
-            match embedding_mode.generate_embeddings_batch(chunk_texts.clone(), &doc.title).await {
+            match embedding_mode
+                .generate_embeddings_batch(chunk_texts.clone(), &doc.title)
+                .await
+            {
                 Ok(embeddings) => {
                     // Update database with batch results
                     for (i, embedding) in embeddings.iter().enumerate() {
@@ -254,11 +284,11 @@ async fn main() -> Result<()> {
                             chunk_ids[i],
                             &embedding_bytes,
                             OperationPriority::BackgroundIngest,
-                        ).await?;
+                        )
+                        .await?;
 
                         processed_chunks += 1;
                     }
-
                 }
                 Err(e) => {
                     println!("Batch failed: {}", e);
@@ -273,7 +303,8 @@ async fn main() -> Result<()> {
                                     chunk_ids[i],
                                     &embedding_bytes,
                                     OperationPriority::BackgroundIngest,
-                                ).await?;
+                                )
+                                .await?;
                                 processed_chunks += 1;
                             }
                             Err(e) => {
@@ -296,7 +327,6 @@ async fn main() -> Result<()> {
         } else {
             0
         };
-
     }
 
     let total_elapsed = start_time.elapsed();
@@ -306,8 +336,15 @@ async fn main() -> Result<()> {
     println!("Re-embedding complete!");
     println!();
     println!("Statistics:");
-    println!("   Documents processed: {}/{}", processed_docs, documents.len());
-    println!("   Chunks re-embedded: {}/{}", processed_chunks, total_chunks);
+    println!(
+        "   Documents processed: {}/{}",
+        processed_docs,
+        documents.len()
+    );
+    println!(
+        "   Chunks re-embedded: {}/{}",
+        processed_chunks, total_chunks
+    );
     println!("   Total time: {:.1}s", total_elapsed.as_secs_f64());
     println!("   Average speed: {:.1} chunks/sec", avg_chunks_per_sec);
     println!("   Speedup vs sequential: ~{}x", batch_size);
@@ -324,7 +361,10 @@ async fn main() -> Result<()> {
         EmbeddingMode::LMStudio(_) => {
             db.set_embedding_model(&args[3]).await?;
             db.set_embedding_url(&args[2]).await?;
-            println!("   ✅ Saved: LM Studio model '{}' at '{}'", args[3], args[2]);
+            println!(
+                "   ✅ Saved: LM Studio model '{}' at '{}'",
+                args[3], args[2]
+            );
         }
     }
     println!();

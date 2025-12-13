@@ -116,7 +116,15 @@ async fn main() -> Result<()> {
         let chunks = db.get_chunk_embeddings_for_document(doc.id).await?;
         for chunk_data in chunks {
             let (chunk_id, chunk_index, chunk_start, chunk_end, _embedding) = chunk_data;
-            all_chunks.push((doc.id, doc.title.clone(), doc.content.clone(), chunk_id, chunk_index, chunk_start, chunk_end));
+            all_chunks.push((
+                doc.id,
+                doc.title.clone(),
+                doc.content.clone(),
+                chunk_id,
+                chunk_index,
+                chunk_start,
+                chunk_end,
+            ));
         }
     }
 
@@ -143,19 +151,31 @@ async fn main() -> Result<()> {
     // Allow up to 15 characters beyond the end for word boundary leeway
     const BOUNDARY_LEEWAY: usize = 15;
 
-    for (i, (doc_id, doc_title, doc_content, chunk_id, chunk_index, chunk_start, chunk_end)) in sample.iter().enumerate() {
+    for (i, (doc_id, doc_title, doc_content, chunk_id, chunk_index, chunk_start, chunk_end)) in
+        sample.iter().enumerate()
+    {
         // Extract chunk text
         let content_len = doc_content.len(); // byte length
 
         if *chunk_end > content_len + BOUNDARY_LEEWAY {
-            println!("⚠️  Chunk {}/{}: Invalid boundaries ({}..{} > {} + {})",
-                    i + 1, sample_size, chunk_start, chunk_end, content_len, BOUNDARY_LEEWAY);
+            println!(
+                "⚠️  Chunk {}/{}: Invalid boundaries ({}..{} > {} + {})",
+                i + 1,
+                sample_size,
+                chunk_start,
+                chunk_end,
+                content_len,
+                BOUNDARY_LEEWAY
+            );
             continue;
         }
 
         // Clamp chunk_end to actual content length for extraction
         let actual_chunk_end = (*chunk_end).min(content_len);
-        let chunk_text = std::str::from_utf8(&doc_content.as_bytes()[*chunk_start..actual_chunk_end]).unwrap_or("").to_string();
+        let chunk_text =
+            std::str::from_utf8(&doc_content.as_bytes()[*chunk_start..actual_chunk_end])
+                .unwrap_or("")
+                .to_string();
 
         // Check start boundary
         let start_issue = check_start_boundary(&chunk_text, *chunk_start, doc_content);
@@ -175,10 +195,13 @@ async fn main() -> Result<()> {
                     issue_type: "BOTH".to_string(),
                     context: format!("START: {} | END: {}", start_msg, end_msg),
                 });
-                println!("Chunk {}/{}: Doc '{}' Chunk #{} - BOTH BOUNDARIES BAD",
-                        i + 1, sample_size,
-                        doc_title.chars().take(30).collect::<String>(),
-                        chunk_index);
+                println!(
+                    "Chunk {}/{}: Doc '{}' Chunk #{} - BOTH BOUNDARIES BAD",
+                    i + 1,
+                    sample_size,
+                    doc_title.chars().take(30).collect::<String>(),
+                    chunk_index
+                );
             }
             (Some(start_msg), None) => {
                 start_issues += 1;
@@ -190,10 +213,13 @@ async fn main() -> Result<()> {
                     issue_type: "START".to_string(),
                     context: start_msg.clone(),
                 });
-                println!("⚠️  Chunk {}/{}: Doc '{}' Chunk #{} - START BOUNDARY BAD",
-                        i + 1, sample_size,
-                        doc_title.chars().take(30).collect::<String>(),
-                        chunk_index);
+                println!(
+                    "⚠️  Chunk {}/{}: Doc '{}' Chunk #{} - START BOUNDARY BAD",
+                    i + 1,
+                    sample_size,
+                    doc_title.chars().take(30).collect::<String>(),
+                    chunk_index
+                );
             }
             (None, Some(end_msg)) => {
                 end_issues += 1;
@@ -205,10 +231,13 @@ async fn main() -> Result<()> {
                     issue_type: "END".to_string(),
                     context: end_msg.clone(),
                 });
-                println!("⚠️  Chunk {}/{}: Doc '{}' Chunk #{} - END BOUNDARY BAD",
-                        i + 1, sample_size,
-                        doc_title.chars().take(30).collect::<String>(),
-                        chunk_index);
+                println!(
+                    "⚠️  Chunk {}/{}: Doc '{}' Chunk #{} - END BOUNDARY BAD",
+                    i + 1,
+                    sample_size,
+                    doc_title.chars().take(30).collect::<String>(),
+                    chunk_index
+                );
             }
             (None, None) => {
                 no_issues += 1;
@@ -226,13 +255,32 @@ async fn main() -> Result<()> {
     println!();
     println!("Sample size: {}", sample_size);
     println!();
-    println!("Good boundaries:       {} ({:.1}%)", no_issues, (no_issues as f64 / sample_size as f64) * 100.0);
-    println!("⚠️  Start issues only:    {} ({:.1}%)", start_issues, (start_issues as f64 / sample_size as f64) * 100.0);
-    println!("⚠️  End issues only:      {} ({:.1}%)", end_issues, (end_issues as f64 / sample_size as f64) * 100.0);
-    println!("Both boundaries bad:   {} ({:.1}%)", both_issues, (both_issues as f64 / sample_size as f64) * 100.0);
+    println!(
+        "Good boundaries:       {} ({:.1}%)",
+        no_issues,
+        (no_issues as f64 / sample_size as f64) * 100.0
+    );
+    println!(
+        "⚠️  Start issues only:    {} ({:.1}%)",
+        start_issues,
+        (start_issues as f64 / sample_size as f64) * 100.0
+    );
+    println!(
+        "⚠️  End issues only:      {} ({:.1}%)",
+        end_issues,
+        (end_issues as f64 / sample_size as f64) * 100.0
+    );
+    println!(
+        "Both boundaries bad:   {} ({:.1}%)",
+        both_issues,
+        (both_issues as f64 / sample_size as f64) * 100.0
+    );
     println!();
-    println!("Total issues:            {} ({:.1}%)",
-            issues.len(), (issues.len() as f64 / sample_size as f64) * 100.0);
+    println!(
+        "Total issues:            {} ({:.1}%)",
+        issues.len(),
+        (issues.len() as f64 / sample_size as f64) * 100.0
+    );
     println!();
 
     if !issues.is_empty() {
@@ -268,18 +316,30 @@ async fn main() -> Result<()> {
         let issue_rate = (issues.len() as f64 / sample_size as f64) * 100.0;
 
         if issue_rate > 50.0 {
-            println!("CRITICAL: {:.1}% of chunks have boundary issues!", issue_rate);
+            println!(
+                "CRITICAL: {:.1}% of chunks have boundary issues!",
+                issue_rate
+            );
             println!("   Action: Run the rechunk utility to fix all chunks:");
             println!("   cargo run --bin rechunk");
         } else if issue_rate > 20.0 {
-            println!("⚠️  WARNING: {:.1}% of chunks have boundary issues", issue_rate);
+            println!(
+                "⚠️  WARNING: {:.1}% of chunks have boundary issues",
+                issue_rate
+            );
             println!("   Consider running the rechunk utility:");
             println!("   cargo run --bin rechunk");
         } else if issue_rate > 5.0 {
-            println!("ℹ️  MINOR: {:.1}% of chunks have boundary issues", issue_rate);
+            println!(
+                "ℹ️  MINOR: {:.1}% of chunks have boundary issues",
+                issue_rate
+            );
             println!("   This is acceptable but could be improved.");
         } else {
-            println!("EXCELLENT: Only {:.1}% of chunks have boundary issues", issue_rate);
+            println!(
+                "EXCELLENT: Only {:.1}% of chunks have boundary issues",
+                issue_rate
+            );
             println!("   Chunk boundaries are well-aligned!");
         }
     } else {

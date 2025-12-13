@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Inject required scripts in sequence
         chrome.scripting.executeScript({
           target: { tabId: activeTab.id },
-          files: ['config-manager.js', 'content-clipboard.js', 'ui/dialogs.js', 'content.js']
+          files: ['config-manager.js', 'content-clipboard.js', 'content-google-docs.js', 'ui/dialogs.js', 'content.js']
         }, () => {
           console.log('Content scripts executed.');
         });
@@ -72,14 +72,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'pageDetails') {
     const statusMessage = document.getElementById('status-message');
     
+    // Check if extraction failed
+    if (message.data.success === false) {
+      const errorMsg = message.data.error || 'Extraction failed';
+      statusMessage.textContent = `Extraction failed: ${errorMsg}`;
+      statusMessage.style.color = 'red';
+      console.error('Content extraction failed:', message.data);
+      return;
+    }
+    
+    // Check if content is empty
+    if (!message.data.content || message.data.content.trim().length === 0) {
+      statusMessage.textContent = 'Extraction returned empty content. Please try again or check if the document has text.';
+      statusMessage.style.color = 'orange';
+      console.warn('Empty content extracted:', message.data);
+      return;
+    }
+    
     // Check extraction method and show appropriate status
-    if (message.data.extractionMethod === 'clipboard') {
+    if (message.data.extractionMethod && message.data.extractionMethod.startsWith('google-docs-')) {
+      const method = message.data.extractionMethod.replace('google-docs-', '');
+      statusMessage.textContent = `Using Google Docs ${method} extraction...`;
+      statusMessage.style.color = 'blue';
+    } else if (message.data.extractionMethod === 'clipboard') {
       statusMessage.textContent = 'Using clipboard extraction for canvas content...';
       statusMessage.style.color = 'blue';
     } else if (message.data.fallback) {
       statusMessage.textContent = 'Using fallback extraction...';
       statusMessage.style.color = 'orange';
     }
+    
+    // Log what we're about to send
+    console.log('Sending page data:', {
+      title: message.data.title,
+      contentLength: message.data.content?.length || 0,
+      url: message.data.url,
+      method: message.data.extractionMethod
+    });
     
     chrome.runtime.sendMessage({
       action: 'sendPageData',

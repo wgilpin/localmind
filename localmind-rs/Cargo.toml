@@ -22,6 +22,11 @@ rusqlite = { version = "0.31", features = ["bundled", "blob"] }
 reqwest = { version = "0.11", features = ["json", "stream"] }
 futures-util = "0.3"
 
+# HTTP server
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+
 # YouTube transcript extraction
 yt-transcript-rs = "0.1.8"
 

@@ -1,12 +1,12 @@
 use crate::Result;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OperationPriority {
-    UserSearch,      // Highest priority - immediate access
+    UserSearch,       // Highest priority - immediate access
     BackgroundIngest, // Lower priority - can be interrupted
 }
 
@@ -50,7 +50,9 @@ impl Database {
     }
 
     async fn init_schema(&self) -> Result<()> {
-        let _permit = self.get_priority_access(OperationPriority::UserSearch).await?;
+        let _permit = self
+            .get_priority_access(OperationPriority::UserSearch)
+            .await?;
         let conn = self.conn.lock().unwrap();
 
         conn.execute(
@@ -110,7 +112,6 @@ impl Database {
             [],
         )?;
 
-        
         // Create config table for storing key-value settings
         conn.execute(
             "CREATE TABLE IF NOT EXISTS config (
@@ -132,8 +133,12 @@ impl Database {
             OperationPriority::BackgroundIngest => {
                 // Background ingests wait and can be interrupted
                 // Try to acquire with timeout to avoid blocking searches
-                match tokio::time::timeout(Duration::from_millis(100),
-                                         self.ingest_semaphore.acquire()).await {
+                match tokio::time::timeout(
+                    Duration::from_millis(100),
+                    self.ingest_semaphore.acquire(),
+                )
+                .await
+                {
                     Ok(permit) => Ok(permit.unwrap()),
                     Err(_) => {
                         // If we can't get access quickly, yield to searches
@@ -145,7 +150,11 @@ impl Database {
         }
     }
 
-    async fn execute_with_priority<T, F>(&self, priority: OperationPriority, operation: F) -> Result<T>
+    async fn execute_with_priority<T, F>(
+        &self,
+        priority: OperationPriority,
+        operation: F,
+    ) -> Result<T>
     where
         F: FnOnce(&Connection) -> Result<T>,
     {
@@ -168,7 +177,10 @@ impl Database {
         // Log slow operations for debugging
         let elapsed = start_time.elapsed();
         if elapsed > Duration::from_millis(100) {
-            println!("⚠️ Slow database operation took {:?} (priority: {:?})", elapsed, priority);
+            println!(
+                "⚠️ Slow database operation took {:?} (priority: {:?})",
+                elapsed, priority
+            );
         }
 
         result
@@ -197,7 +209,7 @@ impl Database {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, title, content, url, source, created_at, embedding, is_dead
-                 FROM documents WHERE id = ?1"
+                 FROM documents WHERE id = ?1",
             )?;
 
             let doc = stmt.query_row(params![id], |row| {
@@ -218,7 +230,8 @@ impl Database {
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
                 Err(e) => Err(Box::new(e)),
             }
-        }).await
+        })
+        .await
     }
 
     pub async fn get_documents_batch(&self, ids: &[i64]) -> Result<Vec<Document>> {
@@ -240,22 +253,24 @@ impl Database {
             // Convert ids to params
             let params: Vec<_> = ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
 
-            let docs = stmt.query_map(&params[..], |row| {
-                Ok(Document {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    content: row.get(2)?,
-                    url: row.get(3)?,
-                    source: row.get(4)?,
-                    created_at: row.get(5)?,
-                    embedding: row.get(6)?,
-                    is_dead: row.get(7)?,
-                })
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            let docs = stmt
+                .query_map(&params[..], |row| {
+                    Ok(Document {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        content: row.get(2)?,
+                        url: row.get(3)?,
+                        source: row.get(4)?,
+                        created_at: row.get(5)?,
+                        embedding: row.get(6)?,
+                        is_dead: row.get(7)?,
+                    })
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
 
             Ok(docs)
-        }).await
+        })
+        .await
     }
 
     pub async fn search_documents(&self, query: &str, limit: i64) -> Result<Vec<Document>> {
@@ -295,7 +310,8 @@ impl Database {
         // For now, return chunk embeddings but use document_id as the key
         // This maintains compatibility while we transition
         let chunk_embeddings = self.get_all_chunk_embeddings().await?;
-        Ok(chunk_embeddings.into_iter()
+        Ok(chunk_embeddings
+            .into_iter()
             .map(|(_, doc_id, _, _, _, embedding)| (doc_id, embedding))
             .collect())
     }
@@ -319,7 +335,9 @@ impl Database {
         }).await
     }
 
-    pub async fn get_all_chunk_embeddings(&self) -> Result<Vec<(i64, i64, usize, usize, usize, Vec<f32>)>> {
+    pub async fn get_all_chunk_embeddings(
+        &self,
+    ) -> Result<Vec<(i64, i64, usize, usize, usize, Vec<f32>)>> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, document_id, chunk_index, chunk_start, chunk_end, embedding FROM embeddings"
@@ -345,11 +363,14 @@ impl Database {
         }).await
     }
 
-    pub async fn get_chunk_embeddings_for_document(&self, document_id: i64) -> Result<Vec<(i64, usize, usize, usize, Vec<f32>)>> {
+    pub async fn get_chunk_embeddings_for_document(
+        &self,
+        document_id: i64,
+    ) -> Result<Vec<(i64, usize, usize, usize, Vec<f32>)>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, chunk_index, chunk_start, chunk_end, embedding
-                 FROM embeddings WHERE document_id = ?1 ORDER BY chunk_index"
+                 FROM embeddings WHERE document_id = ?1 ORDER BY chunk_index",
             )?;
 
             let rows = stmt.query_map(params![document_id], |row| {
@@ -360,7 +381,13 @@ impl Database {
                 let embedding_bytes: Vec<u8> = row.get(4)?;
                 let embedding: Vec<f32> = bincode::deserialize(&embedding_bytes)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                Ok((id, chunk_index as usize, chunk_start as usize, chunk_end as usize, embedding))
+                Ok((
+                    id,
+                    chunk_index as usize,
+                    chunk_start as usize,
+                    chunk_end as usize,
+                    embedding,
+                ))
             })?;
 
             let mut results = Vec::new();
@@ -368,39 +395,48 @@ impl Database {
                 results.push(row?);
             }
             Ok(results)
-        }).await
+        })
+        .await
     }
 
     pub async fn delete_all_embeddings(&self) -> Result<()> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             conn.execute("DELETE FROM embeddings", [])?;
             Ok(())
-        }).await
+        })
+        .await
     }
-
 
     pub async fn url_exists(&self, url: &str, priority: OperationPriority) -> Result<bool> {
         self.execute_with_priority(priority, |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT COUNT(*) FROM documents WHERE url = ?1"
-            )?;
+            let mut stmt = conn.prepare("SELECT COUNT(*) FROM documents WHERE url = ?1")?;
 
             let count: i64 = stmt.query_row(params![url], |row| row.get(0))?;
             Ok(count > 0)
-        }).await
+        })
+        .await
     }
 
     pub async fn count_documents(&self, priority: OperationPriority) -> Result<i64> {
         self.execute_with_priority(priority, |conn| {
-            let count: i64 = conn.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))?;
+            let count: i64 =
+                conn.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))?;
             Ok(count)
-        }).await
+        })
+        .await
     }
 
     // Batch insert method for efficient bookmark ingestion
     pub async fn batch_insert_documents<'a>(
         &self,
-        documents: &[(&'a str, &'a str, Option<&'a str>, &'a str, Option<&'a [u8]>, Option<bool>)],
+        documents: &[(
+            &'a str,
+            &'a str,
+            Option<&'a str>,
+            &'a str,
+            Option<&'a [u8]>,
+            Option<bool>,
+        )],
     ) -> Result<Vec<i64>> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             let transaction = conn.unchecked_transaction()?;
@@ -434,7 +470,8 @@ impl Database {
                 params![url],
             )?;
             Ok(())
-        }).await
+        })
+        .await
     }
 
     pub async fn get_live_documents_with_urls(&self) -> Result<Vec<Document>> {
@@ -442,7 +479,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 "SELECT id, title, content, url, source, created_at, embedding, is_dead
                  FROM documents
-                 WHERE url IS NOT NULL AND (is_dead IS NULL OR is_dead = 0)"
+                 WHERE url IS NOT NULL AND (is_dead IS NULL OR is_dead = 0)",
             )?;
 
             let docs = stmt.query_map([], |row| {
@@ -463,7 +500,8 @@ impl Database {
                 results.push(doc?);
             }
             Ok(results)
-        }).await
+        })
+        .await
     }
 
     pub async fn check_and_mark_dead_urls(&self) -> Result<u32> {
@@ -506,7 +544,7 @@ impl Database {
                 "SELECT id, title, content, url, source, created_at, embedding, is_dead
                  FROM documents
                  WHERE is_dead IS NULL OR is_dead = 0
-                 ORDER BY id"
+                 ORDER BY id",
             )?;
 
             let docs = stmt.query_map([], |row| {
@@ -527,7 +565,8 @@ impl Database {
                 results.push(doc?);
             }
             Ok(results)
-        }).await
+        })
+        .await
     }
 
     pub async fn update_chunk_embedding(
@@ -542,7 +581,8 @@ impl Database {
                 params![embedding_bytes, embedding_id],
             )?;
             Ok(())
-        }).await
+        })
+        .await
     }
 
     pub async fn set_config(&self, key: &str, value: &str) -> Result<()> {
@@ -557,16 +597,15 @@ impl Database {
 
     pub async fn get_config(&self, key: &str) -> Result<Option<String>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT value FROM config WHERE key = ?1"
-            )?;
+            let mut stmt = conn.prepare("SELECT value FROM config WHERE key = ?1")?;
 
             match stmt.query_row(params![key], |row| row.get(0)) {
                 Ok(value) => Ok(Some(value)),
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
                 Err(e) => Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
             }
-        }).await
+        })
+        .await
     }
 
     pub async fn get_embedding_model(&self) -> Result<Option<String>> {
@@ -632,7 +671,8 @@ impl Database {
                     self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
                         conn.execute("DELETE FROM documents WHERE id = ?1", params![doc.id])?;
                         Ok(())
-                    }).await?;
+                    })
+                    .await?;
                     deleted_count += 1;
                 }
             }
@@ -698,7 +738,11 @@ impl Database {
             }
         }
 
-        println!("Found {} URLs in Chrome for folder {}", urls_to_delete.len(), folder_id);
+        println!(
+            "Found {} URLs in Chrome for folder {}",
+            urls_to_delete.len(),
+            folder_id
+        );
 
         // Check how many actually exist in the database
         let mut exists_count = 0;
@@ -720,18 +764,23 @@ impl Database {
             }
         }
 
-        println!("Of those, {} URLs exist in database for folder {}", exists_count, folder_id);
+        println!(
+            "Of those, {} URLs exist in database for folder {}",
+            exists_count, folder_id
+        );
 
         // Delete each URL from the database
         let mut deleted_count = 0;
         for url in urls_to_delete {
-            let result = self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
-                conn.execute(
-                    "DELETE FROM documents WHERE url = ?1 AND source = 'chrome_bookmark'",
-                    params![&url]
-                )?;
-                Ok(())
-            }).await;
+            let result = self
+                .execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
+                    conn.execute(
+                        "DELETE FROM documents WHERE url = ?1 AND source = 'chrome_bookmark'",
+                        params![&url],
+                    )?;
+                    Ok(())
+                })
+                .await;
 
             if result.is_ok() {
                 deleted_count += 1;
@@ -745,8 +794,8 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::path::PathBuf;
+    use tempfile::TempDir;
 
     async fn create_test_db() -> (Database, TempDir) {
         let temp_dir = TempDir::new().unwrap();
@@ -768,19 +817,33 @@ mod tests {
         let (db, _temp) = create_test_db().await;
 
         let folders = db.get_excluded_folders().await.unwrap();
-        assert_eq!(folders.len(), 0, "Initially should have no excluded folders");
+        assert_eq!(
+            folders.len(),
+            0,
+            "Initially should have no excluded folders"
+        );
 
-        let test_folders = vec!["folder_123".to_string(), "folder_456".to_string(), "folder_789".to_string()];
+        let test_folders = vec![
+            "folder_123".to_string(),
+            "folder_456".to_string(),
+            "folder_789".to_string(),
+        ];
         db.set_excluded_folders(&test_folders).await.unwrap();
 
         let retrieved = db.get_excluded_folders().await.unwrap();
-        assert_eq!(retrieved, test_folders, "Should retrieve same folders that were set");
+        assert_eq!(
+            retrieved, test_folders,
+            "Should retrieve same folders that were set"
+        );
 
         let updated_folders = vec!["folder_abc".to_string(), "folder_xyz".to_string()];
         db.set_excluded_folders(&updated_folders).await.unwrap();
 
         let retrieved = db.get_excluded_folders().await.unwrap();
-        assert_eq!(retrieved, updated_folders, "Should update to new folder list");
+        assert_eq!(
+            retrieved, updated_folders,
+            "Should update to new folder list"
+        );
     }
 
     #[tokio::test]
@@ -788,7 +851,11 @@ mod tests {
         let (db, _temp) = create_test_db().await;
 
         let domains = db.get_excluded_domains().await.unwrap();
-        assert_eq!(domains.len(), 0, "Initially should have no excluded domains");
+        assert_eq!(
+            domains.len(),
+            0,
+            "Initially should have no excluded domains"
+        );
 
         let test_domains = vec![
             "*.internal.com".to_string(),
@@ -798,13 +865,19 @@ mod tests {
         db.set_excluded_domains(&test_domains).await.unwrap();
 
         let retrieved = db.get_excluded_domains().await.unwrap();
-        assert_eq!(retrieved, test_domains, "Should retrieve same domains that were set");
+        assert_eq!(
+            retrieved, test_domains,
+            "Should retrieve same domains that were set"
+        );
 
         let updated_domains = vec!["example.com".to_string()];
         db.set_excluded_domains(&updated_domains).await.unwrap();
 
         let retrieved = db.get_excluded_domains().await.unwrap();
-        assert_eq!(retrieved, updated_domains, "Should update to new domain list");
+        assert_eq!(
+            retrieved, updated_domains,
+            "Should update to new domain list"
+        );
     }
 
     #[tokio::test]
@@ -819,7 +892,9 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         db.insert_document(
             "Public Site",
@@ -829,7 +904,9 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         db.insert_document(
             "Another Internal Site",
@@ -839,19 +916,34 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
-        let deleted = db.delete_bookmarks_by_url_pattern("*.internal.com").await.unwrap();
-        assert_eq!(deleted, 2, "Should delete 2 bookmarks matching *.internal.com");
+        let deleted = db
+            .delete_bookmarks_by_url_pattern("*.internal.com")
+            .await
+            .unwrap();
+        assert_eq!(
+            deleted, 2,
+            "Should delete 2 bookmarks matching *.internal.com"
+        );
 
         let docs = db.get_live_documents_with_urls().await.unwrap();
-        let urls: Vec<String> = docs.iter()
-            .filter_map(|d| d.url.clone())
-            .collect();
+        let urls: Vec<String> = docs.iter().filter_map(|d| d.url.clone()).collect();
 
-        assert!(urls.contains(&"https://example.com/page".to_string()), "Public site should remain");
-        assert!(!urls.contains(&"https://foo.internal.com/page".to_string()), "foo.internal.com should be deleted");
-        assert!(!urls.contains(&"https://bar.internal.com/page".to_string()), "bar.internal.com should be deleted");
+        assert!(
+            urls.contains(&"https://example.com/page".to_string()),
+            "Public site should remain"
+        );
+        assert!(
+            !urls.contains(&"https://foo.internal.com/page".to_string()),
+            "foo.internal.com should be deleted"
+        );
+        assert!(
+            !urls.contains(&"https://bar.internal.com/page".to_string()),
+            "bar.internal.com should be deleted"
+        );
     }
 
     #[tokio::test]
@@ -866,7 +958,9 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         db.insert_document(
             "Staging Site",
@@ -876,7 +970,9 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         db.insert_document(
             "External Site",
@@ -886,9 +982,14 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
-        let deleted = db.delete_bookmarks_by_url_pattern("*.mycompany.com").await.unwrap();
+        let deleted = db
+            .delete_bookmarks_by_url_pattern("*.mycompany.com")
+            .await
+            .unwrap();
         assert_eq!(deleted, 2, "Should delete 2 mycompany.com bookmarks");
 
         let docs = db.get_live_documents_with_urls().await.unwrap();
@@ -908,7 +1009,9 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         db.insert_document(
             "Subdomain",
@@ -918,14 +1021,22 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
-        let deleted = db.delete_bookmarks_by_url_pattern("example.com").await.unwrap();
+        let deleted = db
+            .delete_bookmarks_by_url_pattern("example.com")
+            .await
+            .unwrap();
         assert_eq!(deleted, 1, "Should delete only exact domain match");
 
         let docs = db.get_live_documents_with_urls().await.unwrap();
         assert_eq!(docs.len(), 1, "Subdomain should remain");
-        assert_eq!(docs[0].url.as_ref().unwrap(), "https://sub.example.com/page");
+        assert_eq!(
+            docs[0].url.as_ref().unwrap(),
+            "https://sub.example.com/page"
+        );
     }
 
     #[tokio::test]
@@ -955,7 +1066,11 @@ mod tests {
             };
 
             let retrieved = db.get_excluded_folders().await.unwrap();
-            assert_eq!(retrieved.len(), 2, "Folders should persist across database reopens");
+            assert_eq!(
+                retrieved.len(),
+                2,
+                "Folders should persist across database reopens"
+            );
             assert_eq!(retrieved[0], "folder_1");
             assert_eq!(retrieved[1], "folder_2");
         }
@@ -988,7 +1103,11 @@ mod tests {
             };
 
             let retrieved = db.get_excluded_domains().await.unwrap();
-            assert_eq!(retrieved.len(), 2, "Domains should persist across database reopens");
+            assert_eq!(
+                retrieved.len(),
+                2,
+                "Domains should persist across database reopens"
+            );
             assert_eq!(retrieved[0], "*.internal.com");
             assert_eq!(retrieved[1], "localhost");
         }
