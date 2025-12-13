@@ -21,48 +21,47 @@ function debounce(func, delayMs) {
 
 document.addEventListener('DOMContentLoaded', () => {
   const saveButton = document.getElementById('save-button');
-  const saveBookmarkButton = document.getElementById('save-bookmark-button');
   const showNoteInputButton = document.getElementById('show-note-input-button');
   const addNoteButton = document.getElementById('add-note-button');
   const noteContentArea = document.getElementById('note-content');
   const noteInputContainer = document.getElementById('note-input-container');
   const statusMessage = document.getElementById('status-message');
 
-  saveButton.addEventListener('click', () => {
-    statusMessage.textContent = 'Extracting content...'; // Clear previous messages
-    statusMessage.style.color = 'blue';
-    
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const activeTab = tabs[0];
-      if (activeTab) {
-        // Inject required scripts in sequence
-        chrome.scripting.executeScript({
-          target: { tabId: activeTab.id },
-          files: ['config-manager.js', 'content-clipboard.js', 'content-google-docs.js', 'ui/dialogs.js', 'content.js']
-        }, () => {
-          console.log('Content scripts executed.');
-        });
-      }
-    });
-  });
-
-  // Save Page as Bookmark button handler (with debouncing)
-  const debouncedSaveBookmark = debounce(async () => {
+  // Save Page button handler - does BOTH: saves Chrome bookmark AND extracts/sends content to LocalMind
+  const debouncedSavePage = debounce(async () => {
     try {
-      const success = await savePageAsBookmark();
-      if (success) {
-        // Silent operation per spec - no user feedback
-        // Bookmark is visible in Chrome's bookmark manager
+      // Step 1: Save as Chrome bookmark (with deduplication and inbox organization)
+      const bookmarkSuccess = await savePageAsBookmark();
+      if (bookmarkSuccess) {
         console.log('Bookmark saved successfully');
       } else {
-        console.log('Bookmark save failed or skipped');
+        console.log('Bookmark save failed or skipped (duplicate)');
       }
+      
+      // Step 2: Extract content and send to LocalMind
+      statusMessage.textContent = 'Extracting content...';
+      statusMessage.style.color = 'blue';
+      
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const activeTab = tabs[0];
+        if (activeTab) {
+          // Inject required scripts in sequence
+          chrome.scripting.executeScript({
+            target: { tabId: activeTab.id },
+            files: ['config-manager.js', 'content-clipboard.js', 'content-google-docs.js', 'ui/dialogs.js', 'content.js']
+          }, () => {
+            console.log('Content scripts executed.');
+          });
+        }
+      });
     } catch (error) {
-      console.error('Error saving bookmark:', error);
+      console.error('Error saving page:', error);
+      statusMessage.textContent = 'Error saving page';
+      statusMessage.style.color = 'red';
     }
   }, 1500); // 1.5 seconds debounce per spec
 
-  saveBookmarkButton.addEventListener('click', debouncedSaveBookmark);
+  saveButton.addEventListener('click', debouncedSavePage);
 
   showNoteInputButton.addEventListener('click', () => {
     noteInputContainer.classList.remove('hidden');
