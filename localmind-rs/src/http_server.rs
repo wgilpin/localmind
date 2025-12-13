@@ -16,6 +16,7 @@ use localmind_rs::rag::RagPipeline as RAG;
 use localmind_rs::youtube::YouTubeProcessor;
 use tokio::sync::RwLock;
 use tokio::time::{timeout, Duration};
+use regex::Regex;
 
 // Type alias matching main.rs
 type RagState = Arc<RwLock<Option<RAG>>>;
@@ -53,6 +54,77 @@ pub struct DocumentRequest {
 
 fn default_extraction_method() -> String {
     "dom".to_string()
+}
+
+/// Cleans Google Docs mobile basic view content by removing JavaScript, CSS, and HTML artifacts
+///
+/// The mobile basic view includes inline JavaScript error handling, CSS imports, and CSS styles
+/// that pollute the text extraction. This function strips those artifacts to extract clean text.
+///
+/// # Arguments
+/// * `content` - Raw content from Google Docs mobile basic view
+///
+/// # Returns
+/// * Cleaned text content with JS/CSS artifacts removed
+fn clean_google_docs_content(content: &str) -> String {
+    let mut cleaned = content.to_string();
+    
+    // Strategy: Remove everything before a reasonable content marker
+    // Google Docs mobile basic view structure:
+    // 1. JavaScript error handling (if ((!this['DOCS_initDocsMobileWeb'])...)
+    // 2. DOCS_initDocsMobileWeb(...args...) call
+    // 3. CSS imports and styles
+    // 4. Actual document content
+    
+    // Find the start of actual content - look for patterns after all the setup code
+    // The document title or first real text usually comes after the last CSS style block
+    
+    // Remove everything up to and including the DOCS_initDocsMobileWeb call
+    if let Some(init_pos) = cleaned.find("DOCS_initDocsMobileWeb(") {
+        if let Some(close_paren) = cleaned[init_pos..].find(");") {
+            cleaned.replace_range(0..init_pos + close_paren + 2, "");
+        }
+    }
+    
+    // Remove CSS imports (@import url(...);)
+    let css_import_re = Regex::new(r"@import\s+url\([^)]+\);?").unwrap();
+    cleaned = css_import_re.replace_all(&cleaned, "").to_string();
+    
+    // Remove all CSS class/style definitions
+    // This catches patterns like: .class-name{property:value;...} or ol.class{...}
+    let css_block_re = Regex::new(r"[\.\w\-]+\{[^}]*\}").unwrap();
+    cleaned = css_block_re.replace_all(&cleaned, "").to_string();
+    
+    // Remove list style counter rules (.lst-kix_list > li:before{content:"..."})
+    let css_before_re = Regex::new(r"\.[\w\-]+\s*>\s*li:before\{[^}]*\}").unwrap();
+    cleaned = css_before_re.replace_all(&cleaned, "").to_string();
+    
+    // Remove setTimeout and other window. JavaScript calls
+    let js_call_re = Regex::new(r"window\.[a-zA-Z]+\([^)]*\);?").unwrap();
+    cleaned = js_call_re.replace_all(&cleaned, "").to_string();
+    
+    // Remove counter-reset rules
+    let counter_re = Regex::new(r"counter-reset:\s*[^;}]+[;}]").unwrap();
+    cleaned = counter_re.replace_all(&cleaned, "").to_string();
+    
+    // Remove counter-increment rules
+    let increment_re = Regex::new(r"counter-increment:\s*[^;}]+[;}]").unwrap();
+    cleaned = increment_re.replace_all(&cleaned, "").to_string();
+    
+    // Remove any remaining CSS-like patterns (e.g., "list-style-type:none")
+    let css_prop_re = Regex::new(r"[a-z\-]+:\s*[^;}]+[;}]").unwrap();
+    cleaned = css_prop_re.replace_all(&cleaned, "").to_string();
+    
+    // Clean up excessive whitespace (3 or more spaces/newlines → 2 newlines)
+    let whitespace_re = Regex::new(r"\s{3,}").unwrap();
+    cleaned = whitespace_re.replace_all(&cleaned, "\n\n").to_string();
+    
+    // Remove empty lines at the start
+    let empty_lines_re = Regex::new(r"^\s*\n+").unwrap();
+    cleaned = empty_lines_re.replace(&cleaned, "").to_string();
+    
+    // Trim and return
+    cleaned.trim().to_string()
 }
 
 /// Success response for POST /documents endpoint
@@ -126,6 +198,13 @@ async fn handle_post_documents(
     let mut title = request.title.clone();
     let mut content = request.content.clone();
     let mut extraction_method = request.extraction_method.clone();
+
+    // Clean Google Docs content if it's from mobile basic view
+    if extraction_method.contains("google-docs") {
+        println!("Cleaning Google Docs content ({} chars before cleaning)", content.len());
+        content = clean_google_docs_content(&content);
+        println!("Google Docs content cleaned ({} chars after cleaning)", content.len());
+    }
 
     if let Some(ref url) = request.url {
         if YouTubeProcessor::is_youtube_url(url) {
