@@ -1,5 +1,27 @@
+/**
+ * Debounce helper function - prevents rapid repeated function calls
+ * @param {Function} func - Function to debounce
+ * @param {number} delayMs - Delay in milliseconds
+ * @returns {Function} Debounced function
+ */
+function debounce(func, delayMs) {
+  let isDebouncing = false;
+  
+  return function debounced(...args) {
+    if (isDebouncing) return;
+    
+    isDebouncing = true;
+    func.apply(this, args);
+    
+    setTimeout(() => {
+      isDebouncing = false;
+    }, delayMs);
+  };
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const saveButton = document.getElementById('save-button');
+  const saveBookmarkButton = document.getElementById('save-bookmark-button');
   const showNoteInputButton = document.getElementById('show-note-input-button');
   const addNoteButton = document.getElementById('add-note-button');
   const noteContentArea = document.getElementById('note-content');
@@ -23,6 +45,24 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
+
+  // Save Page as Bookmark button handler (with debouncing)
+  const debouncedSaveBookmark = debounce(async () => {
+    try {
+      const success = await savePageAsBookmark();
+      if (success) {
+        // Silent operation per spec - no user feedback
+        // Bookmark is visible in Chrome's bookmark manager
+        console.log('Bookmark saved successfully');
+      } else {
+        console.log('Bookmark save failed or skipped');
+      }
+    } catch (error) {
+      console.error('Error saving bookmark:', error);
+    }
+  }, 1500); // 1.5 seconds debounce per spec
+
+  saveBookmarkButton.addEventListener('click', debouncedSaveBookmark);
 
   showNoteInputButton.addEventListener('click', () => {
     noteInputContainer.classList.remove('hidden');
