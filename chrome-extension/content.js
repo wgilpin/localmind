@@ -5,24 +5,31 @@
     await configManager.loadConfig();
     
     const currentUrl = window.location.href;
-    const isSpecial = configManager.isSpecialDomain(currentUrl);
-    
     let extractionData;
     
-    if (isSpecial) {
-      // Use clipboard-based extraction for special domains
-      console.log('Special domain detected, using clipboard extraction');
-      extractionData = await performClipboardExtraction(currentUrl);
+    // Check if this is a Google Docs URL - prioritize export method
+    if (typeof isGoogleDocsUrl === 'function' && isGoogleDocsUrl(currentUrl)) {
+      console.log('Google Docs detected, using export URL extraction');
+      extractionData = await performGoogleDocsExtraction(currentUrl);
     } else {
-      // Standard DOM extraction for regular domains
-      console.log('Standard domain, using DOM extraction');
-      extractionData = {
-        title: document.title,
-        url: currentUrl,
-        content: document.body.innerText,
-        extractionMethod: 'dom',
-        success: true
-      };
+      // Check for other special domains
+      const isSpecial = configManager.isSpecialDomain(currentUrl);
+      
+      if (isSpecial) {
+        // Use clipboard-based extraction for special domains
+        console.log('Special domain detected, using clipboard extraction');
+        extractionData = await performClipboardExtraction(currentUrl);
+      } else {
+        // Standard DOM extraction for regular domains
+        console.log('Standard domain, using DOM extraction');
+        extractionData = {
+          title: document.title,
+          url: currentUrl,
+          content: document.body.innerText,
+          extractionMethod: 'dom',
+          success: true
+        };
+      }
     }
     
     // Send extracted data to popup

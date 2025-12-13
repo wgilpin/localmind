@@ -67,10 +67,14 @@ impl LMStudioClient {
         let models_response: ModelsResponse = response.json().await?;
         let model_ids: Vec<String> = models_response.data.into_iter().map(|m| m.id).collect();
 
-        println!("LM Studio connection successful. Available models: {:?}", model_ids);
+        println!(
+            "LM Studio connection successful. Available models: {:?}",
+            model_ids
+        );
 
         // Check if we have an embedding model
-        let embedding_models: Vec<String> = model_ids.iter()
+        let embedding_models: Vec<String> = model_ids
+            .iter()
             .filter(|m| m.to_lowercase().contains("embed") || m.to_lowercase().contains("nomic"))
             .cloned()
             .collect();
@@ -87,7 +91,9 @@ impl LMStudioClient {
     /// Get model-specific formatting prefixes
     fn get_instruction_prefixes(&self) -> (String, String) {
         let model_name = self.embedding_model.to_lowercase();
-        let base_model_name = model_name.replace("-gpu", "").replace("text-embedding-", "");
+        let base_model_name = model_name
+            .replace("-gpu", "")
+            .replace("text-embedding-", "");
 
         if base_model_name.contains("embeddinggemma") {
             (
@@ -111,13 +117,22 @@ impl LMStudioClient {
     }
 
     /// Format text with appropriate prefix for the embedding model
-    pub fn format_text_for_embedding(&self, text: &str, is_query: bool, document_title: Option<&str>) -> String {
+    pub fn format_text_for_embedding(
+        &self,
+        text: &str,
+        is_query: bool,
+        document_title: Option<&str>,
+    ) -> String {
         let (query_prefix, document_prefix) = self.get_instruction_prefixes();
 
         if is_query {
             format!("{}{}", query_prefix, text)
         } else {
-            if self.embedding_model.to_lowercase().contains("embeddinggemma") {
+            if self
+                .embedding_model
+                .to_lowercase()
+                .contains("embeddinggemma")
+            {
                 // EmbeddingGemma uses title in the prefix
                 let title = document_title.unwrap_or("content");
                 let prefix = document_prefix.replace("{title}", title);
@@ -135,24 +150,38 @@ impl LMStudioClient {
 
         if batch_size > 10 {
             let total_chars: usize = texts.iter().map(|t| t.len()).sum();
-            println!("[EMBEDDING] Sending batch of {} texts to LM Studio (total {} chars)", batch_size, total_chars);
+            println!(
+                "[EMBEDDING] Sending batch of {} texts to LM Studio (total {} chars)",
+                batch_size, total_chars
+            );
         }
 
         for attempt in 0..max_retries {
             match self.try_generate_embeddings(&texts).await {
                 Ok(embeddings) => {
                     if batch_size > 10 {
-                        println!("[EMBEDDING] Success: got {} embeddings, each {}-dim",
-                                batch_size, embeddings[0].len());
+                        println!(
+                            "[EMBEDDING] Success: got {} embeddings, each {}-dim",
+                            batch_size,
+                            embeddings[0].len()
+                        );
                     }
                     return Ok(embeddings);
                 }
                 Err(e) => {
                     if attempt == max_retries - 1 {
                         println!("[EMBEDDING] FAILED after {} attempts: {}", max_retries, e);
-                        return Err(format!("Failed to get embeddings after {} attempts: {}", max_retries, e).into());
+                        return Err(format!(
+                            "Failed to get embeddings after {} attempts: {}",
+                            max_retries, e
+                        )
+                        .into());
                     }
-                    println!("[EMBEDDING] Attempt {} failed, retrying in 1 second...{}", attempt + 1, e);
+                    println!(
+                        "[EMBEDDING] Attempt {} failed, retrying in 1 second...{}",
+                        attempt + 1,
+                        e
+                    );
                     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 }
             }
@@ -169,7 +198,8 @@ impl LMStudioClient {
             model: self.embedding_model.clone(),
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .json(&request)
             .timeout(std::time::Duration::from_secs(60))
@@ -177,7 +207,9 @@ impl LMStudioClient {
             .await?;
 
         if !response.status().is_success() {
-            return Err(format!("LM Studio embedding request failed: {}", response.status()).into());
+            return Err(
+                format!("LM Studio embedding request failed: {}", response.status()).into(),
+            );
         }
 
         let embedding_response: EmbeddingResponse = response.json().await?;
@@ -192,14 +224,24 @@ impl LMStudioClient {
         let embeddings: Vec<Vec<f32>> = data.into_iter().map(|d| d.embedding).collect();
 
         if embeddings.len() != texts.len() {
-            return Err(format!("Expected {} embeddings, got {}", texts.len(), embeddings.len()).into());
+            return Err(format!(
+                "Expected {} embeddings, got {}",
+                texts.len(),
+                embeddings.len()
+            )
+            .into());
         }
 
         Ok(embeddings)
     }
 
     /// Generate a single embedding with appropriate formatting
-    pub async fn generate_embedding(&self, text: &str, is_query: bool, document_title: Option<&str>) -> Result<Vec<f32>> {
+    pub async fn generate_embedding(
+        &self,
+        text: &str,
+        is_query: bool,
+        document_title: Option<&str>,
+    ) -> Result<Vec<f32>> {
         let formatted_text = self.format_text_for_embedding(text, is_query, document_title);
         let embeddings = self.generate_embeddings(vec![formatted_text]).await?;
         Ok(embeddings.into_iter().next().unwrap())
@@ -230,11 +272,7 @@ impl LMStudioClient {
         println!("📋 Model: {}", self.completion_model);
         println!("💭 Prompt length: {} chars", prompt.len());
 
-        let response = self.client
-            .post(&url)
-            .json(&request_body)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&request_body).send().await?;
 
         println!("📡 LM Studio response status: {}", response.status());
 
@@ -293,11 +331,7 @@ impl LMStudioClient {
             "stream": true
         });
 
-        let response = self.client
-            .post(&url)
-            .json(&request_body)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&request_body).send().await?;
 
         if !response.status().is_success() {
             return Err(format!("LM Studio completion failed: {}", response.status()).into());

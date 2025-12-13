@@ -1,12 +1,12 @@
-pub mod db;
-pub mod vector;
-pub mod rag;
-pub mod ollama;
-pub mod lmstudio;
-pub mod document;
 pub mod bookmark;
 pub mod bookmark_exclusion;
+pub mod db;
+pub mod document;
 pub mod fetcher;
+pub mod lmstudio;
+pub mod ollama;
+pub mod rag;
+pub mod vector;
 pub mod youtube;
 
 use std::error::Error;

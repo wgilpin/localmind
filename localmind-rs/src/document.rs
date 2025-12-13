@@ -67,20 +67,29 @@ impl DocumentProcessor {
             // Ensure actual_end is on a UTF-8 character boundary
             let mut safe_actual_end = actual_end;
             if actual_end > text_len {
-                println!("WARNING: actual_end ({}) > text_len ({}) before UTF-8 check", actual_end, text_len);
+                println!(
+                    "WARNING: actual_end ({}) > text_len ({}) before UTF-8 check",
+                    actual_end, text_len
+                );
             }
             while safe_actual_end > safe_start && !text.is_char_boundary(safe_actual_end) {
                 safe_actual_end -= 1;
             }
             if safe_actual_end > text_len {
-                println!("WARNING: safe_actual_end ({}) > text_len ({}) AFTER UTF-8 check", safe_actual_end, text_len);
+                println!(
+                    "WARNING: safe_actual_end ({}) > text_len ({}) AFTER UTF-8 check",
+                    safe_actual_end, text_len
+                );
             }
 
             // CRITICAL: Final safety check - never allow chunks to exceed document length
             let original_end = safe_actual_end;
             safe_actual_end = std::cmp::min(safe_actual_end, text_len);
             if original_end > text_len {
-                println!("WARNING: Clamping chunk end from {} to {} (doc len: {})", original_end, text_len, text_len);
+                println!(
+                    "WARNING: Clamping chunk end from {} to {} (doc len: {})",
+                    original_end, text_len, text_len
+                );
             }
             if safe_actual_end > safe_start {
                 let chunk_text = text[safe_start..safe_actual_end].trim_start().to_string();
@@ -111,14 +120,16 @@ impl DocumentProcessor {
                 new_start
             };
 
-
             if start >= text_len {
                 break;
             }
         }
 
         if chunk_count >= max_chunks {
-            println!("⚠️ Hit maximum chunk limit ({}) - stopping to prevent excessive chunking", max_chunks);
+            println!(
+                "⚠️ Hit maximum chunk limit ({}) - stopping to prevent excessive chunking",
+                max_chunks
+            );
         }
 
         Ok(chunks)
@@ -142,7 +153,11 @@ impl DocumentProcessor {
             while fallback > safe_start && !text.is_char_boundary(fallback) {
                 fallback -= 1;
             }
-            return if fallback > safe_start { fallback } else { safe_start };
+            return if fallback > safe_start {
+                fallback
+            } else {
+                safe_start
+            };
         }
 
         // First, try to find natural break points within the preferred chunk size
@@ -314,10 +329,13 @@ mod tests {
 
         // Check that chunks have proper overlap
         for i in 1..chunks.len() {
-            let prev_end = &chunks[i-1].content[chunks[i-1].content.len().saturating_sub(10)..];
+            let prev_end = &chunks[i - 1].content[chunks[i - 1].content.len().saturating_sub(10)..];
             let curr_start = &chunks[i].content[..std::cmp::min(10, chunks[i].content.len())];
             // There should be some overlap or natural break
-            assert!(prev_end.chars().any(|c| curr_start.contains(c)) || chunks[i-1].content.ends_with('.'));
+            assert!(
+                prev_end.chars().any(|c| curr_start.contains(c))
+                    || chunks[i - 1].content.ends_with('.')
+            );
         }
     }
 
@@ -512,10 +530,20 @@ mod tests {
 
         // Print chunks for debugging
         for (i, chunk) in chunks.iter().enumerate() {
-            println!("Chunk {}: '{}' ({}..{})", i, chunk.content, chunk.start_pos, chunk.end_pos);
-            println!("  Last char of content: '{}'", chunk.content.chars().last().unwrap_or(' '));
+            println!(
+                "Chunk {}: '{}' ({}..{})",
+                i, chunk.content, chunk.start_pos, chunk.end_pos
+            );
+            println!(
+                "  Last char of content: '{}'",
+                chunk.content.chars().last().unwrap_or(' ')
+            );
             if chunk.end_pos < text.len() {
-                println!("  Char at end_pos {}: '{}'", chunk.end_pos, text.chars().nth(chunk.end_pos).unwrap_or(' '));
+                println!(
+                    "  Char at end_pos {}: '{}'",
+                    chunk.end_pos,
+                    text.chars().nth(chunk.end_pos).unwrap_or(' ')
+                );
             }
         }
 
@@ -535,21 +563,29 @@ mod tests {
                     };
 
                     // Debug: Show the exact byte positions
-                    println!("Chunk ends with '{}' at pos {}, next char at pos {} is '{}' (byte: {})",
-                        last_char, chunk.end_pos, chunk.end_pos, next_char, text_bytes.get(chunk.end_pos).unwrap_or(&0));
+                    println!(
+                        "Chunk ends with '{}' at pos {}, next char at pos {} is '{}' (byte: {})",
+                        last_char,
+                        chunk.end_pos,
+                        chunk.end_pos,
+                        next_char,
+                        text_bytes.get(chunk.end_pos).unwrap_or(&0)
+                    );
 
                     // If not at end of text, should end with punctuation or whitespace, not mid-word
                     assert!(
-                        last_char.is_whitespace() ||
-                        last_char.is_ascii_punctuation() ||
-                        content.ends_with('.') ||
-                        content.ends_with('!') ||
-                        content.ends_with('?') ||
-                        content.ends_with(',') ||
-                        content.ends_with(';') ||
-                        content.ends_with(':') ||
-                        next_char.is_whitespace(), // Allow if next char is whitespace (word boundary)
-                        "Chunk ends mid-word: '{}' (next char: '{}')", content, next_char
+                        last_char.is_whitespace()
+                            || last_char.is_ascii_punctuation()
+                            || content.ends_with('.')
+                            || content.ends_with('!')
+                            || content.ends_with('?')
+                            || content.ends_with(',')
+                            || content.ends_with(';')
+                            || content.ends_with(':')
+                            || next_char.is_whitespace(), // Allow if next char is whitespace (word boundary)
+                        "Chunk ends mid-word: '{}' (next char: '{}')",
+                        content,
+                        next_char
                     );
                 }
             }
@@ -565,18 +601,50 @@ mod tests {
 
         for chunk in &chunks {
             // Verify that common prefixes/suffixes aren't broken off
-            assert!(!chunk.content.trim().starts_with("tion "), "Chunk starts with broken suffix: '{}'", chunk.content);
-            assert!(!chunk.content.trim().starts_with("ing "), "Chunk starts with broken suffix: '{}'", chunk.content);
-            assert!(!chunk.content.trim().starts_with("ed "), "Chunk starts with broken suffix: '{}'", chunk.content);
-            assert!(!chunk.content.trim().starts_with("er "), "Chunk starts with broken suffix: '{}'", chunk.content);
-            assert!(!chunk.content.trim().starts_with("ly "), "Chunk starts with broken suffix: '{}'", chunk.content);
+            assert!(
+                !chunk.content.trim().starts_with("tion "),
+                "Chunk starts with broken suffix: '{}'",
+                chunk.content
+            );
+            assert!(
+                !chunk.content.trim().starts_with("ing "),
+                "Chunk starts with broken suffix: '{}'",
+                chunk.content
+            );
+            assert!(
+                !chunk.content.trim().starts_with("ed "),
+                "Chunk starts with broken suffix: '{}'",
+                chunk.content
+            );
+            assert!(
+                !chunk.content.trim().starts_with("er "),
+                "Chunk starts with broken suffix: '{}'",
+                chunk.content
+            );
+            assert!(
+                !chunk.content.trim().starts_with("ly "),
+                "Chunk starts with broken suffix: '{}'",
+                chunk.content
+            );
 
             // Verify chunks don't end with incomplete words (partial prefixes)
             let trimmed = chunk.content.trim();
             if !trimmed.is_empty() && chunk.end_pos < text.len() {
-                assert!(!trimmed.ends_with("adm"), "Chunk ends with partial word: '{}'", chunk.content);
-                assert!(!trimmed.ends_with("doc"), "Chunk ends with partial word: '{}'", chunk.content);
-                assert!(!trimmed.ends_with("eff"), "Chunk ends with partial word: '{}'", chunk.content);
+                assert!(
+                    !trimmed.ends_with("adm"),
+                    "Chunk ends with partial word: '{}'",
+                    chunk.content
+                );
+                assert!(
+                    !trimmed.ends_with("doc"),
+                    "Chunk ends with partial word: '{}'",
+                    chunk.content
+                );
+                assert!(
+                    !trimmed.ends_with("eff"),
+                    "Chunk ends with partial word: '{}'",
+                    chunk.content
+                );
             }
         }
     }

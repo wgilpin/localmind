@@ -1,8 +1,10 @@
-use crate::{Result, fetcher::WebFetcher, youtube::YouTubeProcessor, bookmark_exclusion::ExclusionRules};
+use crate::{
+    bookmark_exclusion::ExclusionRules, fetcher::WebFetcher, youtube::YouTubeProcessor, Result,
+};
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::fs;
-use notify::{Watcher, RecursiveMode, Event, EventKind};
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,13 +54,7 @@ impl BookmarkMonitor {
         let bookmarks_path = Self::get_chrome_bookmarks_path()?;
         let (tx, rx) = mpsc::unbounded_channel();
 
-        Ok((
-            Self {
-                bookmarks_path,
-                tx,
-            },
-            rx,
-        ))
+        Ok((Self { bookmarks_path, tx }, rx))
     }
 
     pub fn get_chrome_bookmarks_path() -> Result<PathBuf> {
@@ -199,8 +195,8 @@ impl BookmarkMonitor {
 
         // Create watcher in a blocking thread
         let _handle = tokio::task::spawn_blocking(move || {
-            let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-                match res {
+            let mut watcher =
+                notify::recommended_watcher(move |res: notify::Result<Event>| match res {
                     Ok(event) => {
                         if matches!(event.kind, EventKind::Modify(_)) {
                             if let Err(e) = tx.blocking_send(()) {
@@ -209,10 +205,12 @@ impl BookmarkMonitor {
                         }
                     }
                     Err(e) => eprintln!("Watch error: {:?}", e),
-                }
-            }).unwrap();
+                })
+                .unwrap();
 
-            watcher.watch(&bookmarks_path_watcher, RecursiveMode::NonRecursive).unwrap();
+            watcher
+                .watch(&bookmarks_path_watcher, RecursiveMode::NonRecursive)
+                .unwrap();
 
             // Keep the watcher alive
             loop {
@@ -254,7 +252,10 @@ impl BookmarkMonitor {
         let mut result = Vec::new();
         let fetcher = WebFetcher::new();
 
-        println!("Starting bookmark ingestion for {} bookmarks", bookmarks.len());
+        println!(
+            "Starting bookmark ingestion for {} bookmarks",
+            bookmarks.len()
+        );
 
         for bookmark in bookmarks {
             if let Some(url) = &bookmark.url {
@@ -277,7 +278,10 @@ impl BookmarkMonitor {
                     match YouTubeProcessor::fetch_transcript(url).await {
                         Ok(Some(transcript)) => {
                             println!("Using YouTube transcript for bookmark: {}", cleaned_title);
-                            (cleaned_title, format!("Bookmark: {}\nURL: {}\n\n{}", title, url, transcript))
+                            (
+                                cleaned_title,
+                                format!("Bookmark: {}\nURL: {}\n\n{}", title, url, transcript),
+                            )
                         }
                         Ok(None) => {
                             println!("⚠️ No YouTube transcript available, using fallback content");
@@ -285,32 +289,53 @@ impl BookmarkMonitor {
                             let fallback_content = match fetcher.fetch_page_content(url).await {
                                 Ok(content) => {
                                     if content.is_empty() {
-                                        format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", title, url)
+                                        format!(
+                                            "Bookmark: {}\nURL: {}\n\n[No content extracted]",
+                                            title, url
+                                        )
                                     } else {
                                         format!("Bookmark: {}\nURL: {}\n\n{}", title, url, content)
                                     }
                                 }
                                 Err(e) => {
-                                    println!("⚠️ Failed to fetch fallback content from {}: {}", url, e);
-                                    format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", title, url, e)
+                                    println!(
+                                        "⚠️ Failed to fetch fallback content from {}: {}",
+                                        url, e
+                                    );
+                                    format!(
+                                        "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
+                                        title, url, e
+                                    )
                                 }
                             };
                             (cleaned_title, fallback_content)
                         }
                         Err(e) => {
-                            println!("⚠️ Failed to fetch YouTube transcript: {}, using fallback content", e);
+                            println!(
+                                "⚠️ Failed to fetch YouTube transcript: {}, using fallback content",
+                                e
+                            );
                             // Use WebFetcher as fallback
                             let fallback_content = match fetcher.fetch_page_content(url).await {
                                 Ok(content) => {
                                     if content.is_empty() {
-                                        format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", title, url)
+                                        format!(
+                                            "Bookmark: {}\nURL: {}\n\n[No content extracted]",
+                                            title, url
+                                        )
                                     } else {
                                         format!("Bookmark: {}\nURL: {}\n\n{}", title, url, content)
                                     }
                                 }
                                 Err(e) => {
-                                    println!("⚠️ Failed to fetch fallback content from {}: {}", url, e);
-                                    format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", title, url, e)
+                                    println!(
+                                        "⚠️ Failed to fetch fallback content from {}: {}",
+                                        url, e
+                                    );
+                                    format!(
+                                        "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
+                                        title, url, e
+                                    )
                                 }
                             };
                             (cleaned_title, fallback_content)
@@ -321,14 +346,20 @@ impl BookmarkMonitor {
                     let content = match fetcher.fetch_page_content(url).await {
                         Ok(content) => {
                             if content.is_empty() {
-                                format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", title, url)
+                                format!(
+                                    "Bookmark: {}\nURL: {}\n\n[No content extracted]",
+                                    title, url
+                                )
                             } else {
                                 format!("Bookmark: {}\nURL: {}\n\n{}", title, url, content)
                             }
                         }
                         Err(e) => {
                             println!("⚠️ Failed to fetch content from {}: {}", url, e);
-                            format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", title, url, e)
+                            format!(
+                                "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
+                                title, url, e
+                            )
                         }
                     };
                     (title, content)
@@ -336,7 +367,10 @@ impl BookmarkMonitor {
 
                 let content_len = content.len();
                 result.push((processed_title.clone(), content, url.clone(), false));
-                println!("Processed bookmark: {} ({} chars)", processed_title, content_len);
+                println!(
+                    "Processed bookmark: {} ({} chars)",
+                    processed_title, content_len
+                );
             }
         }
 
@@ -346,10 +380,14 @@ impl BookmarkMonitor {
     }
 
     pub async fn get_bookmarks_metadata(&self) -> Result<Vec<(String, String)>> {
-        self.get_bookmarks_metadata_with_exclusion(&ExclusionRules::empty()).await
+        self.get_bookmarks_metadata_with_exclusion(&ExclusionRules::empty())
+            .await
     }
 
-    pub async fn get_bookmarks_metadata_with_exclusion(&self, exclusion_rules: &ExclusionRules) -> Result<Vec<(String, String)>> {
+    pub async fn get_bookmarks_metadata_with_exclusion(
+        &self,
+        exclusion_rules: &ExclusionRules,
+    ) -> Result<Vec<(String, String)>> {
         let roots = self.get_bookmark_roots()?;
         let mut bookmarks_with_paths = Vec::new();
 
@@ -364,7 +402,10 @@ impl BookmarkMonitor {
         }
 
         let mut result = Vec::new();
-        println!("Found {} bookmarks for processing (after exclusions)", bookmarks_with_paths.len());
+        println!(
+            "Found {} bookmarks for processing (after exclusions)",
+            bookmarks_with_paths.len()
+        );
 
         for bookmark_item in bookmarks_with_paths {
             if let Some(url) = &bookmark_item.item.url {
@@ -393,7 +434,7 @@ impl BookmarkMonitor {
             Ok(folders) => {
                 println!("Successfully parsed {} bookmark folders", folders.len());
                 folders
-            },
+            }
             Err(e) => {
                 eprintln!("ERROR: Failed to parse bookmark folders: {}", e);
                 eprintln!("Bookmarks path: {:?}", self.bookmarks_path);
@@ -422,7 +463,12 @@ impl BookmarkMonitor {
         Ok(folders)
     }
 
-    fn extract_folders(&self, item: &BookmarkItem, folders: &mut Vec<BookmarkFolder>, current_path: &[String]) {
+    fn extract_folders(
+        &self,
+        item: &BookmarkItem,
+        folders: &mut Vec<BookmarkFolder>,
+        current_path: &[String],
+    ) {
         // Skip if this is a bookmark (has a URL)
         if item.url.is_some() {
             return;
@@ -487,7 +533,10 @@ impl BookmarkMonitor {
                     println!("⚠️ No YouTube transcript available, using original content");
                 }
                 Err(e) => {
-                    println!("⚠️ Failed to fetch YouTube transcript: {}, using original content", e);
+                    println!(
+                        "⚠️ Failed to fetch YouTube transcript: {}, using original content",
+                        e
+                    );
                 }
             }
         }
@@ -503,13 +552,15 @@ impl BookmarkMonitor {
             }
             Err(e) => {
                 println!("⚠️ Failed to fetch content from {}: {}", url, e);
-                format!("Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]", url, url, e)
+                format!(
+                    "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
+                    url, url, e
+                )
             }
         };
 
         Ok(content)
     }
-
 }
 
 impl Default for BookmarkMonitor {
@@ -542,7 +593,13 @@ mod tests {
             children: None,
         };
 
-        monitor.extract_bookmarks_with_exclusion(&test_item, &mut bookmarks, &exclusion_rules, &[], "root");
+        monitor.extract_bookmarks_with_exclusion(
+            &test_item,
+            &mut bookmarks,
+            &exclusion_rules,
+            &[],
+            "root",
+        );
 
         // Should not be excluded
         assert_eq!(bookmarks.len(), 1);
@@ -551,10 +608,7 @@ mod tests {
     #[test]
     fn test_extract_bookmarks_excludes_by_folder() {
         let monitor = BookmarkMonitor::new().unwrap().0;
-        let exclusion_rules = ExclusionRules::new(
-            vec!["excluded_folder".to_string()],
-            vec![],
-        );
+        let exclusion_rules = ExclusionRules::new(vec!["excluded_folder".to_string()], vec![]);
 
         let mut bookmarks = Vec::new();
         let test_item = BookmarkItem {
@@ -566,7 +620,13 @@ mod tests {
             children: None,
         };
 
-        monitor.extract_bookmarks_with_exclusion(&test_item, &mut bookmarks, &exclusion_rules, &[], "excluded_folder");
+        monitor.extract_bookmarks_with_exclusion(
+            &test_item,
+            &mut bookmarks,
+            &exclusion_rules,
+            &[],
+            "excluded_folder",
+        );
 
         // Should be excluded
         assert_eq!(bookmarks.len(), 0);
@@ -575,10 +635,7 @@ mod tests {
     #[test]
     fn test_extract_bookmarks_excludes_by_domain() {
         let monitor = BookmarkMonitor::new().unwrap().0;
-        let exclusion_rules = ExclusionRules::new(
-            vec![],
-            vec!["*.internal.com".to_string()],
-        );
+        let exclusion_rules = ExclusionRules::new(vec![], vec!["*.internal.com".to_string()]);
 
         let mut bookmarks = Vec::new();
         let test_item = BookmarkItem {
@@ -590,7 +647,13 @@ mod tests {
             children: None,
         };
 
-        monitor.extract_bookmarks_with_exclusion(&test_item, &mut bookmarks, &exclusion_rules, &[], "root");
+        monitor.extract_bookmarks_with_exclusion(
+            &test_item,
+            &mut bookmarks,
+            &exclusion_rules,
+            &[],
+            "root",
+        );
 
         // Should be excluded
         assert_eq!(bookmarks.len(), 0);
@@ -612,7 +675,13 @@ mod tests {
         };
 
         let folder_path = vec!["Bookmark Bar".to_string(), "Work".to_string()];
-        monitor.extract_bookmarks_with_exclusion(&test_item, &mut bookmarks, &exclusion_rules, &folder_path, "folder_123");
+        monitor.extract_bookmarks_with_exclusion(
+            &test_item,
+            &mut bookmarks,
+            &exclusion_rules,
+            &folder_path,
+            "folder_123",
+        );
 
         assert_eq!(bookmarks.len(), 1);
         assert_eq!(bookmarks[0].folder_path, folder_path);
@@ -634,8 +703,14 @@ mod tests {
             for folder in folders.iter().take(3) {
                 assert!(!folder.id.is_empty(), "Folder ID should not be empty");
                 assert!(!folder.name.is_empty(), "Folder name should not be empty");
-                assert!(folder.bookmark_count >= 0, "Bookmark count should be non-negative");
-                println!("  Folder: {} (ID: {}, Count: {})", folder.name, folder.id, folder.bookmark_count);
+                assert!(
+                    folder.bookmark_count >= 0,
+                    "Bookmark count should be non-negative"
+                );
+                println!(
+                    "  Folder: {} (ID: {}, Count: {})",
+                    folder.name, folder.id, folder.bookmark_count
+                );
             }
         }
     }

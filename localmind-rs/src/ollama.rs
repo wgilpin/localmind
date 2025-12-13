@@ -1,9 +1,9 @@
 use crate::Result;
+use futures_util::stream::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
-use futures_util::stream::StreamExt;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Serialize)]
 struct EmbeddingRequest {
@@ -60,7 +60,11 @@ impl OllamaClient {
         }
     }
 
-    pub fn with_models(base_url: String, embedding_model: String, completion_model: String) -> Self {
+    pub fn with_models(
+        base_url: String,
+        embedding_model: String,
+        completion_model: String,
+    ) -> Self {
         Self {
             base_url,
             client: Client::new(),
@@ -81,12 +85,7 @@ impl OllamaClient {
             },
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&request).send().await?;
 
         if !response.status().is_success() {
             return Err(format!("Ollama embedding request failed: {}", response.status()).into());
@@ -105,12 +104,7 @@ impl OllamaClient {
             stream: false,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&request).send().await?;
 
         if !response.status().is_success() {
             return Err(format!("Ollama completion request failed: {}", response.status()).into());
@@ -120,7 +114,11 @@ impl OllamaClient {
         Ok(completion_response.response)
     }
 
-    pub async fn generate_completion_with_cancellation(&self, prompt: &str, cancel_token: CancellationToken) -> Result<String> {
+    pub async fn generate_completion_with_cancellation(
+        &self,
+        prompt: &str,
+        cancel_token: CancellationToken,
+    ) -> Result<String> {
         let url = format!("{}/api/generate", self.base_url);
 
         let request = CompletionRequest {
@@ -188,11 +186,9 @@ impl OllamaClient {
     pub async fn check_models_available(&self) -> Result<(bool, bool, Vec<String>)> {
         let available_models = self.list_models().await?;
 
-        let embedding_available = available_models.iter()
-            .any(|m| m == &self.embedding_model);
+        let embedding_available = available_models.iter().any(|m| m == &self.embedding_model);
 
-        let completion_available = available_models.iter()
-            .any(|m| m == &self.completion_model);
+        let completion_available = available_models.iter().any(|m| m == &self.completion_model);
 
         Ok((embedding_available, completion_available, available_models))
     }
@@ -214,12 +210,7 @@ impl OllamaClient {
             stream: true,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&request).send().await?;
 
         if !response.status().is_success() {
             return Err(format!("Ollama completion request failed: {}", response.status()).into());
@@ -239,7 +230,8 @@ impl OllamaClient {
                 let trimmed = line_str.trim();
 
                 if !trimmed.is_empty() {
-                    if let Ok(response) = serde_json::from_str::<StreamCompletionResponse>(trimmed) {
+                    if let Ok(response) = serde_json::from_str::<StreamCompletionResponse>(trimmed)
+                    {
                         // Send the response chunk through the channel
                         let _ = tx.send(response.response);
 

@@ -34,7 +34,10 @@ impl VectorStore {
         Ok(())
     }
 
-    pub fn load_chunk_vectors(&mut self, chunk_vectors: Vec<(i64, i64, usize, usize, usize, Vec<f32>)>) -> Result<()> {
+    pub fn load_chunk_vectors(
+        &mut self,
+        chunk_vectors: Vec<(i64, i64, usize, usize, usize, Vec<f32>)>,
+    ) -> Result<()> {
         self.chunk_vectors = chunk_vectors;
         Ok(())
     }
@@ -44,8 +47,27 @@ impl VectorStore {
         Ok(())
     }
 
-    pub fn add_chunk_vector(&mut self, embedding_id: i64, doc_id: i64, chunk_index: usize, chunk_start: usize, chunk_end: usize, vector: Vec<f32>) -> Result<()> {
-        self.chunk_vectors.push((embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector));
+    pub fn chunk_vector_count(&self) -> usize {
+        self.chunk_vectors.len()
+    }
+
+    pub fn add_chunk_vector(
+        &mut self,
+        embedding_id: i64,
+        doc_id: i64,
+        chunk_index: usize,
+        chunk_start: usize,
+        chunk_end: usize,
+        vector: Vec<f32>,
+    ) -> Result<()> {
+        self.chunk_vectors.push((
+            embedding_id,
+            doc_id,
+            chunk_index,
+            chunk_start,
+            chunk_end,
+            vector,
+        ));
         Ok(())
     }
 
@@ -53,7 +75,12 @@ impl VectorStore {
         self.search_with_cutoff(query_vector, limit, 0.0)
     }
 
-    pub fn search_with_cutoff(&self, query_vector: &[f32], limit: usize, min_similarity: f32) -> Result<Vec<SearchResult>> {
+    pub fn search_with_cutoff(
+        &self,
+        query_vector: &[f32],
+        limit: usize,
+        min_similarity: f32,
+    ) -> Result<Vec<SearchResult>> {
         if query_vector.is_empty() {
             return Ok(vec![]);
         }
@@ -73,7 +100,11 @@ impl VectorStore {
         }
 
         // Sort by similarity (highest first)
-        similarities.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+        similarities.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Take top results
         similarities.truncate(limit);
@@ -81,18 +112,29 @@ impl VectorStore {
         Ok(similarities)
     }
 
-    pub fn search_chunks(&self, query_vector: &[f32], limit: usize) -> Result<Vec<ChunkSearchResult>> {
+    pub fn search_chunks(
+        &self,
+        query_vector: &[f32],
+        limit: usize,
+    ) -> Result<Vec<ChunkSearchResult>> {
         self.search_chunks_with_cutoff(query_vector, limit, 0.0)
     }
 
-    pub fn search_chunks_with_cutoff(&self, query_vector: &[f32], limit: usize, min_similarity: f32) -> Result<Vec<ChunkSearchResult>> {
+    pub fn search_chunks_with_cutoff(
+        &self,
+        query_vector: &[f32],
+        limit: usize,
+        min_similarity: f32,
+    ) -> Result<Vec<ChunkSearchResult>> {
         if query_vector.is_empty() {
             return Ok(vec![]);
         }
 
         let mut similarities: Vec<ChunkSearchResult> = Vec::new();
 
-        for (embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector) in &self.chunk_vectors {
+        for (embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector) in
+            &self.chunk_vectors
+        {
             if let Some(similarity) = cosine_similarity(query_vector, vector) {
                 // Only include results above the similarity threshold
                 if similarity >= min_similarity {
@@ -109,7 +151,11 @@ impl VectorStore {
         }
 
         // Sort by similarity (highest first)
-        similarities.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+        similarities.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Take top results
         similarities.truncate(limit);

@@ -24,9 +24,9 @@
 
 **Purpose**: Project initialization and dependency setup
 
-- [ ] T001 Add HTTP server dependencies to `localmind-rs/Cargo.toml` (axum, tower, tower-http with cors feature)
-- [ ] T002 [P] Verify existing dependencies (tokio, serde, serde_json) are compatible with axum requirements
-- [ ] T003 [P] Run `cargo check` to verify project compiles with new dependencies
+- [x] T001 Add HTTP server dependencies to `localmind-rs/Cargo.toml` (axum, tower, tower-http with cors feature)
+- [x] T002 [P] Verify existing dependencies (tokio, serde, serde_json) are compatible with axum requirements
+- [x] T003 [P] Run `cargo check` to verify project compiles with new dependencies
 
 **Checkpoint**: Dependencies added and project compiles successfully
 
@@ -38,13 +38,13 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Create HTTP server module structure in `localmind-rs/src/http_server.rs` with module declaration
-- [ ] T005 [P] Define `AppState` struct in `localmind-rs/src/http_server.rs` wrapping `RagState` for axum State extractor
-- [ ] T006 [P] Define `ApiError` struct in `localmind-rs/src/http_server.rs` implementing `IntoResponse` trait for error handling
-- [ ] T007 [P] Implement `find_available_port` function in `localmind-rs/src/http_server.rs` for port conflict handling (ports 3000-3010)
-- [ ] T008 Create `start_http_server` function skeleton in `localmind-rs/src/http_server.rs` with basic axum Router setup
-- [ ] T009 Add module declaration `mod http_server;` to `localmind-rs/src/main.rs`
-- [ ] T010 Add import `use crate::http_server::start_http_server;` to `localmind-rs/src/main.rs`
+- [x] T004 Create HTTP server module structure in `localmind-rs/src/http_server.rs` with module declaration
+- [x] T005 [P] Define `AppState` struct in `localmind-rs/src/http_server.rs` wrapping `RagState` for axum State extractor
+- [x] T006 [P] Define `ApiError` struct in `localmind-rs/src/http_server.rs` implementing `IntoResponse` trait for error handling
+- [x] T007 [P] Implement `find_available_port` function in `localmind-rs/src/http_server.rs` for port conflict handling (ports 3000-3010)
+- [x] T008 Create `start_http_server` function skeleton in `localmind-rs/src/http_server.rs` with basic axum Router setup
+- [x] T009 Add module declaration `mod http_server;` to `localmind-rs/src/main.rs`
+- [x] T010 Add import `use crate::http_server::start_http_server;` to `localmind-rs/src/main.rs`
 
 **Checkpoint**: Foundation ready - HTTP server module structure exists and can be integrated into main.rs
 
@@ -58,15 +58,15 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Define `DocumentRequest` struct in `localmind-rs/src/http_server.rs` with Deserialize trait (title, content, url, extractionMethod fields)
-- [ ] T012 [US1] Define `SuccessResponse` struct in `localmind-rs/src/http_server.rs` with Serialize trait (message, extractionMethod fields)
-- [ ] T013 [US1] Implement `handle_post_documents` handler function in `localmind-rs/src/http_server.rs` with basic validation (title and content required)
-- [ ] T014 [US1] Add RAG state initialization check in `handle_post_documents` in `localmind-rs/src/http_server.rs` (return HTTP 503 if not initialized)
-- [ ] T015 [US1] Implement document ingestion call in `handle_post_documents` in `localmind-rs/src/http_server.rs` using `rag.ingest_document()` with source "chrome_extension", wrapping in error handling that returns HTTP 500 Internal Server Error with format `{ message: "Failed to add document: {error}" }` if ingestion fails
-- [ ] T016 [US1] Add request validation error handling in `handle_post_documents` in `localmind-rs/src/http_server.rs` (return HTTP 400 for missing fields)
-- [ ] T017 [US1] Add request size limit middleware to Router in `start_http_server` function in `localmind-rs/src/http_server.rs` (10MB limit via DefaultBodyLimit)
-- [ ] T018 [US1] Add POST /documents route to Router in `start_http_server` function in `localmind-rs/src/http_server.rs`
-- [ ] T019 [US1] Integrate HTTP server startup into RAG initialization flow in `localmind-rs/src/main.rs` (spawn after RAG system initializes)
+- [x] T011 [US1] Define `DocumentRequest` struct in `localmind-rs/src/http_server.rs` with Deserialize trait (title, content, url, extractionMethod fields)
+- [x] T012 [US1] Define `SuccessResponse` struct in `localmind-rs/src/http_server.rs` with Serialize trait (message, extractionMethod fields)
+- [x] T013 [US1] Implement `handle_post_documents` handler function in `localmind-rs/src/http_server.rs` with basic validation (title and content required)
+- [x] T014 [US1] Add RAG state initialization check in `handle_post_documents` in `localmind-rs/src/http_server.rs` (return HTTP 503 if not initialized)
+- [x] T015 [US1] Implement document ingestion call in `handle_post_documents` in `localmind-rs/src/http_server.rs` using `rag.ingest_document()` with source "chrome_extension", wrapping in error handling that returns HTTP 500 Internal Server Error with format `{ message: "Failed to add document: {error}" }` if ingestion fails
+- [x] T016 [US1] Add request validation error handling in `handle_post_documents` in `localmind-rs/src/http_server.rs` (return HTTP 400 for missing fields)
+- [x] T017 [US1] Add request size limit middleware to Router in `start_http_server` function in `localmind-rs/src/http_server.rs` (10MB limit via DefaultBodyLimit)
+- [x] T018 [US1] Add POST /documents route to Router in `start_http_server` function in `localmind-rs/src/http_server.rs`
+- [x] T019 [US1] Integrate HTTP server startup into RAG initialization flow in `localmind-rs/src/main.rs` (spawn after RAG system initializes)
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - Chrome extension can send documents and they appear in Tauri GUI search results
 
@@ -82,9 +82,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T020 [US4] Verify `AppState` in `localmind-rs/src/http_server.rs` uses same `RagState` type as Tauri IPC commands
-- [ ] T021 [US4] Ensure HTTP server receives `RagState` clone from same instance managed by Tauri in `localmind-rs/src/main.rs`
-- [ ] T022 [US4] Add integration test or manual validation that documents added via HTTP are immediately searchable in Tauri GUI
+- [x] T020 [US4] Verify `AppState` in `localmind-rs/src/http_server.rs` uses same `RagState` type as Tauri IPC commands
+- [x] T021 [US4] Ensure HTTP server receives `RagState` clone from same instance managed by Tauri in `localmind-rs/src/main.rs`
+- [x] T022 [US4] Add integration test or manual validation that documents added via HTTP are immediately searchable in Tauri GUI
 
 **Checkpoint**: Data consistency verified - documents added via either interface are immediately available in both
 
@@ -98,11 +98,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Implement port finding logic in `find_available_port` function in `localmind-rs/src/http_server.rs` (try ports 3000-3010 sequentially)
-- [ ] T024 [US2] Add port binding logging in `start_http_server` function in `localmind-rs/src/http_server.rs` (log which port was successfully bound)
-- [ ] T025 [US2] Add error handling for port unavailability in `start_http_server` function in `localmind-rs/src/http_server.rs` (log error but continue running Tauri GUI)
-- [ ] T026 [US2] Ensure HTTP server starts after RAG initialization completes in `localmind-rs/src/main.rs` (spawn HTTP server task after RAG is stored in state)
-- [ ] T027 [US2] Add startup logging in `start_http_server` function in `localmind-rs/src/http_server.rs` ("HTTP server listening on http://localhost:{port}")
+- [x] T023 [US2] Implement port finding logic in `find_available_port` function in `localmind-rs/src/http_server.rs` (try ports 3000-3010 sequentially)
+- [x] T024 [US2] Add port binding logging in `start_http_server` function in `localmind-rs/src/http_server.rs` (log which port was successfully bound)
+- [x] T025 [US2] Add error handling for port unavailability in `start_http_server` function in `localmind-rs/src/http_server.rs` (log error but continue running Tauri GUI)
+- [x] T026 [US2] Ensure HTTP server starts after RAG initialization completes in `localmind-rs/src/main.rs` (spawn HTTP server task after RAG is stored in state)
+- [x] T027 [US2] Add startup logging in `start_http_server` function in `localmind-rs/src/http_server.rs` ("HTTP server listening on http://localhost:{port}")
 
 **Checkpoint**: HTTP server starts automatically on application launch and is ready to accept requests
 
@@ -116,11 +116,11 @@
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Add CORS middleware to Router in `start_http_server` function in `localmind-rs/src/http_server.rs` using tower-http CorsLayer
-- [ ] T029 [US3] Configure CORS to allow all origins (`Any`) in `start_http_server` function in `localmind-rs/src/http_server.rs`
-- [ ] T030 [US3] Configure CORS to allow POST and OPTIONS methods in `start_http_server` function in `localmind-rs/src/http_server.rs`
-- [ ] T031 [US3] Configure CORS to allow Content-Type header in `start_http_server` function in `localmind-rs/src/http_server.rs`
-- [ ] T032 [US3] Verify OPTIONS preflight requests return appropriate CORS headers (axum handles automatically with CorsLayer)
+- [x] T028 [US3] Add CORS middleware to Router in `start_http_server` function in `localmind-rs/src/http_server.rs` using tower-http CorsLayer
+- [x] T029 [US3] Configure CORS to allow all origins (`Any`) in `start_http_server` function in `localmind-rs/src/http_server.rs`
+- [x] T030 [US3] Configure CORS to allow POST and OPTIONS methods in `start_http_server` function in `localmind-rs/src/http_server.rs`
+- [x] T031 [US3] Configure CORS to allow Content-Type header in `start_http_server` function in `localmind-rs/src/http_server.rs`
+- [x] T032 [US3] Verify OPTIONS preflight requests return appropriate CORS headers (axum handles automatically with CorsLayer)
 
 **Checkpoint**: CORS headers correctly set - browser extension requests succeed
 
@@ -134,11 +134,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T033 [US5] Add YouTube URL detection in `handle_post_documents` function in `localmind-rs/src/http_server.rs` using `YouTubeProcessor::is_youtube_url()`
-- [ ] T034 [US5] Add YouTube transcript fetching logic in `handle_post_documents` function in `localmind-rs/src/http_server.rs` using `YouTubeProcessor::fetch_transcript()` with 30-second timeout
-- [ ] T035 [US5] Add title cleanup logic in `handle_post_documents` function in `localmind-rs/src/http_server.rs` using `YouTubeProcessor::cleanup_title()` for YouTube URLs
-- [ ] T036 [US5] Implement fallback to provided content if transcript fetch fails in `handle_post_documents` function in `localmind-rs/src/http_server.rs`
-- [ ] T037 [US5] Add logging for extraction method in `handle_post_documents` function in `localmind-rs/src/http_server.rs` per FR-025
+- [x] T033 [US5] Add YouTube URL detection in `handle_post_documents` function in `localmind-rs/src/http_server.rs` using `YouTubeProcessor::is_youtube_url()`
+- [x] T034 [US5] Add YouTube transcript fetching logic in `handle_post_documents` function in `localmind-rs/src/http_server.rs` using `YouTubeProcessor::fetch_transcript()` with 30-second timeout
+- [x] T035 [US5] Add title cleanup logic in `handle_post_documents` function in `localmind-rs/src/http_server.rs` using `YouTubeProcessor::cleanup_title()` for YouTube URLs
+- [x] T036 [US5] Implement fallback to provided content if transcript fetch fails in `handle_post_documents` function in `localmind-rs/src/http_server.rs`
+- [x] T037 [US5] Add logging for extraction method in `handle_post_documents` function in `localmind-rs/src/http_server.rs` per FR-025
 
 **Checkpoint**: YouTube transcript enhancement working - YouTube URLs automatically fetch transcripts with proper title cleanup
 
@@ -148,13 +148,13 @@
 
 **Purpose**: Code quality, documentation, and validation improvements
 
-- [ ] T038 [P] Add doc comments to all public functions in `localmind-rs/src/http_server.rs` per constitution requirements
-- [ ] T039 [P] Run `cargo fmt` on `localmind-rs/src/http_server.rs` and `localmind-rs/src/main.rs`
-- [ ] T040 [P] Run `cargo clippy` and fix all warnings in `localmind-rs/src/http_server.rs` and `localmind-rs/src/main.rs`
-- [ ] T041 Add error logging for HTTP server startup failures in `localmind-rs/src/main.rs`
-- [ ] T042 Add request processing logging in `handle_post_documents` function in `localmind-rs/src/http_server.rs` per FR-019
-- [ ] T043 Validate all error responses match spec format `{ message: "..." }` in `localmind-rs/src/http_server.rs`
-- [ ] T044 Validate success response format matches spec `{ message: "Document added successfully.", extractionMethod: string }` in `localmind-rs/src/http_server.rs`
+- [x] T038 [P] Add doc comments to all public functions in `localmind-rs/src/http_server.rs` per constitution requirements
+- [x] T039 [P] Run `cargo fmt` on `localmind-rs/src/http_server.rs` and `localmind-rs/src/main.rs`
+- [x] T040 [P] Run `cargo clippy` and fix all warnings in `localmind-rs/src/http_server.rs` and `localmind-rs/src/main.rs`
+- [x] T041 Add error logging for HTTP server startup failures in `localmind-rs/src/main.rs`
+- [x] T042 Add request processing logging in `handle_post_documents` function in `localmind-rs/src/http_server.rs` per FR-019
+- [x] T043 Validate all error responses match spec format `{ message: "..." }` in `localmind-rs/src/http_server.rs`
+- [x] T044 Validate success response format matches spec `{ message: "Document added successfully.", extractionMethod: string }` in `localmind-rs/src/http_server.rs`
 - [ ] T045 Test all acceptance scenarios from spec.md using quickstart.md procedures
 - [ ] T046 Verify HTTP server handles concurrent requests per SC-004 (test with 10+ simultaneous POST requests, verify no errors or data loss)
 - [ ] T047 Verify HTTP server remains responsive while Tauri GUI performs searches per SC-007

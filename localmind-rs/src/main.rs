@@ -14,6 +14,9 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use std::collections::HashMap;
 
+mod http_server;
+use crate::http_server::start_http_server;
+
 type RagState = Arc<RwLock<Option<RAG>>>;
 type GenerationState = Arc<RwLock<HashMap<String, CancellationToken>>>;
 
@@ -630,6 +633,14 @@ fn main() {
                             println!("RAG stored in state");
                         }
 
+                        // Start HTTP server
+                        let rag_state_for_http = rag_state_clone.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = start_http_server(rag_state_for_http).await {
+                                eprintln!("Failed to start HTTP server: {}", e);
+                            }
+                        });
+
                         // Start automatic bookmark monitoring
                         println!("Starting automatic bookmark monitoring...");
                         if let Err(e) = start_bookmark_monitoring(rag_state_clone.clone(), _window).await {
@@ -686,7 +697,7 @@ async fn init_rag_system() -> Result<RAG, Box<dyn std::error::Error + Send + Syn
         },
         Err(e) => {
             eprintln!("Database initialization failed: {}", e);
-            return Err(e.into());
+            return Err(e);
         }
     };
 
@@ -704,7 +715,7 @@ async fn init_rag_system() -> Result<RAG, Box<dyn std::error::Error + Send + Syn
         },
         Err(e) => {
             eprintln!("RAG pipeline initialization failed: {}", e);
-            return Err(e.into());
+            return Err(e);
         }
     };
 

@@ -1,14 +1,14 @@
 use crate::{
-    Result,
     db::{Database, Document, OperationPriority},
-    vector::VectorStore,
-    ollama::OllamaClient,
-    lmstudio::LMStudioClient,
     document::DocumentProcessor,
+    lmstudio::LMStudioClient,
+    ollama::OllamaClient,
+    vector::VectorStore,
+    Result,
 };
+use std::collections::{HashMap, HashSet};
+use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use std::collections::{HashSet, HashMap};
-use tokio::sync::{Mutex, mpsc};
 
 pub enum EmbeddingClient {
     Ollama(OllamaClient),
@@ -16,10 +16,19 @@ pub enum EmbeddingClient {
 }
 
 impl EmbeddingClient {
-    async fn generate_embedding(&self, text: &str, is_query: bool, document_title: Option<&str>) -> Result<Vec<f32>> {
+    async fn generate_embedding(
+        &self,
+        text: &str,
+        is_query: bool,
+        document_title: Option<&str>,
+    ) -> Result<Vec<f32>> {
         match self {
             EmbeddingClient::Ollama(client) => client.generate_embedding(text).await,
-            EmbeddingClient::LMStudio(client) => client.generate_embedding(text, is_query, document_title).await,
+            EmbeddingClient::LMStudio(client) => {
+                client
+                    .generate_embedding(text, is_query, document_title)
+                    .await
+            }
         }
     }
 
@@ -32,7 +41,11 @@ impl EmbeddingClient {
         }
     }
 
-    async fn generate_completion_with_cancellation(&self, prompt: &str, cancel_token: CancellationToken) -> Result<String> {
+    async fn generate_completion_with_cancellation(
+        &self,
+        prompt: &str,
+        cancel_token: CancellationToken,
+    ) -> Result<String> {
         match self {
             EmbeddingClient::Ollama(client) => client.generate_completion_with_cancellation(prompt, cancel_token).await,
             EmbeddingClient::LMStudio(_) => {
@@ -41,17 +54,36 @@ impl EmbeddingClient {
         }
     }
 
-    async fn generate_completion_stream(&self, prompt: &str, tx: mpsc::UnboundedSender<String>) -> Result<()> {
+    async fn generate_completion_stream(
+        &self,
+        prompt: &str,
+        tx: mpsc::UnboundedSender<String>,
+    ) -> Result<()> {
         match self {
             EmbeddingClient::Ollama(client) => client.generate_completion_stream(prompt, tx).await,
-            EmbeddingClient::LMStudio(client) => client.generate_completion_stream(prompt, tx).await,
+            EmbeddingClient::LMStudio(client) => {
+                client.generate_completion_stream(prompt, tx).await
+            }
         }
     }
 
-    async fn generate_completion_stream_with_cancellation(&self, prompt: &str, tx: mpsc::UnboundedSender<String>, cancel_token: CancellationToken) -> Result<()> {
+    async fn generate_completion_stream_with_cancellation(
+        &self,
+        prompt: &str,
+        tx: mpsc::UnboundedSender<String>,
+        cancel_token: CancellationToken,
+    ) -> Result<()> {
         match self {
-            EmbeddingClient::Ollama(client) => client.generate_completion_stream_with_cancellation(prompt, tx, cancel_token).await,
-            EmbeddingClient::LMStudio(client) => client.generate_completion_stream_with_cancellation(prompt, tx, cancel_token).await,
+            EmbeddingClient::Ollama(client) => {
+                client
+                    .generate_completion_stream_with_cancellation(prompt, tx, cancel_token)
+                    .await
+            }
+            EmbeddingClient::LMStudio(client) => {
+                client
+                    .generate_completion_stream_with_cancellation(prompt, tx, cancel_token)
+                    .await
+            }
         }
     }
 }
@@ -102,13 +134,17 @@ impl RagPipeline {
                 if let Ok(response) = reqwest::get(format!("{}/v1/models", url)).await {
                     if let Ok(models_data) = response.json::<serde_json::Value>().await {
                         if let Some(models) = models_data["data"].as_array() {
-                            let available_models: Vec<&str> = models.iter()
+                            let available_models: Vec<&str> = models
+                                .iter()
                                 .filter_map(|m| m["id"].as_str())
-                                .filter(|id| !id.contains("embedding") && !id.starts_with("text-embedding"))
+                                .filter(|id| {
+                                    !id.contains("embedding") && !id.starts_with("text-embedding")
+                                })
                                 .collect();
 
                             // Priority: Gemma 3 1B > other Gemma > Qwen > first available
-                            let completion_model = available_models.iter()
+                            let completion_model = available_models
+                                .iter()
                                 .find(|id| id.contains("gemma-3-1b") || id.contains("gemma3-1b"))
                                 .or_else(|| available_models.iter().find(|id| id.contains("gemma")))
                                 .or_else(|| available_models.iter().find(|id| id.contains("qwen")))
@@ -116,7 +152,8 @@ impl RagPipeline {
                                 .unwrap_or(&"gemma-3-1b-it-qat");
 
                             println!("Using LM Studio completion model: {}", completion_model);
-                            lmstudio_client = lmstudio_client.with_completion_model(completion_model.to_string());
+                            lmstudio_client =
+                                lmstudio_client.with_completion_model(completion_model.to_string());
                         }
                     }
                 }
@@ -138,11 +175,17 @@ impl RagPipeline {
 
         // Load existing chunk embeddings from database
         let chunk_embeddings = db.get_all_chunk_embeddings().await?;
+        let chunk_count = chunk_embeddings.len();
         vector_store.load_chunk_vectors(chunk_embeddings)?;
+        println!("Loaded {} chunk embeddings from database", chunk_count);
 
         // For backward compatibility, also load old document embeddings
         let legacy_embeddings = db.get_all_embeddings().await?;
+        let legacy_count = legacy_embeddings.len();
         vector_store.load_vectors(legacy_embeddings)?;
+        if legacy_count > 0 {
+            println!("Loaded {} legacy document embeddings from database", legacy_count);
+        }
 
         Ok(Self {
             db,
@@ -154,17 +197,27 @@ impl RagPipeline {
         })
     }
 
-    pub async fn new_with_lmstudio(db: Database, lmstudio_client: LMStudioClient, ollama_client: Option<OllamaClient>) -> Result<Self> {
+    pub async fn new_with_lmstudio(
+        db: Database,
+        lmstudio_client: LMStudioClient,
+        ollama_client: Option<OllamaClient>,
+    ) -> Result<Self> {
         let document_processor = DocumentProcessor::default();
         let mut vector_store = VectorStore::new();
 
         // Load existing chunk embeddings from database
         let chunk_embeddings = db.get_all_chunk_embeddings().await?;
+        let chunk_count = chunk_embeddings.len();
         vector_store.load_chunk_vectors(chunk_embeddings)?;
+        println!("Loaded {} chunk embeddings from database", chunk_count);
 
         // For backward compatibility, also load old document embeddings
         let legacy_embeddings = db.get_all_embeddings().await?;
+        let legacy_count = legacy_embeddings.len();
         vector_store.load_vectors(legacy_embeddings)?;
+        if legacy_count > 0 {
+            println!("Loaded {} legacy document embeddings from database", legacy_count);
+        }
 
         Ok(Self {
             db,
@@ -188,14 +241,23 @@ impl RagPipeline {
         {
             let cache = self.query_embedding_cache.lock().await;
             if let Some(cached_embedding) = cache.get(query) {
-                println!("Using cached embedding for query: {}", query.chars().take(50).collect::<String>());
+                println!(
+                    "Using cached embedding for query: {}",
+                    query.chars().take(50).collect::<String>()
+                );
                 return Ok(cached_embedding.clone());
             }
         }
 
         // Generate new embedding with query formatting
-        println!("Generating new embedding for query: {}", query.chars().take(50).collect::<String>());
-        let embedding = self.embedding_client.generate_embedding(query, true, None).await?;
+        println!(
+            "Generating new embedding for query: {}",
+            query.chars().take(50).collect::<String>()
+        );
+        let embedding = self
+            .embedding_client
+            .generate_embedding(query, true, None)
+            .await?;
 
         // Cache the embedding
         {
@@ -220,7 +282,6 @@ impl RagPipeline {
         url: Option<&str>,
         source: &str,
     ) -> Result<i64> {
-
         // Chunk the document
         let chunks = self.document_processor.chunk_text(content)?;
 
@@ -229,26 +290,34 @@ impl RagPipeline {
             return Err("Document produced no chunks".into());
         }
 
-        println!("Processing document: '{}' → {} chunks (content: {} chars)",
-                 title.chars().take(60).collect::<String>(),
-                 chunks.len(),
-                 content.len());
+        println!(
+            "Processing document: '{}' → {} chunks (content: {} chars)",
+            title.chars().take(60).collect::<String>(),
+            chunks.len(),
+            content.len()
+        );
 
         // Store the full document (without embedding in document table)
-        let doc_id = self.db.insert_document(
-            title,
-            content,
-            url,
-            source,
-            None, // No embedding at document level
-            None, // is_dead defaults to false
-            OperationPriority::BackgroundIngest,
-        ).await?;
+        let doc_id = self
+            .db
+            .insert_document(
+                title,
+                content,
+                url,
+                source,
+                None, // No embedding at document level
+                None, // is_dead defaults to false
+                OperationPriority::BackgroundIngest,
+            )
+            .await?;
 
         // Generate and store embeddings for each chunk
         for (chunk_index, chunk) in chunks.iter().enumerate() {
             // Generate embedding for this chunk with document formatting
-            let chunk_embedding = self.embedding_client.generate_embedding(&chunk.content, false, Some(title)).await?;
+            let chunk_embedding = self
+                .embedding_client
+                .generate_embedding(&chunk.content, false, Some(title))
+                .await?;
             let embedding_bytes = bincode::serialize(&chunk_embedding)?;
 
             // Use actual chunk boundaries from DocumentChunk
@@ -256,14 +325,17 @@ impl RagPipeline {
             let chunk_end = chunk.end_pos;
 
             // Insert chunk embedding
-            let embedding_id = self.db.insert_chunk_embedding(
-                doc_id,
-                chunk_index,
-                chunk_start,
-                chunk_end,
-                &embedding_bytes,
-                OperationPriority::BackgroundIngest,
-            ).await?;
+            let embedding_id = self
+                .db
+                .insert_chunk_embedding(
+                    doc_id,
+                    chunk_index,
+                    chunk_start,
+                    chunk_end,
+                    &embedding_bytes,
+                    OperationPriority::BackgroundIngest,
+                )
+                .await?;
 
             // Add to vector store
             {
@@ -276,10 +348,22 @@ impl RagPipeline {
                     chunk_end,
                     chunk_embedding,
                 )?;
+                if chunk_index == 0 {
+                    println!("✓ Added chunk 0 embedding to in-memory vector store (embedding_id: {})", embedding_id);
+                }
             }
         }
 
-        println!("ingest_document completed successfully for: {} ({} chunks indexed)", title, chunks.len());
+        {
+            let vector_store = self.vector_store.lock().await;
+            let total_vectors = vector_store.chunk_vector_count();
+            println!(
+                "ingest_document completed successfully for: {} ({} chunks indexed, {} total vectors in memory)",
+                title,
+                chunks.len(),
+                total_vectors
+            );
+        }
         Ok(doc_id)
     }
 
@@ -309,7 +393,8 @@ impl RagPipeline {
         let top_sources = sources.into_iter().take(5).collect::<Vec<_>>();
 
         // Build context from sources (now using chunk content)
-        let context = top_sources.iter()
+        let context = top_sources
+            .iter()
             .map(|s| format!("Source: {}\n{}", s.title, s.content_snippet))
             .collect::<Vec<_>>()
             .join("\n\n---\n\n");
@@ -321,7 +406,10 @@ impl RagPipeline {
             input
         );
 
-        let answer = self.embedding_client.generate_completion(&prompt).await
+        let answer = self
+            .embedding_client
+            .generate_completion(&prompt)
+            .await
             .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
 
         Ok(RagResponse {
@@ -335,7 +423,12 @@ impl RagPipeline {
         self.search_with_cutoff(query, limit, 0.2).await // Use more permissive default
     }
 
-    pub async fn search_with_cutoff(&self, query: &str, limit: usize, cutoff: f32) -> Result<Vec<(Document, f32)>> {
+    pub async fn search_with_cutoff(
+        &self,
+        query: &str,
+        limit: usize,
+        cutoff: f32,
+    ) -> Result<Vec<(Document, f32)>> {
         // Use cached embedding for the query
         let query_embedding = self.get_cached_query_embedding(query).await?;
 
@@ -408,12 +501,16 @@ impl RagPipeline {
 
     pub async fn document_exists(&self, url: &str) -> Result<bool> {
         // Use background priority since this is typically called during ingestion
-        self.db.url_exists(url, OperationPriority::BackgroundIngest).await
+        self.db
+            .url_exists(url, OperationPriority::BackgroundIngest)
+            .await
     }
 
     pub async fn get_document_count(&self) -> Result<i64> {
         // Use background priority for stats queries
-        self.db.count_documents(OperationPriority::BackgroundIngest).await
+        self.db
+            .count_documents(OperationPriority::BackgroundIngest)
+            .await
     }
 
     // Additional methods needed by main.rs
@@ -421,7 +518,11 @@ impl RagPipeline {
         self.get_search_hits_with_cutoff(query, 0.2).await // Use more permissive default
     }
 
-    pub async fn get_search_hits_with_cutoff(&self, query: &str, cutoff: f32) -> Result<Vec<DocumentSource>> {
+    pub async fn get_search_hits_with_cutoff(
+        &self,
+        query: &str,
+        cutoff: f32,
+    ) -> Result<Vec<DocumentSource>> {
         // Use cached embedding for the query
         let query_embedding = self.get_cached_query_embedding(query).await?;
 
@@ -495,13 +596,21 @@ impl RagPipeline {
             query
         );
 
-        let answer = self.embedding_client.generate_completion(&prompt).await
+        let answer = self
+            .embedding_client
+            .generate_completion(&prompt)
+            .await
             .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
 
         Ok(answer)
     }
 
-    pub async fn generate_answer_with_cancellation(&self, query: &str, context_doc_ids: &[i64], cancel_token: CancellationToken) -> Result<String> {
+    pub async fn generate_answer_with_cancellation(
+        &self,
+        query: &str,
+        context_doc_ids: &[i64],
+        cancel_token: CancellationToken,
+    ) -> Result<String> {
         let mut context_parts = Vec::new();
 
         // Get documents by IDs
@@ -525,7 +634,10 @@ impl RagPipeline {
             query
         );
 
-        let answer = self.embedding_client.generate_completion_with_cancellation(&prompt, cancel_token).await
+        let answer = self
+            .embedding_client
+            .generate_completion_with_cancellation(&prompt, cancel_token)
+            .await
             .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
 
         Ok(answer)
@@ -581,7 +693,9 @@ impl RagPipeline {
         if let Some(ollama) = &self.ollama_client {
             ollama.generate_completion_stream(&prompt, tx).await
         } else {
-            self.embedding_client.generate_completion_stream(&prompt, tx).await
+            self.embedding_client
+                .generate_completion_stream(&prompt, tx)
+                .await
         }
     }
 
@@ -618,9 +732,13 @@ impl RagPipeline {
 
         // Use ollama_client if available, otherwise fall back to embedding_client
         if let Some(ollama) = &self.ollama_client {
-            ollama.generate_completion_stream_with_cancellation(&prompt, tx, cancel_token).await
+            ollama
+                .generate_completion_stream_with_cancellation(&prompt, tx, cancel_token)
+                .await
         } else {
-            self.embedding_client.generate_completion_stream_with_cancellation(&prompt, tx, cancel_token).await
+            self.embedding_client
+                .generate_completion_stream_with_cancellation(&prompt, tx, cancel_token)
+                .await
         }
     }
 }
