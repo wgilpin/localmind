@@ -69,61 +69,123 @@ fn default_extraction_method() -> String {
 fn clean_google_docs_content(content: &str) -> String {
     let mut cleaned = content.to_string();
     
-    // Strategy: Remove everything before a reasonable content marker
+    // Strategy: Conservatively remove only clearly identifiable CSS/JS artifacts
     // Google Docs mobile basic view structure:
     // 1. JavaScript error handling (if ((!this['DOCS_initDocsMobileWeb'])...)
     // 2. DOCS_initDocsMobileWeb(...args...) call
     // 3. CSS imports and styles
     // 4. Actual document content
     
-    // Find the start of actual content - look for patterns after all the setup code
-    // The document title or first real text usually comes after the last CSS style block
-    
     // Remove everything up to and including the DOCS_initDocsMobileWeb call
+    // This is safe because it's always JavaScript initialization code
     if let Some(init_pos) = cleaned.find("DOCS_initDocsMobileWeb(") {
         if let Some(close_paren) = cleaned[init_pos..].find(");") {
             cleaned.replace_range(0..init_pos + close_paren + 2, "");
         }
     }
     
-    // Remove CSS imports (@import url(...);)
+    // Remove CSS imports (@import url(...);) - these are always at the top
     let css_import_re = Regex::new(r"@import\s+url\([^)]+\);?").unwrap();
     cleaned = css_import_re.replace_all(&cleaned, "").to_string();
     
-    // Remove all CSS class/style definitions
-    // This catches patterns like: .class-name{property:value;...} or ol.class{...}
-    let css_block_re = Regex::new(r"[\.\w\-]+\{[^}]*\}").unwrap();
+    // Remove ALL CSS blocks - be aggressive since we know Google Docs mobile view has lots of CSS
+    // Match any CSS selector followed by braces with CSS properties
+    // This catches: ul.lst-kix_list_b-8{list-style-type:none}, .class{property:value}, etc.
+    let css_block_re = Regex::new(r"[\.\#\w\-]+\s*\{[^}]*\}").unwrap();
     cleaned = css_block_re.replace_all(&cleaned, "").to_string();
     
-    // Remove list style counter rules (.lst-kix_list > li:before{content:"..."})
-    let css_before_re = Regex::new(r"\.[\w\-]+\s*>\s*li:before\{[^}]*\}").unwrap();
+    // Remove CSS selectors with child combinators (e.g., ".lst-kix_list_13-0 > li{")
+    let css_child_re = Regex::new(r"\.[\w\-]+\s*>\s*[\w\-]+\s*\{[^}]*\}").unwrap();
+    cleaned = css_child_re.replace_all(&cleaned, "").to_string();
+    
+    // Remove list style counter rules with :before pseudo-elements
+    let css_before_re = Regex::new(r"\.[\w\-]+\s*>\s*[^{]*:before\s*\{[^}]*\}").unwrap();
     cleaned = css_before_re.replace_all(&cleaned, "").to_string();
+    
+    // Remove standalone CSS selectors that appear before text (e.g., ".lst-kix_list_c-0 >")
+    // Match the pattern and the capital letter, then replace with just the capital
+    let css_selector_re = Regex::new(r"\.lst-kix_[\w\-]+\s*>\s+([A-Z])").unwrap();
+    cleaned = css_selector_re.replace_all(&cleaned, "$1").to_string();
+    
+    // Remove any remaining CSS-like patterns that start with ul., ol., .lst-kix, etc.
+    let css_list_re = Regex::new(r"(?:ul|ol)\.lst-kix_[\w\-]+").unwrap();
+    cleaned = css_list_re.replace_all(&cleaned, "").to_string();
+    
+    // Remove any remaining .lst-kix patterns
+    let css_lst_kix_re = Regex::new(r"\.lst-kix_[\w\-]+").unwrap();
+    cleaned = css_lst_kix_re.replace_all(&cleaned, "").to_string();
     
     // Remove setTimeout and other window. JavaScript calls
     let js_call_re = Regex::new(r"window\.[a-zA-Z]+\([^)]*\);?").unwrap();
     cleaned = js_call_re.replace_all(&cleaned, "").to_string();
     
-    // Remove counter-reset rules
-    let counter_re = Regex::new(r"counter-reset:\s*[^;}]+[;}]").unwrap();
+    // Remove counter-reset and counter-increment rules (these are CSS-only)
+    let counter_re = Regex::new(r"counter-(?:reset|increment):\s*[^;}]+[;}]").unwrap();
     cleaned = counter_re.replace_all(&cleaned, "").to_string();
     
-    // Remove counter-increment rules
-    let increment_re = Regex::new(r"counter-increment:\s*[^;}]+[;}]").unwrap();
-    cleaned = increment_re.replace_all(&cleaned, "").to_string();
-    
-    // Remove any remaining CSS-like patterns (e.g., "list-style-type:none")
-    let css_prop_re = Regex::new(r"[a-z\-]+:\s*[^;}]+[;}]").unwrap();
+    // Remove CSS properties that appear standalone (not in blocks)
+    // Only match if they look like CSS (property: value; format)
+    let css_prop_re = Regex::new(r"^\s*[a-z\-]+:\s*[^;]+;\s*$").unwrap();
     cleaned = css_prop_re.replace_all(&cleaned, "").to_string();
+    
+    // Find where actual document content starts
+    // Look for common document patterns that indicate real content
+    let content_markers = [
+        "Architecting Intelligence",
+        "The State of",
+        "Executive Summary",
+        "Abstract",
+        "Introduction",
+        "Section 1",
+        "Part I",
+        "Chapter 1",
+    ];
+    
+    // Find the earliest occurrence of a content marker
+    let mut content_start = None;
+    for marker in &content_markers {
+        if let Some(pos) = cleaned.find(marker) {
+            // Only use if it's reasonably early (first 5000 chars) to avoid false positives
+            if pos < 5000 {
+                content_start = Some(content_start.map_or(pos, |current: usize| current.min(pos)));
+            }
+        }
+    }
+    
+    // If we found a content marker, remove everything before it
+    // But first check that what we're removing is actually junk
+    if let Some(start_pos) = content_start {
+        if start_pos > 0 {
+            let leading_text = &cleaned[..start_pos];
+            // Check if leading text is mostly CSS/JS junk
+            let has_css_js = leading_text.contains("lst-kix") 
+                || leading_text.contains("list-style-type")
+                || leading_text.contains("DOCS_")
+                || leading_text.contains("@import")
+                || leading_text.contains("window.")
+                || (leading_text.matches('{').count() > 5 && leading_text.matches('}').count() > 5);
+            
+            // Also check if it's mostly non-alphabetic (CSS/JS is mostly punctuation)
+            let alpha_count = leading_text.chars().filter(|c| c.is_alphabetic()).count();
+            let is_mostly_junk = leading_text.len() > 50 && alpha_count < leading_text.len() / 3;
+            
+            if has_css_js || is_mostly_junk {
+                cleaned.replace_range(0..start_pos, "");
+            }
+        }
+    }
     
     // Clean up excessive whitespace (3 or more spaces/newlines → 2 newlines)
     let whitespace_re = Regex::new(r"\s{3,}").unwrap();
     cleaned = whitespace_re.replace_all(&cleaned, "\n\n").to_string();
     
-    // Remove empty lines at the start
-    let empty_lines_re = Regex::new(r"^\s*\n+").unwrap();
-    cleaned = empty_lines_re.replace(&cleaned, "").to_string();
+    // Remove empty lines at the start and end, but preserve content
+    let empty_lines_start_re = Regex::new(r"^\s*\n+").unwrap();
+    cleaned = empty_lines_start_re.replace(&cleaned, "").to_string();
+    let empty_lines_end_re = Regex::new(r"\n+\s*$").unwrap();
+    cleaned = empty_lines_end_re.replace(&cleaned, "").to_string();
     
-    // Trim and return
+    // Trim and return - but don't truncate!
     cleaned.trim().to_string()
 }
 
@@ -202,8 +264,13 @@ async fn handle_post_documents(
     // Clean Google Docs content if it's from mobile basic view
     if extraction_method.contains("google-docs") {
         println!("Cleaning Google Docs content ({} chars before cleaning)", content.len());
+        println!("First 500 chars before cleaning: {}", content.chars().take(500).collect::<String>());
+        println!("Last 500 chars before cleaning: {}", content.chars().rev().take(500).collect::<String>().chars().rev().collect::<String>());
+        let original_len = content.len();
         content = clean_google_docs_content(&content);
-        println!("Google Docs content cleaned ({} chars after cleaning)", content.len());
+        println!("Google Docs content cleaned ({} chars after cleaning, lost {} chars)", content.len(), original_len.saturating_sub(content.len()));
+        println!("First 500 chars after cleaning: {}", content.chars().take(500).collect::<String>());
+        println!("Last 500 chars after cleaning: {}", content.chars().rev().take(500).collect::<String>().chars().rev().collect::<String>());
     }
 
     if let Some(ref url) = request.url {

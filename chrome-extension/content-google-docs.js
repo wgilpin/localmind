@@ -80,12 +80,15 @@ async function performGoogleDocsExtraction(url) {
       }
       
       console.log('Parsing HTML from mobile basic view...');
+      console.log(`Raw HTML length: ${response.html.length} chars`);
       let content;
       try {
         const parser = new DOMParser();
         const doc = parser.parseFromString(response.html, 'text/html');
         content = doc.body.innerText || doc.body.textContent || '';
         console.log(`Parsed HTML to text (${content.length} chars)`);
+        console.log(`First 500 chars: ${content.substring(0, 500)}`);
+        console.log(`Last 500 chars: ${content.substring(Math.max(0, content.length - 500))}`);
       } catch (parseError) {
         console.error('Failed to parse HTML:', parseError);
         return {

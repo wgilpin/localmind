@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "LocalMind",
-  "version": "1.0",
+  "version": "1.1.0",
   "permissions": [
     "activeTab",
     "scripting",
     "clipboardRead",
     "clipboardWrite",
-    "storage"
+    "storage",
+    "bookmarks"
   ],
   "host_permissions": [
     "http://localhost:3000/*",

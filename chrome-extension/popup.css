@@ -39,6 +39,18 @@ button:active {
   background-color: #39843c;
 }
 
+#save-bookmark-button {
+  background-color: #2196F3;
+}
+
+#save-bookmark-button:hover {
+  background-color: #1976D2;
+}
+
+#save-bookmark-button:active {
+  background-color: #1565C0;
+}
+
 textarea {
   width: 100%;
   padding: 10px;
