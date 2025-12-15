@@ -28,6 +28,7 @@ bash.exe.stackdump
 *.tmp
 *.parquet
 *.pkl
+*.log
 
 # Rust application
 localmind-rs/target/
@@ -46,3 +47,13 @@ chrome-extension/node_modules/
 chrome-extension/dist/
 chrome-extension/*.log
 chrome-extension/.env*
+
+# Python build artifacts
+**/*.egg-info/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+embedding-server/*.log
+embedding-server/embedding_server.log

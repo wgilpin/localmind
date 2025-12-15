@@ -1,7 +1,0 @@
-embedding_server.py
-pyproject.toml
-localmind_embedding_server.egg-info/PKG-INFO
-localmind_embedding_server.egg-info/SOURCES.txt
-localmind_embedding_server.egg-info/dependency_links.txt
-localmind_embedding_server.egg-info/requires.txt
-localmind_embedding_server.egg-info/top_level.txt
