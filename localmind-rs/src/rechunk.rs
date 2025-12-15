@@ -61,14 +61,13 @@ async fn main() -> Result<()> {
                     }
                 }
                 // Store each chunk in the database (without embeddings for now)
-                for (chunk_index, chunk) in chunks.iter().enumerate() {
+                for chunk in chunks.iter() {
                     // Create a placeholder embedding (empty bytes) - embeddings will be generated later
                     let empty_embedding = bincode::serialize(&Vec::<f32>::new())?;
 
                     match db
                         .insert_chunk_embedding(
                             doc.id,
-                            chunk_index,
                             chunk.start_pos,
                             chunk.end_pos,
                             &empty_embedding,

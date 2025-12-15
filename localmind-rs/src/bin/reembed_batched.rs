@@ -1,53 +1,9 @@
 use localmind_rs::{
     db::{Database, OperationPriority},
-    lmstudio::LMStudioClient,
-    ollama::OllamaClient,
+    local_embedding::LocalEmbeddingClient,
     Result,
 };
 use std::env;
-
-enum EmbeddingMode {
-    Ollama(OllamaClient),
-    LMStudio(LMStudioClient),
-}
-
-impl EmbeddingMode {
-    async fn generate_embedding(&self, text: &str, document_title: &str) -> Result<Vec<f32>> {
-        match self {
-            EmbeddingMode::Ollama(client) => client.generate_embedding(text).await,
-            EmbeddingMode::LMStudio(client) => {
-                client
-                    .generate_embedding(text, false, Some(document_title))
-                    .await
-            }
-        }
-    }
-
-    async fn generate_embeddings_batch(
-        &self,
-        texts: Vec<String>,
-        document_title: &str,
-    ) -> Result<Vec<Vec<f32>>> {
-        match self {
-            EmbeddingMode::Ollama(_client) => {
-                // Ollama doesn't support batch - fall back to sequential
-                let mut embeddings = Vec::new();
-                for text in texts {
-                    embeddings.push(self.generate_embedding(&text, document_title).await?);
-                }
-                Ok(embeddings)
-            }
-            EmbeddingMode::LMStudio(client) => {
-                // Format all texts with document prefix
-                let formatted_texts: Vec<String> = texts
-                    .iter()
-                    .map(|text| client.format_text_for_embedding(text, false, Some(document_title)))
-                    .collect();
-                client.generate_embeddings(formatted_texts).await
-            }
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -58,79 +14,43 @@ async fn main() -> Result<()> {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
 
-    let (embedding_mode, batch_size) = if args.len() < 2 {
-        println!("Usage: reembed_batched <mode> <url> <model> [batch_size]");
-        println!();
-        println!("Modes:");
-        println!("  ollama <url> <model> [batch_size]    - Use Ollama for embeddings");
-        println!("  lmstudio <url> <model> [batch_size]  - Use LM Studio for embeddings");
-        println!();
-        println!("Examples:");
-        println!("  reembed_batched ollama http://localhost:11434 qwen3-embedding:0.6b 32");
-        println!("  reembed_batched lmstudio http://localhost:1234 text-embedding-embeddinggemma-300m-qat 50");
-        println!();
-        println!("Default batch size: 32");
-        println!();
-        return Err("Missing arguments".into());
+    let batch_size = if args.len() >= 2 {
+        args[1].parse::<usize>().unwrap_or(32)
     } else {
-        let mode = &args[1];
-        let batch_size = if args.len() >= 5 {
-            args[4].parse::<usize>().unwrap_or(32)
-        } else {
-            32
-        };
-
-        let embedding_mode = match mode.as_str() {
-            "ollama" => {
-                if args.len() < 4 {
-                    return Err("Usage: reembed_batched ollama <url> <model> [batch_size]".into());
-                }
-                let url = args[2].clone();
-                let model = args[3].clone();
-
-                println!("Using Ollama embeddings");
-                println!("   URL: {}", url);
-                println!("   Model: {}", model);
-                println!(
-                    "   Batch size: {} (sequential, Ollama doesn't support batching)",
-                    batch_size
-                );
-
-                let client = OllamaClient::with_models(url, model, "".to_string());
-                EmbeddingMode::Ollama(client)
-            }
-            "lmstudio" => {
-                if args.len() < 4 {
-                    return Err("Usage: reembed_batched lmstudio <url> <model> [batch_size]".into());
-                }
-                let url = args[2].clone();
-                let model = args[3].clone();
-
-                println!("Using LM Studio embeddings (BATCHED)");
-                println!("   URL: {}", url);
-                println!("   Model: {}", model);
-                println!("   Batch size: {}", batch_size);
-
-                let client = LMStudioClient::new(url.clone(), model.clone());
-
-                // Test connection
-                match client.test_connection().await {
-                    Ok(_) => println!("Connection test successful"),
-                    Err(e) => {
-                        println!("Connection test failed: {}", e);
-                        return Err(e);
-                    }
-                }
-
-                EmbeddingMode::LMStudio(client)
-            }
-            _ => {
-                return Err(format!("Unknown mode: {}. Use 'ollama' or 'lmstudio'", mode).into());
-            }
-        };
-
-        (embedding_mode, batch_size)
+        32
     };
+
+    println!("Using Local Python Embedding Server");
+    println!(
+        "   Server: http://localhost:{}",
+        std::env::var("EMBEDDING_SERVER_PORT").unwrap_or_else(|_| "8000".to_string())
+    );
+    println!("   Model: google/embeddinggemma-300M");
+    println!(
+        "   Batch size: {} (sequential, server processes one at a time)",
+        batch_size
+    );
+    println!();
+
+    // Initialize LocalEmbeddingClient
+    let embedding_client = LocalEmbeddingClient::new();
+
+    // Test connection
+    match embedding_client.health_check().await {
+        Ok(true) => println!("✅ Connection test successful - server is ready"),
+        Ok(false) => {
+            println!("⚠️  Server is running but model is still loading...");
+            println!("   Proceeding anyway, but embeddings may be slow");
+        }
+        Err(e) => {
+            println!("❌ Connection test failed: {}", e);
+            println!();
+            println!("Make sure the Python embedding server is running:");
+            println!("  cd embedding-server");
+            println!("  python embedding_server.py");
+            return Err(format!("Embedding server not available: {}", e).into());
+        }
+    }
 
     println!();
     println!("Connecting to database...");
@@ -234,14 +154,15 @@ async fn main() -> Result<()> {
             let mut valid_indices = Vec::new();
 
             for (local_idx, chunk_embedding) in batch.iter().enumerate() {
-                let (chunk_id, _chunk_index, chunk_start, chunk_end, _old_embedding) =
+                let (chunk_id, chunk_start, chunk_end, _old_embedding) =
                     chunk_embedding;
 
                 if *chunk_end > content_len + BOUNDARY_LEEWAY {
                     // Extract what we can for debugging
                     let actual_chunk_end = (*chunk_end).min(content_len);
                     let partial_chunk = if *chunk_start < content_len {
-                        std::str::from_utf8(&doc.content.as_bytes()[*chunk_start..actual_chunk_end])
+                        doc.content
+                            .get(*chunk_start..actual_chunk_end)
                             .unwrap_or("[invalid UTF-8]")
                     } else {
                         "[chunk_start beyond document]"
@@ -255,10 +176,11 @@ async fn main() -> Result<()> {
 
                 // Clamp chunk_end to actual content length for extraction
                 let actual_chunk_end = (*chunk_end).min(content_len);
-                let chunk_text =
-                    std::str::from_utf8(&doc.content.as_bytes()[*chunk_start..actual_chunk_end])
-                        .unwrap_or("")
-                        .to_string();
+                let chunk_text = doc
+                    .content
+                    .get(*chunk_start..actual_chunk_end)
+                    .unwrap_or("")
+                    .to_string();
                 chunk_texts.push(chunk_text);
                 chunk_ids.push(*chunk_id);
                 valid_indices.push(local_idx);
@@ -268,62 +190,36 @@ async fn main() -> Result<()> {
                 continue;
             }
 
-            // Generate embeddings for the entire batch
+            // Generate embeddings sequentially (server processes one at a time)
             io::stdout().flush()?;
 
-            match embedding_mode
-                .generate_embeddings_batch(chunk_texts.clone(), &doc.title)
-                .await
-            {
-                Ok(embeddings) => {
-                    // Update database with batch results
-                    for (i, embedding) in embeddings.iter().enumerate() {
-                        let embedding_bytes = bincode::serialize(embedding)?;
-
+            for (i, text) in chunk_texts.iter().enumerate() {
+                match embedding_client.generate_embedding(text).await {
+                    Ok(embedding) => {
+                        let embedding_bytes = bincode::serialize(&embedding)?;
                         db.update_chunk_embedding(
                             chunk_ids[i],
                             &embedding_bytes,
                             OperationPriority::BackgroundIngest,
                         )
                         .await?;
-
                         processed_chunks += 1;
                     }
-                }
-                Err(e) => {
-                    println!("Batch failed: {}", e);
-                    println!("   Falling back to sequential processing for this batch...");
-
-                    // Fall back to sequential for this batch
-                    for (i, text) in chunk_texts.iter().enumerate() {
-                        match embedding_mode.generate_embedding(text, &doc.title).await {
-                            Ok(embedding) => {
-                                let embedding_bytes = bincode::serialize(&embedding)?;
-                                db.update_chunk_embedding(
-                                    chunk_ids[i],
-                                    &embedding_bytes,
-                                    OperationPriority::BackgroundIngest,
-                                )
-                                .await?;
-                                processed_chunks += 1;
-                            }
-                            Err(e) => {
-                                println!("   ❌ Chunk {}: {}", batch_start + valid_indices[i], e);
-                            }
-                        }
+                    Err(e) => {
+                        println!("   ❌ Chunk {}: {}", batch_start + valid_indices[i], e);
                     }
                 }
             }
         }
 
-        let doc_elapsed = doc_start.elapsed();
+        let _doc_elapsed = doc_start.elapsed();
         processed_docs += 1;
 
         let elapsed = start_time.elapsed();
         let chunks_per_sec = processed_chunks as f64 / elapsed.as_secs_f64();
-        let remaining_chunks = total_chunks - processed_chunks;
-        let eta_secs = if chunks_per_sec > 0.0 {
-            (remaining_chunks as f64 / chunks_per_sec) as u64
+        let _remaining_chunks = total_chunks - processed_chunks;
+        let _eta_secs = if chunks_per_sec > 0.0 {
+            (_remaining_chunks as f64 / chunks_per_sec) as u64
         } else {
             0
         };
@@ -352,21 +248,13 @@ async fn main() -> Result<()> {
 
     // Save embedding configuration to database
     println!("Saving embedding configuration to database...");
-    match &embedding_mode {
-        EmbeddingMode::Ollama(_) => {
-            db.set_embedding_model(&args[3]).await?;
-            db.set_embedding_url(&args[2]).await?;
-            println!("   ✅ Saved: Ollama model '{}' at '{}'", args[3], args[2]);
-        }
-        EmbeddingMode::LMStudio(_) => {
-            db.set_embedding_model(&args[3]).await?;
-            db.set_embedding_url(&args[2]).await?;
-            println!(
-                "   ✅ Saved: LM Studio model '{}' at '{}'",
-                args[3], args[2]
-            );
-        }
-    }
+    db.set_embedding_model("google/embeddinggemma-300M").await?;
+    let server_url = format!(
+        "http://localhost:{}",
+        std::env::var("EMBEDDING_SERVER_PORT").unwrap_or_else(|_| "8000".to_string())
+    );
+    db.set_embedding_url(&server_url).await?;
+    println!("   ✅ Saved: Local Python Embedding Server model 'google/embeddinggemma-300M'");
     println!();
 
     println!("All embeddings have been regenerated!");

@@ -7,7 +7,6 @@ struct BoundaryIssue {
     doc_id: i64,
     doc_title: String,
     chunk_id: i64,
-    chunk_index: usize,
     issue_type: String,
     context: String,
 }
@@ -115,13 +114,12 @@ async fn main() -> Result<()> {
     for doc in &documents {
         let chunks = db.get_chunk_embeddings_for_document(doc.id).await?;
         for chunk_data in chunks {
-            let (chunk_id, chunk_index, chunk_start, chunk_end, _embedding) = chunk_data;
+            let (chunk_id, chunk_start, chunk_end, _embedding) = chunk_data;
             all_chunks.push((
                 doc.id,
                 doc.title.clone(),
                 doc.content.clone(),
                 chunk_id,
-                chunk_index,
                 chunk_start,
                 chunk_end,
             ));
@@ -151,7 +149,7 @@ async fn main() -> Result<()> {
     // Allow up to 15 characters beyond the end for word boundary leeway
     const BOUNDARY_LEEWAY: usize = 15;
 
-    for (i, (doc_id, doc_title, doc_content, chunk_id, chunk_index, chunk_start, chunk_end)) in
+    for (i, (doc_id, doc_title, doc_content, chunk_id, chunk_start, chunk_end)) in
         sample.iter().enumerate()
     {
         // Extract chunk text
@@ -172,10 +170,10 @@ async fn main() -> Result<()> {
 
         // Clamp chunk_end to actual content length for extraction
         let actual_chunk_end = (*chunk_end).min(content_len);
-        let chunk_text =
-            std::str::from_utf8(&doc_content.as_bytes()[*chunk_start..actual_chunk_end])
-                .unwrap_or("")
-                .to_string();
+        let chunk_text = doc_content
+            .get(*chunk_start..actual_chunk_end)
+            .unwrap_or("")
+            .to_string();
 
         // Check start boundary
         let start_issue = check_start_boundary(&chunk_text, *chunk_start, doc_content);
@@ -191,16 +189,15 @@ async fn main() -> Result<()> {
                     doc_id: *doc_id,
                     doc_title: doc_title.chars().take(40).collect(),
                     chunk_id: *chunk_id,
-                    chunk_index: *chunk_index,
                     issue_type: "BOTH".to_string(),
                     context: format!("START: {} | END: {}", start_msg, end_msg),
                 });
                 println!(
-                    "Chunk {}/{}: Doc '{}' Chunk #{} - BOTH BOUNDARIES BAD",
+                    "Chunk {}/{}: Doc '{}' Chunk ID {} - BOTH BOUNDARIES BAD",
                     i + 1,
                     sample_size,
                     doc_title.chars().take(30).collect::<String>(),
-                    chunk_index
+                    chunk_id
                 );
             }
             (Some(start_msg), None) => {
@@ -209,16 +206,15 @@ async fn main() -> Result<()> {
                     doc_id: *doc_id,
                     doc_title: doc_title.chars().take(40).collect(),
                     chunk_id: *chunk_id,
-                    chunk_index: *chunk_index,
                     issue_type: "START".to_string(),
                     context: start_msg.clone(),
                 });
                 println!(
-                    "⚠️  Chunk {}/{}: Doc '{}' Chunk #{} - START BOUNDARY BAD",
+                    "⚠️  Chunk {}/{}: Doc '{}' Chunk ID {} - START BOUNDARY BAD",
                     i + 1,
                     sample_size,
                     doc_title.chars().take(30).collect::<String>(),
-                    chunk_index
+                    chunk_id
                 );
             }
             (None, Some(end_msg)) => {
@@ -227,16 +223,15 @@ async fn main() -> Result<()> {
                     doc_id: *doc_id,
                     doc_title: doc_title.chars().take(40).collect(),
                     chunk_id: *chunk_id,
-                    chunk_index: *chunk_index,
                     issue_type: "END".to_string(),
                     context: end_msg.clone(),
                 });
                 println!(
-                    "⚠️  Chunk {}/{}: Doc '{}' Chunk #{} - END BOUNDARY BAD",
+                    "⚠️  Chunk {}/{}: Doc '{}' Chunk ID {} - END BOUNDARY BAD",
                     i + 1,
                     sample_size,
                     doc_title.chars().take(30).collect::<String>(),
-                    chunk_index
+                    chunk_id
                 );
             }
             (None, None) => {
@@ -297,7 +292,7 @@ async fn main() -> Result<()> {
         for (i, issue) in issues.iter().take(show_count).enumerate() {
             println!("Issue #{}", i + 1);
             println!("  Doc ID: {} - '{}'", issue.doc_id, issue.doc_title);
-            println!("  Chunk: #{} (ID: {})", issue.chunk_index, issue.chunk_id);
+            println!("  Chunk ID: {}", issue.chunk_id);
             println!("  Type: {}", issue.issue_type);
             println!("  Context: {}", issue.context);
             println!();

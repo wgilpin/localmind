@@ -92,11 +92,11 @@ impl Database {
         )?;
 
         // Create embeddings table for chunk embeddings
+        // Simplified: removed chunk_index (can derive order from chunk_start)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS embeddings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 document_id INTEGER NOT NULL,
-                chunk_index INTEGER NOT NULL,
                 chunk_start INTEGER NOT NULL,
                 chunk_end INTEGER NOT NULL,
                 embedding BLOB NOT NULL,
@@ -124,7 +124,10 @@ impl Database {
         Ok(())
     }
 
-    async fn get_priority_access(&self, priority: OperationPriority) -> Result<SemaphorePermit> {
+    async fn get_priority_access(
+        &self,
+        priority: OperationPriority,
+    ) -> Result<SemaphorePermit<'_>> {
         match priority {
             OperationPriority::UserSearch => {
                 // User searches get immediate access
@@ -186,6 +189,7 @@ impl Database {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_document(
         &self,
         title: &str,
@@ -305,21 +309,10 @@ impl Database {
         }).await
     }
 
-    // Legacy method - will be replaced by get_all_chunk_embeddings
-    pub async fn get_all_embeddings(&self) -> Result<Vec<(i64, Vec<f32>)>> {
-        // For now, return chunk embeddings but use document_id as the key
-        // This maintains compatibility while we transition
-        let chunk_embeddings = self.get_all_chunk_embeddings().await?;
-        Ok(chunk_embeddings
-            .into_iter()
-            .map(|(_, doc_id, _, _, _, embedding)| (doc_id, embedding))
-            .collect())
-    }
 
     pub async fn insert_chunk_embedding(
         &self,
         document_id: i64,
-        chunk_index: usize,
         chunk_start: usize,
         chunk_end: usize,
         embedding: &[u8],
@@ -327,9 +320,9 @@ impl Database {
     ) -> Result<i64> {
         self.execute_with_priority(priority, |conn| {
             conn.execute(
-                "INSERT INTO embeddings (document_id, chunk_index, chunk_start, chunk_end, embedding)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![document_id, chunk_index as i64, chunk_start as i64, chunk_end as i64, embedding],
+                "INSERT INTO embeddings (document_id, chunk_start, chunk_end, embedding)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![document_id, chunk_start as i64, chunk_end as i64, embedding],
             )?;
             Ok(conn.last_insert_rowid())
         }).await
@@ -337,22 +330,21 @@ impl Database {
 
     pub async fn get_all_chunk_embeddings(
         &self,
-    ) -> Result<Vec<(i64, i64, usize, usize, usize, Vec<f32>)>> {
+    ) -> Result<Vec<(i64, i64, usize, usize, Vec<f32>)>> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, document_id, chunk_index, chunk_start, chunk_end, embedding FROM embeddings"
+                "SELECT id, document_id, chunk_start, chunk_end, embedding FROM embeddings ORDER BY document_id, chunk_start"
             )?;
 
             let rows = stmt.query_map([], |row| {
                 let id: i64 = row.get(0)?;
                 let document_id: i64 = row.get(1)?;
-                let chunk_index: i64 = row.get(2)?;
-                let chunk_start: i64 = row.get(3)?;
-                let chunk_end: i64 = row.get(4)?;
-                let embedding_bytes: Vec<u8> = row.get(5)?;
+                let chunk_start: i64 = row.get(2)?;
+                let chunk_end: i64 = row.get(3)?;
+                let embedding_bytes: Vec<u8> = row.get(4)?;
                 let embedding: Vec<f32> = bincode::deserialize(&embedding_bytes)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                Ok((id, document_id, chunk_index as usize, chunk_start as usize, chunk_end as usize, embedding))
+                Ok((id, document_id, chunk_start as usize, chunk_end as usize, embedding))
             })?;
 
             let mut results = Vec::new();
@@ -366,24 +358,22 @@ impl Database {
     pub async fn get_chunk_embeddings_for_document(
         &self,
         document_id: i64,
-    ) -> Result<Vec<(i64, usize, usize, usize, Vec<f32>)>> {
+    ) -> Result<Vec<(i64, usize, usize, Vec<f32>)>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, chunk_index, chunk_start, chunk_end, embedding
-                 FROM embeddings WHERE document_id = ?1 ORDER BY chunk_index",
+                "SELECT id, chunk_start, chunk_end, embedding
+                 FROM embeddings WHERE document_id = ?1 ORDER BY chunk_start",
             )?;
 
             let rows = stmt.query_map(params![document_id], |row| {
                 let id: i64 = row.get(0)?;
-                let chunk_index: i64 = row.get(1)?;
-                let chunk_start: i64 = row.get(2)?;
-                let chunk_end: i64 = row.get(3)?;
-                let embedding_bytes: Vec<u8> = row.get(4)?;
+                let chunk_start: i64 = row.get(1)?;
+                let chunk_end: i64 = row.get(2)?;
+                let embedding_bytes: Vec<u8> = row.get(3)?;
                 let embedding: Vec<f32> = bincode::deserialize(&embedding_bytes)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                 Ok((
                     id,
-                    chunk_index as usize,
                     chunk_start as usize,
                     chunk_end as usize,
                     embedding,
@@ -427,6 +417,7 @@ impl Database {
     }
 
     // Batch insert method for efficient bookmark ingestion
+    #[allow(clippy::type_complexity)]
     pub async fn batch_insert_documents<'a>(
         &self,
         documents: &[(

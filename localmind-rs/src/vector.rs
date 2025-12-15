@@ -10,17 +10,17 @@ pub struct SearchResult {
 pub struct ChunkSearchResult {
     pub embedding_id: i64,
     pub doc_id: i64,
-    pub chunk_index: usize,
     pub chunk_start: usize,
     pub chunk_end: usize,
     pub similarity: f32,
 }
 
 pub struct VectorStore {
-    vectors: Vec<(i64, Vec<f32>)>, // (doc_id, vector) - legacy
-    chunk_vectors: Vec<(i64, i64, usize, usize, usize, Vec<f32>)>, // (embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector)
+    vectors: Vec<(i64, Vec<f32>)>, // (doc_id, vector) - legacy, will be removed
+    chunk_vectors: Vec<(i64, i64, usize, usize, Vec<f32>)>, // (embedding_id, doc_id, chunk_start, chunk_end, vector)
 }
 
+#[allow(clippy::new_without_default)]
 impl VectorStore {
     pub fn new() -> Self {
         Self {
@@ -36,7 +36,7 @@ impl VectorStore {
 
     pub fn load_chunk_vectors(
         &mut self,
-        chunk_vectors: Vec<(i64, i64, usize, usize, usize, Vec<f32>)>,
+        chunk_vectors: Vec<(i64, i64, usize, usize, Vec<f32>)>,
     ) -> Result<()> {
         self.chunk_vectors = chunk_vectors;
         Ok(())
@@ -55,7 +55,6 @@ impl VectorStore {
         &mut self,
         embedding_id: i64,
         doc_id: i64,
-        chunk_index: usize,
         chunk_start: usize,
         chunk_end: usize,
         vector: Vec<f32>,
@@ -63,7 +62,6 @@ impl VectorStore {
         self.chunk_vectors.push((
             embedding_id,
             doc_id,
-            chunk_index,
             chunk_start,
             chunk_end,
             vector,
@@ -132,7 +130,7 @@ impl VectorStore {
 
         let mut similarities: Vec<ChunkSearchResult> = Vec::new();
 
-        for (embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector) in
+        for (embedding_id, doc_id, chunk_start, chunk_end, vector) in
             &self.chunk_vectors
         {
             if let Some(similarity) = cosine_similarity(query_vector, vector) {
@@ -141,7 +139,6 @@ impl VectorStore {
                     similarities.push(ChunkSearchResult {
                         embedding_id: *embedding_id,
                         doc_id: *doc_id,
-                        chunk_index: *chunk_index,
                         chunk_start: *chunk_start,
                         chunk_end: *chunk_end,
                         similarity,

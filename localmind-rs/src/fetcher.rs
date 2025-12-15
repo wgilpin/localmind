@@ -8,6 +8,7 @@ pub struct WebFetcher {
     client: reqwest::Client,
 }
 
+#[allow(clippy::new_without_default)]
 impl WebFetcher {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
@@ -65,6 +66,7 @@ impl WebFetcher {
             };
 
             // Extract text from PDF
+            #[allow(clippy::double_ended_iterator_last)]
             let filename = url.split('/').last().unwrap_or("document.pdf");
 
             // Use catch_unwind to prevent panics from the pdf_extract library
@@ -141,6 +143,7 @@ impl WebFetcher {
             || content_type.contains("application/octet-stream")
         {
             println!("Skipping binary content type '{}': {}", content_type, url);
+            #[allow(clippy::double_ended_iterator_last)]
             let filename = url.split('/').last().unwrap_or("file");
             return Ok(format!(
                 "Binary file: {} ({})\nURL: {}",
@@ -161,6 +164,7 @@ impl WebFetcher {
         // PDF files often start with %PDF
         if html.starts_with("%PDF") {
             println!("Detected PDF content served as text: {}", url);
+            #[allow(clippy::double_ended_iterator_last)]
             let filename = url.split('/').last().unwrap_or("document.pdf");
 
             // Try to extract text from the PDF content with panic protection
@@ -270,7 +274,7 @@ impl WebFetcher {
                 boundary -= 1;
             }
             if boundary == 0 {
-                format!("[Content too large and unable to find safe UTF-8 boundary]")
+                "[Content too large and unable to find safe UTF-8 boundary]".to_string()
             } else {
                 format!(
                     "{}...\n[Content truncated at {} chars]",

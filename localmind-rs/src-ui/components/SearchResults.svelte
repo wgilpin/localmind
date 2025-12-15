@@ -1,5 +1,5 @@
 <script>
-let { results = [], query = '', loading = false, onDocumentClick, onSynthesize, onLoadMore, hasMore = false } = $props();
+let { results = [], query = '', loading = false, onDocumentClick, onLoadMore, hasMore = false } = $props();
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -16,15 +16,10 @@ function getSimilarityColor(similarity) {
 
 <div class="panel retrieval-panel">
     <div class="panel-header">
-        <h2>Retrieval Results</h2>
+        <h2>Search Results</h2>
         <div class="header-actions">
             {#if results.length > 0}
                 <div class="result-count">{results.length} documents</div>
-                <button class="synthesize-icon-btn" onclick={onSynthesize} title="Synthesize results">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
-                    </svg>
-                </button>
             {/if}
         </div>
     </div>
@@ -115,28 +110,6 @@ function getSimilarityColor(similarity) {
     border-radius: 12px;
     font-size: 0.875rem;
     color: #9ca3af;
-}
-
-.synthesize-icon-btn {
-    background: linear-gradient(135deg, #8b5cf6, #6366f1);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    padding: 8px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-}
-
-.synthesize-icon-btn:hover {
-    transform: scale(1.1);
-    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
-}
-
-.synthesize-icon-btn:active {
-    transform: scale(0.95);
 }
 
 .panel-content {

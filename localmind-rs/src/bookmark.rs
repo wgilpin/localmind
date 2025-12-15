@@ -127,6 +127,7 @@ impl BookmarkMonitor {
         Ok(roots)
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn extract_bookmarks(&self, item: &BookmarkItem, bookmarks: &mut Vec<BookmarkItem>) {
         if let Some(url) = &item.url {
             // This is a bookmark (leaf node)
@@ -143,6 +144,7 @@ impl BookmarkMonitor {
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     pub fn extract_bookmarks_with_exclusion(
         &self,
         item: &BookmarkItem,
@@ -220,7 +222,7 @@ impl BookmarkMonitor {
 
         // Process file change notifications
         tokio::spawn(async move {
-            while let Some(_) = rx.recv().await {
+            while (rx.recv().await).is_some() {
                 // Debounce: wait a bit for file to stabilize
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
@@ -502,6 +504,7 @@ impl BookmarkMonitor {
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn count_bookmarks_in_folder(&self, item: &BookmarkItem) -> usize {
         let mut count = 0;
 

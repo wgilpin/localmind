@@ -1,0 +1,211 @@
+openapi: 3.0.3
+info:
+  title: LocalMind Embedding Server API
+  description: |
+    Internal HTTP API for generating text embeddings using embeddinggemma-300m-qat GGUF model.
+    
+    This server runs on localhost:8000 and is managed automatically by the LocalMind startup script.
+    It is not intended for external access or multi-user scenarios.
+  version: 1.0.0
+  contact:
+    name: LocalMind Development
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Local embedding server (auto-managed)
+
+paths:
+  /health:
+    get:
+      summary: Health Check
+      description: |
+        Check if the embedding server is ready to accept requests.
+        Returns 200 OK when model is loaded, 503 when still loading.
+      operationId: healthCheck
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Server is healthy and model is loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                ready:
+                  value:
+                    status: "ok"
+                    model_loaded: true
+        '503':
+          description: Server is starting, model still loading
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema:
+                type: integer
+                example: 5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                loading:
+                  value:
+                    status: "loading"
+                    model_loaded: false
+
+  /embed:
+    post:
+      summary: Generate Embedding
+      description: |
+        Generate a 768-dimensional embedding vector for the provided text.
+        
+        Text should be a document chunk (~500 characters, max ~2000 characters).
+        Returns a normalized embedding vector suitable for cosine similarity search.
+      operationId: generateEmbedding
+      tags:
+        - Embeddings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+            examples:
+              chunk:
+                value:
+                  text: "This is a sample document chunk that will be embedded."
+      responses:
+        '200':
+          description: Embedding generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+              examples:
+                success:
+                  value:
+                    embedding: [0.123, -0.456, 0.789, "... 765 more values ..."]
+                    model: "embeddinggemma-300m-qat"
+                    dimension: 768
+        '400':
+          description: Invalid request (empty text, text too long)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                empty_text:
+                  value:
+                    error: "Text cannot be empty"
+                    detail: null
+                text_too_long:
+                  value:
+                    error: "Text exceeds maximum length"
+                    detail: "Maximum 2000 characters, got 3456"
+        '503':
+          description: Model still loading
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema:
+                type: integer
+                example: 5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                loading:
+                  value:
+                    error: "Model still loading, please retry"
+                    detail: null
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                error:
+                  value:
+                    error: "Failed to generate embedding"
+                    detail: "llama.cpp error: <details>"
+
+components:
+  schemas:
+    EmbeddingRequest:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          description: Text to generate embedding for (typically a document chunk)
+          minLength: 1
+          maxLength: 2000
+          example: "This is a sample document chunk."
+
+    EmbeddingResponse:
+      type: object
+      required:
+        - embedding
+        - model
+        - dimension
+      properties:
+        embedding:
+          type: array
+          description: 768-dimensional normalized embedding vector
+          items:
+            type: number
+            format: float
+          minItems: 768
+          maxItems: 768
+        model:
+          type: string
+          description: Model identifier
+          example: "embeddinggemma-300m-qat"
+        dimension:
+          type: integer
+          description: Embedding dimension (always 768)
+          example: 768
+          enum: [768]
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - model_loaded
+      properties:
+        status:
+          type: string
+          description: Server status
+          enum: ["ok", "loading", "error"]
+          example: "ok"
+        model_loaded:
+          type: boolean
+          description: Whether the embedding model is loaded and ready
+          example: true
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+          example: "Model still loading, please retry"
+        detail:
+          type: string
+          nullable: true
+          description: Optional detailed error information
+          example: null
+
+tags:
+  - name: Health
+    description: Server health and readiness checks
+  - name: Embeddings
+    description: Text embedding generation

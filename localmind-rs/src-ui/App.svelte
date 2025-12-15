@@ -3,7 +3,6 @@ import { onMount } from 'svelte';
 import { initializeTauriAPI, getTauriAPI } from './tauri.svelte.js';
 import SearchBar from './components/SearchBar.svelte';
 import SearchResults from './components/SearchResults.svelte';
-import AIPanel from './components/AIPanel.svelte';
 import DocumentView from './components/DocumentView.svelte';
 import SettingsModal from './components/SettingsModal.svelte';
 import Toast from './components/Toast.svelte';
@@ -15,8 +14,6 @@ let searchResults = $state([]);
 let allResults = $state([]);
 let lastQuery = $state('');
 let loading = $state(false);
-let aiResponse = $state('');
-let streaming = $state(false);
 let currentDocument = $state(null);
 let showSettings = $state(false);
 let toasts = $state([]);
@@ -115,8 +112,6 @@ async function handleSearch(query, cutoff) {
 
     lastQuery = query;
     loading = true;
-    aiResponse = '';
-    streaming = false;
 
     try {
         console.log('Searching for:', query, 'with cutoff:', cutoff);
@@ -154,57 +149,6 @@ function handleLoadMore() {
     if (lastQuery && allResults.length > 0) {
         const filteredResults = allResults.filter(s => s.similarity >= newCutoff);
         searchResults = filteredResults;
-    }
-}
-
-async function generateSynthesis() {
-    if (searchResults.length === 0) return;
-
-    try {
-        await tauri.invoke('cancel_generation');
-    } catch (error) {
-        console.warn('Failed to cancel previous generation:', error);
-    }
-
-    streaming = true;
-    aiResponse = '';
-    const documentIds = searchResults.map(r => r.doc_id);
-
-    if (tauri.listen) {
-        const unlistenChunk = await tauri.listen('llm-stream-chunk', (event) => {
-            aiResponse += event.payload;
-        });
-
-        const unlistenComplete = await tauri.listen('llm-stream-complete', () => {
-            streaming = false;
-            unlistenChunk();
-            unlistenComplete();
-        });
-
-        try {
-            await tauri.invoke('generate_response_stream', {
-                query: lastQuery,
-                contextSources: documentIds
-            });
-        } catch (error) {
-            console.error('Failed to start streaming:', error);
-            unlistenChunk();
-            unlistenComplete();
-            streaming = false;
-
-            const response = await tauri.invoke('generate_response', {
-                query: lastQuery,
-                contextSources: documentIds
-            });
-            aiResponse = response;
-        }
-    } else {
-        const response = await tauri.invoke('generate_response', {
-            query: lastQuery,
-            contextSources: documentIds
-        });
-        aiResponse = response;
-        streaming = false;
     }
 }
 
@@ -274,27 +218,16 @@ function handleKeydown(e) {
 
     {#if currentDocument}
         <DocumentView document={currentDocument} onBack={handleBack} />
-    {:else if lastQuery || aiResponse}
-        <div class="two-panel-layout" class:single-panel={!aiResponse && !streaming}>
-            {#if lastQuery}
-                <SearchResults
-                    results={searchResults}
-                    query={lastQuery}
-                    loading={loading}
-                    onDocumentClick={handleDocumentClick}
-                    onSynthesize={generateSynthesis}
-                    onLoadMore={handleLoadMore}
-                    hasMore={similarityCutoff > 0.0 && allResults.length > searchResults.length}
-                />
-            {/if}
-            {#if aiResponse || streaming}
-                <AIPanel
-                    response={aiResponse}
-                    streaming={streaming}
-                    sources={searchResults}
-                    query={lastQuery}
-                />
-            {/if}
+    {:else if lastQuery}
+        <div class="search-results-container">
+            <SearchResults
+                results={searchResults}
+                query={lastQuery}
+                loading={loading}
+                onDocumentClick={handleDocumentClick}
+                onLoadMore={handleLoadMore}
+                hasMore={similarityCutoff > 0.0 && allResults.length > searchResults.length}
+            />
         </div>
     {/if}
 </div>
@@ -337,21 +270,8 @@ function handleKeydown(e) {
     min-height: 100vh;
 }
 
-.two-panel-layout {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
+.search-results-container {
     margin-top: 20px;
-}
-
-.two-panel-layout.single-panel {
-    grid-template-columns: 1fr;
-}
-
-@media (max-width: 900px) {
-    .two-panel-layout {
-        grid-template-columns: 1fr !important;
-    }
 }
 
 .toast-container {
