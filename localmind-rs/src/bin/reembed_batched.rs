@@ -1,3 +1,6 @@
+// This script is used to re-embed all chunks in the database.
+// It does not rechunk, but it does re-embed all chunks in the database.
+
 use localmind_rs::{
     db::{Database, OperationPriority},
     local_embedding::LocalEmbeddingClient,

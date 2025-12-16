@@ -420,7 +420,25 @@ impl Database {
 
     pub async fn delete_all_embeddings(&self) -> Result<()> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
-            conn.execute("DELETE FROM embeddings", [])?;
+            // Drop and recreate the embeddings table to ensure correct schema
+            // (handles migration from old schema that had chunk_index column)
+            conn.execute("DROP TABLE IF EXISTS embeddings", [])?;
+            conn.execute(
+                "CREATE TABLE embeddings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    document_id INTEGER NOT NULL,
+                    chunk_start INTEGER NOT NULL,
+                    chunk_end INTEGER NOT NULL,
+                    embedding BLOB NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_embeddings_document_id ON embeddings(document_id)",
+                [],
+            )?;
             Ok(())
         })
         .await

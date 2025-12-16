@@ -61,7 +61,7 @@ url = "2.5"
 # Additional binaries
 [[bin]]
 name = "rechunk"
-path = "src/rechunk.rs"
+path = "src/bin/rechunk.rs"
 
 [dev-dependencies]
 tempfile = "3.8"
