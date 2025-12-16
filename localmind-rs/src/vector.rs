@@ -59,13 +59,8 @@ impl VectorStore {
         chunk_end: usize,
         vector: Vec<f32>,
     ) -> Result<()> {
-        self.chunk_vectors.push((
-            embedding_id,
-            doc_id,
-            chunk_start,
-            chunk_end,
-            vector,
-        ));
+        self.chunk_vectors
+            .push((embedding_id, doc_id, chunk_start, chunk_end, vector));
         Ok(())
     }
 
@@ -130,9 +125,7 @@ impl VectorStore {
 
         let mut similarities: Vec<ChunkSearchResult> = Vec::new();
 
-        for (embedding_id, doc_id, chunk_start, chunk_end, vector) in
-            &self.chunk_vectors
-        {
+        for (embedding_id, doc_id, chunk_start, chunk_end, vector) in &self.chunk_vectors {
             if let Some(similarity) = cosine_similarity(query_vector, vector) {
                 // Only include results above the similarity threshold
                 if similarity >= min_similarity {

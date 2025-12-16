@@ -154,8 +154,8 @@ if ! "$VENV_PYTHON" --version > /dev/null 2>&1; then
     error_exit "Virtual environment Python executable is not working. Please recreate the virtual environment."
 fi
 
-# Install dependencies using the venv Python directly
-if ! "$VENV_PYTHON" -m uv pip install -e . > /dev/null 2>&1; then
+# Install dependencies using the venv Python directly (without editable package install)
+if ! "$VENV_PYTHON" -m uv pip install fastapi>=0.115.0 "uvicorn[standard]>=0.32.0" sentence-transformers>=3.3.0 torch>=2.0.0 "transformers @ git+https://github.com/huggingface/transformers@v4.56.0-Embedding-Gemma-preview" > /dev/null 2>&1; then
     cd ..
     error_exit "Failed to install dependencies. Check embedding-server/pyproject.toml"
 fi
@@ -243,7 +243,7 @@ echo "============================="
 echo ""
 
 cd localmind-rs
-cargo tauri dev --release
+cargo run
 APP_EXIT_CODE=$?
 cd ..
 

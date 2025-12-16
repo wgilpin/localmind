@@ -37,7 +37,7 @@ impl RagPipeline {
     /// configurable via EMBEDDING_SERVER_PORT environment variable).
     pub async fn new(db: Database) -> Result<Self> {
         let embedding_client = LocalEmbeddingClient::new();
-        
+
         // Verify embedding server is ready before proceeding
         println!("Checking embedding server health...");
         match embedding_client.health_check().await {
@@ -62,7 +62,7 @@ impl RagPipeline {
                 return Err(format!("Embedding server not available: {}", e).into());
             }
         }
-        
+
         let document_processor = DocumentProcessor::default();
         let mut vector_store = VectorStore::new();
 
@@ -71,11 +71,14 @@ impl RagPipeline {
         let chunk_count = chunk_embeddings.len();
         vector_store.load_chunk_vectors(chunk_embeddings)?;
         println!("Loaded {} chunk embeddings from database", chunk_count);
-        
+
         // Check total document count
-        let total_docs = db.count_documents(OperationPriority::UserSearch).await.unwrap_or(0);
+        let total_docs = db
+            .count_documents(OperationPriority::UserSearch)
+            .await
+            .unwrap_or(0);
         println!("Total documents in database: {}", total_docs);
-        
+
         if chunk_count == 0 && total_docs > 0 {
             println!("WARNING: Documents exist in database but have no embeddings!");
             println!("You may need to re-index your documents using the reembed_batched tool.");
@@ -275,20 +278,29 @@ impl RagPipeline {
         limit: usize,
         cutoff: f32,
     ) -> Result<Vec<(Document, f32)>> {
-        println!("Searching for: '{}' (limit: {}, cutoff: {})", query, limit, cutoff);
-        
+        println!(
+            "Searching for: '{}' (limit: {}, cutoff: {})",
+            query, limit, cutoff
+        );
+
         // Use cached embedding for the query
         let query_embedding = self.get_cached_query_embedding(query).await?;
-        println!("Generated query embedding (dimension: {})", query_embedding.len());
+        println!(
+            "Generated query embedding (dimension: {})",
+            query_embedding.len()
+        );
 
         // Search chunk embeddings instead of document embeddings
         let chunk_results = {
             let vector_store = self.vector_store.lock().await;
             let chunk_count = vector_store.chunk_vector_count();
-            println!("Searching in vector store: {} chunk vectors available", chunk_count);
+            println!(
+                "Searching in vector store: {} chunk vectors available",
+                chunk_count
+            );
             vector_store.search_chunks_with_cutoff(&query_embedding, limit * 2, cutoff)?
         };
-        
+
         println!("Found {} chunk results", chunk_results.len());
 
         let mut results = Vec::new();

@@ -1,183 +1,152 @@
 # LocalMind Rust Implementation
 
-A privacy-focused desktop knowledge management system built with Rust and Tauri, featuring a modern Svelte 5 UI.
+A privacy-focused desktop knowledge management system built with Rust and egui, featuring a native desktop GUI.
 
 ## Overview
 
-LocalMind-rs is a standalone desktop application that allows you to store and intelligently search notes and bookmarks locally using RAG (Retrieval-Augmented Generation). All data processing happens locally - no data ever leaves your device unencrypted.
+LocalMind-rs is a standalone desktop application that allows you to store and intelligently search notes and bookmarks locally using RAG (Retrieval-Augmented Generation). All data processing happens locally - no data ever leaves your device.
 
 ## Tech Stack
 
-- **Backend**: Rust with Tauri 1.5
-- **Frontend**: Svelte 5 with Vite
+- **Backend**: Rust
+- **Frontend**: egui/eframe (pure Rust, no JavaScript)
 - **Database**: SQLite via rusqlite
-- **LLM Integration**: Ollama / LM Studio
-- **Embedding**: Local embedding models via LM Studio
+- **Embedding**: Python FastAPI server with `google/embeddinggemma-300M` model
+- **HTTP Server**: axum (for Chrome extension compatibility)
 
 ## Features
 
-- 🔍 Semantic search across bookmarks and notes
-- 🤖 AI-powered responses using local LLMs
+- 🔍 Semantic search across bookmarks and documents
 - 📚 Automatic bookmark monitoring and ingestion
 - 🎯 Bookmark folder and domain exclusion rules
-- 💬 Streaming LLM responses
-- 🎨 Modern, reactive UI built with Svelte 5
+- 🎨 Native desktop GUI with dark theme
 - 🔒 100% local - no data leaves your device
+- 📱 Chrome extension support via HTTP API
 
 ## Prerequisites
 
-- Rust (latest stable)
-- Node.js 18+ and npm
-- [LM Studio](https://lmstudio.ai/) running at `http://localhost:1234`
-- **Required:** LM Studio must have `text-embedding-embeddinggemma-300m-qat` model loaded (hard-coded)
-- A chat model (e.g., `qwen2.5-coder`, `gemma-3-1b-it`)
+- Rust (1.75+)
+- Python 3.8+ with FastAPI
+- Embedding server running (see `embedding-server/` directory)
 
 ## Development Setup
 
-### 1. Install Dependencies
+### 1. Start the Embedding Server
+
+The embedding server must be running before starting the application:
 
 ```bash
-# Install Rust dependencies
-cargo check
-
-# Install Node dependencies for the UI
-npm install
+cd embedding-server
+python embedding_server.py
 ```
 
-### 2. Start Development Environment
+The server will start on `http://localhost:8000` by default.
 
-**Option A: Automatic (using batch script)**
+### 2. Build and Run
+
 ```bash
-./dev.bat
-```
-
-**Option B: Manual (recommended for VS Code debugging)**
-
-In one terminal:
-```bash
-npm run dev
-```
-
-In another terminal (or VS Code debugger):
-```bash
+cd localmind-rs
 cargo run
 ```
 
-The Vite dev server will start on `http://localhost:5173`, and Tauri will load the UI from there.
-
-### 3. Configure LM Studio / Ollama
-
-Make sure you have:
-- LM Studio running on `http://localhost:1234` with an embedding model loaded
-- Or Ollama running on `http://localhost:11434`
+The application will:
+- Initialize the SQLite database
+- Connect to the embedding server
+- Start the HTTP server (port 3000-3010) for Chrome extension
+- Launch the egui desktop window
 
 ## Building for Production
 
 ```bash
-# Build the UI and create production executable
-npm run build
+cd localmind-rs
 cargo build --release
-
-# Or use Tauri's build command
-cargo tauri build
 ```
 
-The built application will be in `target/release/`.
+The built executable will be in `target/release/localmind-rs.exe` (Windows) or `target/release/localmind-rs` (Linux/macOS).
+
+**Binary size**: < 15MB (verified)
 
 ## Project Structure
 
 ```
 localmind-rs/
-├── src/                      # Rust backend source
-│   ├── main.rs              # Application entry point
+├── src/                      # Rust source code
+│   ├── main.rs              # Application entry point (eframe)
+│   ├── gui/                  # egui GUI modules
+│   │   ├── app.rs            # Main application state and eframe::App implementation
+│   │   ├── state.rs          # UI state types (View, InitStatus, Toast, etc.)
+│   │   ├── views/            # View components
+│   │   │   ├── home.rs       # Home screen with recent documents
+│   │   │   ├── search.rs     # Search results view
+│   │   │   └── document.rs   # Document detail view
+│   │   └── widgets/          # Reusable widgets
+│   │       ├── toast.rs      # Toast notifications
+│   │       ├── settings.rs   # Settings modal
+│   │       └── folder_tree.rs # Bookmark folder tree
 │   ├── db.rs                # Database operations
 │   ├── rag.rs               # RAG pipeline
-│   ├── ollama.rs            # LLM client
 │   ├── bookmark.rs          # Bookmark monitoring
-│   └── bookmark_exclusion.rs # Exclusion rules
-├── src-ui/                   # Svelte 5 frontend
-│   ├── App.svelte           # Main application component
-│   ├── main.js              # Entry point
-│   ├── index.html           # HTML template
-│   ├── style.css            # Global styles
-│   ├── tauri.svelte.js      # Tauri API integration
-│   └── components/          # Svelte components
-│       ├── SearchBar.svelte
-│       ├── SearchResults.svelte
-│       ├── DocumentView.svelte
-│       ├── SettingsModal.svelte
-│       └── Toast.svelte
+│   ├── bookmark_exclusion.rs # Exclusion rules
+│   └── http_server.rs       # HTTP API for Chrome extension
+├── icons/                    # Application icons
 ├── Cargo.toml               # Rust dependencies
-├── tauri.conf.json          # Tauri configuration
-├── package.json             # Node dependencies
-├── vite.config.js           # Vite configuration
-└── svelte.config.js         # Svelte configuration
+└── README.md                # This file
 ```
 
 ## UI Architecture
 
-The UI is built with **Svelte 5** using modern runes for reactive state management:
+The UI is built with **egui/eframe** (immediate mode GUI):
 
-- **`$state`**: Reactive state variables
-- **`$effect`**: Side effects (similar to React useEffect)
-- **`$props`**: Component properties
-- **`$derived`**: Computed values
+- **`LocalMindApp`**: Main application state implementing `eframe::App`
+- **Views**: Home, SearchResults, DocumentDetail
+- **Widgets**: Toast, Settings, FolderTree
+- **State Management**: Direct access to RAG pipeline via `Arc<RwLock<Option<RagPipeline>>>`
 
-### Key Components
+### Key Features
 
-- **App.svelte**: Main application shell, manages global state
-- **SearchBar.svelte**: Search input and similarity threshold controls
-- **SearchResults.svelte**: Displays search results and AI responses
-- **DocumentView.svelte**: Full document viewer with navigation
-- **SettingsModal.svelte**: Bookmark exclusion settings
-- **Toast.svelte**: Notification toasts
-
-### Tauri Integration
-
-The frontend communicates with the Rust backend via Tauri's IPC:
-
-```javascript
-import { getTauriAPI } from './tauri.svelte.js';
-const { invoke, listen } = getTauriAPI();
-
-// Call Rust command
-const results = await invoke('search_hits', { query, cutoff });
-
-// Listen to events from Rust
-await listen('llm-stream-chunk', (event) => {
-    console.log(event.payload);
-});
-```
+- **Dark Theme**: Applied automatically on startup
+- **Async Operations**: Uses `poll-promise` for async operations in egui's single-threaded context
+- **Toast Notifications**: Auto-dismissing notifications for user feedback
+- **Settings Modal**: Manage bookmark exclusion rules (folders and domain patterns)
 
 ## Database Location
 
-- **Windows**: `%APPDATA%/localmind/`
-- **macOS/Linux**: `~/.localmind/`
+- **Windows**: `%APPDATA%/localmind/localmind.db`
+- **macOS/Linux**: `~/.local/share/localmind/localmind.db`
+
+## HTTP API
+
+The application exposes an HTTP API on port 3000-3010 for Chrome extension compatibility:
+
+- **POST /documents**: Ingest a document from the Chrome extension
+  - Body: `{ "title": "...", "content": "...", "url": "...", "extractionMethod": "..." }`
+  - Response: `{ "message": "...", "extractionMethod": "..." }`
 
 ## Configuration
 
 The application stores configuration in the database, including:
-- Embedding model selection
-- LLM endpoint URL
-- Bookmark exclusion rules
+- Bookmark exclusion rules (folders and domain patterns)
+- Document metadata and embeddings
 
 ## Development Tips
 
-### Running in VS Code Debugger
+### Running in Debug Mode
 
-1. Keep Vite running in a terminal: `npm run dev`
-2. Use the VS Code debugger to run the Rust application
-3. This allows you to see the UI updates while debugging the backend
+```bash
+cargo run
+```
+
+The application will show console output for debugging.
 
 ### Hot Reload
 
-- Frontend changes: Auto-reload via Vite HMR
-- Backend changes: Requires restarting `cargo run`
+- Code changes require restarting `cargo run`
+- The embedding server can be restarted independently
 
 ### Debugging
 
-- Frontend: Use browser DevTools (Right-click → Inspect)
-- Backend: Use Rust debugging tools or add `println!` statements
+- Use `println!` statements for backend debugging
+- egui provides built-in debugging tools (accessible via right-click)
 
 ## Common Commands
 
@@ -185,35 +154,44 @@ The application stores configuration in the database, including:
 # Check Rust code
 cargo check
 
+# Format code
+cargo fmt
+
+# Run linter
+cargo clippy
+
 # Run tests
 cargo test
 
-# Build UI only
-npm run build
-
-# Start Vite dev server
-npm run dev
+# Build release
+cargo build --release
 
 # Run application
 cargo run
-
-# Build release
-cargo tauri build
 ```
 
 ## Troubleshooting
 
-### "Failed to resolve module specifier" error
-Make sure Vite is running before starting the Tauri app.
+### "Failed to connect to embedding server"
+Make sure the Python embedding server is running on `http://localhost:8000`.
 
 ### Bookmark monitoring not working
-Check that Chrome/Firefox bookmark file is accessible and the file watcher has permissions.
+Check that Chrome bookmark file is accessible and the file watcher has permissions.
 
-### LLM responses not working
-Ensure LM Studio or Ollama is running and has models loaded.
+### HTTP server port conflicts
+The application tries ports 3000-3010. If all are in use, check for other instances.
 
 ### Database errors
 Try deleting the database folder and restarting to reinitialize.
+
+## Migration from Tauri/Svelte
+
+This version replaces the previous Tauri + Svelte frontend with a pure Rust egui implementation:
+- ✅ No Node.js/JavaScript dependencies
+- ✅ Single binary executable
+- ✅ Faster startup time
+- ✅ Lower memory footprint
+- ✅ Native look and feel
 
 ## Contributing
 

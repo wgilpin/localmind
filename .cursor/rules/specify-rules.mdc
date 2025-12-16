@@ -5,6 +5,8 @@ Auto-generated from all feature plans. Last updated: 2025-12-12
 ## Active Technologies
 - JavaScript ES6+ (Chrome Extension Manifest V3) + Chrome Extension APIs (chrome.bookmarks, chrome.tabs, chrome.runtime), Webpack 5.89+ for bundling (001-bookmark-inbox-dedup)
 - Chrome's native bookmarks API (no additional persistence required) (001-bookmark-inbox-dedup)
+- Rust 1.75+ + egui 0.29+, eframe 0.29+, open (for browser launching), html2text (for HTML stripping) (007-egui-frontend)
+- SQLite via rusqlite (existing, unchanged) (007-egui-frontend)
 
 - Rust 1.75+ (edition 2021) (001-http-api-server)
 
@@ -24,6 +26,7 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust 1.75+ (edition 2021): Follow standard conventions
 
 ## Recent Changes
+- 007-egui-frontend: Added Rust 1.75+ + egui 0.29+, eframe 0.29+, open (for browser launching), html2text (for HTML stripping)
 - 001-bookmark-inbox-dedup: Added JavaScript ES6+ (Chrome Extension Manifest V3) + Chrome Extension APIs (chrome.bookmarks, chrome.tabs, chrome.runtime), Webpack 5.89+ for bundling
 
 - 001-http-api-server: Added Rust 1.75+ (edition 2021)

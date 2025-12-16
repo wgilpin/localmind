@@ -18,11 +18,11 @@ use regex::Regex;
 use tokio::sync::RwLock;
 use tokio::time::{timeout, Duration};
 
-// Type alias matching main.rs
-type RagState = Arc<RwLock<Option<RAG>>>;
+// Type alias for shared RAG state - used by both HTTP server and egui GUI
+pub type RagState = Arc<RwLock<Option<RAG>>>;
 
 /// Application state for axum HTTP server
-/// Wraps RagState to share RAG system with Tauri GUI
+/// Wraps RagState to share RAG system with egui GUI
 #[derive(Clone)]
 pub struct AppState {
     pub rag_state: RagState,

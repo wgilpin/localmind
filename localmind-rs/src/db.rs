@@ -238,6 +238,40 @@ impl Database {
         .await
     }
 
+    /// Get most recently added documents for home screen display
+    ///
+    /// Returns up to `limit` documents ordered by creation date (newest first).
+    /// Excludes dead/broken bookmarks.
+    pub async fn get_recent_documents(&self, limit: usize) -> Result<Vec<Document>> {
+        self.execute_with_priority(OperationPriority::UserSearch, move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead
+                 FROM documents
+                 WHERE is_dead = 0 OR is_dead IS NULL
+                 ORDER BY created_at DESC
+                 LIMIT ?1",
+            )?;
+
+            let docs = stmt
+                .query_map(params![limit as i64], |row| {
+                    Ok(Document {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        content: row.get(2)?,
+                        url: row.get(3)?,
+                        source: row.get(4)?,
+                        created_at: row.get(5)?,
+                        embedding: row.get(6)?,
+                        is_dead: row.get(7)?,
+                    })
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+
+            Ok(docs)
+        })
+        .await
+    }
+
     pub async fn get_documents_batch(&self, ids: &[i64]) -> Result<Vec<Document>> {
         if ids.is_empty() {
             return Ok(Vec::new());
@@ -309,7 +343,6 @@ impl Database {
         }).await
     }
 
-
     pub async fn insert_chunk_embedding(
         &self,
         document_id: i64,
@@ -325,7 +358,8 @@ impl Database {
                 params![document_id, chunk_start as i64, chunk_end as i64, embedding],
             )?;
             Ok(conn.last_insert_rowid())
-        }).await
+        })
+        .await
     }
 
     pub async fn get_all_chunk_embeddings(
@@ -372,12 +406,7 @@ impl Database {
                 let embedding_bytes: Vec<u8> = row.get(3)?;
                 let embedding: Vec<f32> = bincode::deserialize(&embedding_bytes)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                Ok((
-                    id,
-                    chunk_start as usize,
-                    chunk_end as usize,
-                    embedding,
-                ))
+                Ok((id, chunk_start as usize, chunk_end as usize, embedding))
             })?;
 
             let mut results = Vec::new();

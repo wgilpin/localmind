@@ -135,7 +135,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (errorMessage.includes('Failed to fetch') || 
           errorMessage.includes('NetworkError') ||
           errorMessage.includes('ERR_CONNECTION_REFUSED')) {
-        errorMessage = 'Cannot connect to LocalMind backend server. Please ensure the desktop-daemon server is running on http://localhost:3000.';
+        errorMessage = 'Cannot connect to LocalMind backend server. Please ensure the LocalMind application is running and the HTTP server is listening on http://localhost:3000.';
       }
       
       sendResponse({ success: false, error: errorMessage });

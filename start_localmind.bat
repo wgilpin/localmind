@@ -1,4 +1,6 @@
 @echo off
+REM Disable PowerShell profile loading to avoid conda errors
+set PSModulePath=
 setlocal enabledelayedexpansion
 
 echo.
@@ -27,6 +29,27 @@ pause
 exit /b 1
 
 :main
+
+REM Step 0: Cleanup any leftover processes from previous runs
+echo [0/9] Cleaning up any leftover processes...
+REM Kill any process using the embedding server port first
+for /f "tokens=5" %%i in ('netstat -ano 2^>nul ^| findstr ":%EMBEDDING_SERVER_PORT%"') do (
+    if not "%%i"=="" (
+        echo [INFO] Killing process using port %EMBEDDING_SERVER_PORT%: PID %%i
+        taskkill /PID %%i /F >nul 2>&1
+    )
+)
+REM Wait a moment for processes to terminate
+timeout /t 2 /nobreak >nul
+REM Now try to clear the log file (should be unlocked after killing processes)
+if exist "%SERVER_LOG%" (
+    del /F /Q "%SERVER_LOG%" >nul 2>&1
+    if exist "%SERVER_LOG%" (
+        echo [WARNING] Could not delete log file, may still be in use
+    )
+)
+echo [OK] Cleanup complete
+echo.
 
 REM Step 1: Check Python 3.11+ installation
 echo [1/9] Checking Python installation...
@@ -99,13 +122,17 @@ if %errorlevel% neq 0 (
 )
 echo.
 
-REM Step 3: Check for port conflicts
+REM Step 3: Check for port conflicts (after cleanup)
 echo [3/9] Checking for port conflicts...
 netstat -an | findstr ":%EMBEDDING_SERVER_PORT% " >nul 2>&1
 if %errorlevel% equ 0 (
-    echo [WARNING] Port %EMBEDDING_SERVER_PORT% is already in use
-    echo           This may indicate the embedding server is already running
-    echo           Continuing anyway...
+    echo [WARNING] Port %EMBEDDING_SERVER_PORT% is still in use after cleanup
+    echo           Attempting to kill process on port...
+    for /f "tokens=5" %%i in ('netstat -ano ^| findstr ":%EMBEDDING_SERVER_PORT%"') do (
+        taskkill /PID %%i /F >nul 2>&1
+        timeout /t 1 /nobreak >nul
+    )
+    echo           Continuing...
 )
 echo.
 
@@ -149,9 +176,9 @@ if %errorlevel% neq 0 (
     call :error_exit "Virtual environment Python executable is not working. Please recreate the virtual environment."
 )
 
-REM Install dependencies using venv Python
+REM Install dependencies using venv Python (without editable package install)
 echo [INFO] Installing dependencies (this may take a few minutes)...
-%VENV_PYTHON% -m uv pip install -e .
+%VENV_PYTHON% -m uv pip install fastapi>=0.115.0 "uvicorn[standard]>=0.32.0" sentence-transformers>=3.3.0 torch>=2.0.0 "transformers @ git+https://github.com/huggingface/transformers@v4.56.0-Embedding-Gemma-preview"
 if %errorlevel% neq 0 (
     cd ..
     call :error_exit "Failed to install dependencies. Check embedding-server\pyproject.toml"
@@ -181,7 +208,7 @@ if not defined VENV_PYTHON (
 REM Use absolute path for log file since we're in embedding-server directory
 set ABS_SERVER_LOG=%CD%\..\%SERVER_LOG%
 
-REM Start server and capture output to log file
+REM Start server and capture output to log file (overwrite mode, file should be unlocked after cleanup)
 start /B %VENV_PYTHON% embedding_server.py > "%ABS_SERVER_LOG%" 2>&1
 set SERVER_PID=%errorlevel%
 cd ..
@@ -211,7 +238,9 @@ if !attempts! gtr !max_attempts! (
     if exist "%SERVER_LOG%" (
         echo.
         echo Last 20 lines of log:
-        powershell -Command "Get-Content '%SERVER_LOG%' -Tail 20"
+        REM Use a simple approach: read file and show last lines
+        REM Note: This is a simplified version - full log available at: %SERVER_LOG%
+        type "%SERVER_LOG%" 2>nul
     )
     if not "!SERVER_PID!"=="" (
         taskkill /PID !SERVER_PID! /F >nul 2>&1
@@ -219,10 +248,12 @@ if !attempts! gtr !max_attempts! (
     call :error_exit "Embedding server health check failed"
 )
 
-curl -s http://localhost:%EMBEDDING_SERVER_PORT%/health >nul 2>&1
+REM Use curl.exe explicitly to avoid PowerShell alias
+REM Suppress PowerShell errors by redirecting to nul and using cmd /c to avoid PowerShell invocation
+cmd /c "curl.exe -s http://localhost:%EMBEDDING_SERVER_PORT%/health" >nul 2>nul
 if %errorlevel% equ 0 (
-    REM Check if model is loaded
-    for /f "delims=" %%i in ('curl -s http://localhost:%EMBEDDING_SERVER_PORT%/health') do set HEALTH_RESPONSE=%%i
+    REM Check if model is loaded - use cmd /c to avoid PowerShell
+    for /f "delims=" %%i in ('cmd /c "curl.exe -s http://localhost:%EMBEDDING_SERVER_PORT%/health" 2^>nul') do set HEALTH_RESPONSE=%%i
     echo !HEALTH_RESPONSE! | findstr "model_loaded.*true" >nul 2>&1
     if %errorlevel% equ 0 (
         echo [OK] Server is ready and model is loaded
@@ -234,10 +265,7 @@ REM Show progress every 10 seconds
 set /a show_progress=!attempts! %% 10
 if !show_progress! equ 0 (
     echo [INFO] Still loading... (attempt !attempts!/!max_attempts! - this is normal on first run)
-    if exist "%SERVER_LOG%" (
-        REM Show last log line if available
-        for /f "delims=" %%i in ('powershell -Command "Get-Content ''%SERVER_LOG%'' -Tail 1 2>$null"') do echo        %%i
-    )
+    REM Log file available at: %SERVER_LOG%
 )
 timeout /t 1 /nobreak >nul
 goto :health_check_loop
@@ -260,7 +288,7 @@ cd localmind-rs
 echo.
 echo [INFO] Starting LocalMind application...
 echo.
-cargo tauri dev
+cargo run
 set APP_EXIT_CODE=%errorlevel%
 cd ..
 

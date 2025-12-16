@@ -154,8 +154,7 @@ async fn main() -> Result<()> {
             let mut valid_indices = Vec::new();
 
             for (local_idx, chunk_embedding) in batch.iter().enumerate() {
-                let (chunk_id, chunk_start, chunk_end, _old_embedding) =
-                    chunk_embedding;
+                let (chunk_id, chunk_start, chunk_end, _old_embedding) = chunk_embedding;
 
                 if *chunk_end > content_len + BOUNDARY_LEEWAY {
                     // Extract what we can for debugging

@@ -33,14 +33,15 @@ bash.exe.stackdump
 # Rust application
 localmind-rs/target/
 localmind-rs/Cargo.lock
-localmind-rs/src-ui/node_modules/
-localmind-rs/src-ui/dist/
-localmind-rs/src-ui/build/
+localmind-rs/node_modules/
+localmind-rs/dist/
+localmind-rs/package.json
+localmind-rs/package-lock.json
+localmind-rs/vite.config.*
+localmind-rs/svelte.config.*
+localmind-rs/build.rs
 eval-tool/run-gemma.sh
 /eval-tool/chunk_embeddings_cache
-localmind-rs/node_modules/
-localmind-rs/src-ui/*.old
-localmind-rs/dist/
 
 # Chrome Extension build artifacts
 chrome-extension/node_modules/
