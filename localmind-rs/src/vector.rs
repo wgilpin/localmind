@@ -10,17 +10,17 @@ pub struct SearchResult {
 pub struct ChunkSearchResult {
     pub embedding_id: i64,
     pub doc_id: i64,
-    pub chunk_index: usize,
     pub chunk_start: usize,
     pub chunk_end: usize,
     pub similarity: f32,
 }
 
 pub struct VectorStore {
-    vectors: Vec<(i64, Vec<f32>)>, // (doc_id, vector) - legacy
-    chunk_vectors: Vec<(i64, i64, usize, usize, usize, Vec<f32>)>, // (embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector)
+    vectors: Vec<(i64, Vec<f32>)>, // (doc_id, vector) - legacy, will be removed
+    chunk_vectors: Vec<(i64, i64, usize, usize, Vec<f32>)>, // (embedding_id, doc_id, chunk_start, chunk_end, vector)
 }
 
+#[allow(clippy::new_without_default)]
 impl VectorStore {
     pub fn new() -> Self {
         Self {
@@ -36,7 +36,7 @@ impl VectorStore {
 
     pub fn load_chunk_vectors(
         &mut self,
-        chunk_vectors: Vec<(i64, i64, usize, usize, usize, Vec<f32>)>,
+        chunk_vectors: Vec<(i64, i64, usize, usize, Vec<f32>)>,
     ) -> Result<()> {
         self.chunk_vectors = chunk_vectors;
         Ok(())
@@ -55,19 +55,12 @@ impl VectorStore {
         &mut self,
         embedding_id: i64,
         doc_id: i64,
-        chunk_index: usize,
         chunk_start: usize,
         chunk_end: usize,
         vector: Vec<f32>,
     ) -> Result<()> {
-        self.chunk_vectors.push((
-            embedding_id,
-            doc_id,
-            chunk_index,
-            chunk_start,
-            chunk_end,
-            vector,
-        ));
+        self.chunk_vectors
+            .push((embedding_id, doc_id, chunk_start, chunk_end, vector));
         Ok(())
     }
 
@@ -126,22 +119,46 @@ impl VectorStore {
         limit: usize,
         min_similarity: f32,
     ) -> Result<Vec<ChunkSearchResult>> {
+        // Minimum chunk size to consider (in bytes) - filters out meaningless tiny chunks
+        const MIN_CHUNK_SIZE: usize = 50;
+
         if query_vector.is_empty() {
             return Ok(vec![]);
         }
 
+        // #region agent log
+        let query_norm: f32 = query_vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let query_mean: f32 = query_vector.iter().sum::<f32>() / query_vector.len() as f32;
+        let query_var: f32 = query_vector.iter().map(|x| (x - query_mean).powi(2)).sum::<f32>() / query_vector.len() as f32;
+        let log_entry = serde_json::json!({"location":"vector.rs:search_chunks_with_cutoff","message":"Query embedding stats","data":{"query_dim":query_vector.len(),"query_norm":query_norm,"query_mean":query_mean,"query_var":query_var,"query_first_5":&query_vector[..5.min(query_vector.len())],"min_similarity":min_similarity,"min_chunk_size":MIN_CHUNK_SIZE},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"A,C,E"});
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
+        // #endregion
+
         let mut similarities: Vec<ChunkSearchResult> = Vec::new();
 
-        for (embedding_id, doc_id, chunk_index, chunk_start, chunk_end, vector) in
-            &self.chunk_vectors
-        {
+        for (embedding_id, doc_id, chunk_start, chunk_end, vector) in &self.chunk_vectors {
+            // Skip chunks that are too small to be semantically meaningful
+            let chunk_size = chunk_end - chunk_start;
+            if chunk_size < MIN_CHUNK_SIZE {
+                continue;
+            }
+
             if let Some(similarity) = cosine_similarity(query_vector, vector) {
                 // Only include results above the similarity threshold
                 if similarity >= min_similarity {
+                    // #region agent log
+                    let vec_norm: f32 = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+                    let vec_mean: f32 = vector.iter().sum::<f32>() / vector.len() as f32;
+                    let vec_var: f32 = vector.iter().map(|x| (x - vec_mean).powi(2)).sum::<f32>() / vector.len() as f32;
+                    if similarity >= 0.5 {
+                        let log_entry = serde_json::json!({"location":"vector.rs:high_similarity_chunk","message":"High similarity chunk found","data":{"doc_id":doc_id,"embedding_id":embedding_id,"similarity":similarity,"vec_dim":vector.len(),"vec_norm":vec_norm,"vec_mean":vec_mean,"vec_var":vec_var,"vec_first_5":&vector[..5.min(vector.len())],"chunk_start":chunk_start,"chunk_end":chunk_end,"chunk_size":chunk_size},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"A,C,D,E"});
+                        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
+                    }
+                    // #endregion
+
                     similarities.push(ChunkSearchResult {
                         embedding_id: *embedding_id,
                         doc_id: *doc_id,
-                        chunk_index: *chunk_index,
                         chunk_start: *chunk_start,
                         chunk_end: *chunk_end,
                         similarity,
@@ -159,6 +176,14 @@ impl VectorStore {
 
         // Take top results
         similarities.truncate(limit);
+
+        // #region agent log
+        if !similarities.is_empty() {
+            let top_results: Vec<_> = similarities.iter().take(5).map(|r| serde_json::json!({"doc_id":r.doc_id,"similarity":r.similarity})).collect();
+            let log_entry = serde_json::json!({"location":"vector.rs:search_results","message":"Top 5 chunk results","data":{"top_results":top_results,"total_above_cutoff":similarities.len()},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"A,B"});
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
+        }
+        // #endregion
 
         Ok(similarities)
     }

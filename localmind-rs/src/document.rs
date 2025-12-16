@@ -20,119 +20,116 @@ impl DocumentProcessor {
         }
     }
 
+    /// Split text into chunks of approximately `chunk_size` bytes with `overlap` bytes overlap.
+    /// 
+    /// Algorithm:
+    /// 1. Split into chunk_size blocks with overlap, finding good break points (sentences, words)
+    /// 2. If the last chunk is less than chunk_size/2, merge it with the previous chunk
+    /// 
+    /// This ensures no tiny trailing chunks (with default 500/50, last chunk is always >= 250 bytes)
     pub fn chunk_text(&self, text: &str) -> Result<Vec<DocumentChunk>> {
         if text.is_empty() {
-            println!("⚠️ Empty text provided to chunk_text");
             return Ok(vec![]);
         }
 
-        let mut chunks = Vec::new();
         let text_len = text.len();
 
+        // If text fits in one chunk, return it as-is
         if text_len <= self.chunk_size {
-            chunks.push(DocumentChunk {
+            return Ok(vec![DocumentChunk {
                 content: text.to_string(),
                 start_pos: 0,
                 end_pos: text_len,
-            });
-            return Ok(chunks);
+            }]);
         }
 
+        let mut chunks = Vec::new();
         let mut start = 0;
-        let mut chunk_count = 0;
-        let max_chunks = (text_len / (self.chunk_size / 2)) + 10; // Safety limit
 
-        while start < text_len && chunk_count < max_chunks {
-            chunk_count += 1;
+        // Step 1: Create chunks with overlap
+        while start < text_len {
             let mut end = std::cmp::min(start + self.chunk_size, text_len);
 
             // Ensure end is on a UTF-8 character boundary
-            while end > start && !text.is_char_boundary(end) {
-                end -= 1;
+            end = self.adjust_to_char_boundary(text, end, false);
+
+            // Find a good break point (sentence/paragraph boundary) if not at end of text
+            if end < text_len {
+                end = self.find_break_point(text, start, end);
             }
 
-            // Find a good break point (sentence or paragraph boundary)
-            let actual_end = if end < text_len {
-                self.find_break_point(text, start, end)
-            } else {
-                end
-            };
+            // Ensure start is on a UTF-8 character boundary
+            let safe_start = self.adjust_to_char_boundary(text, start, true);
 
-            // Ensure start is on a UTF-8 character boundary before creating slice
-            let mut safe_start = start;
-            while safe_start < text_len && !text.is_char_boundary(safe_start) {
-                safe_start += 1;
-            }
+            // Clamp end to text length
+            let safe_end = std::cmp::min(end, text_len);
 
-            // Ensure actual_end is on a UTF-8 character boundary
-            let mut safe_actual_end = actual_end;
-            if actual_end > text_len {
-                println!(
-                    "WARNING: actual_end ({}) > text_len ({}) before UTF-8 check",
-                    actual_end, text_len
-                );
-            }
-            while safe_actual_end > safe_start && !text.is_char_boundary(safe_actual_end) {
-                safe_actual_end -= 1;
-            }
-            if safe_actual_end > text_len {
-                println!(
-                    "WARNING: safe_actual_end ({}) > text_len ({}) AFTER UTF-8 check",
-                    safe_actual_end, text_len
-                );
-            }
-
-            // CRITICAL: Final safety check - never allow chunks to exceed document length
-            let original_end = safe_actual_end;
-            safe_actual_end = std::cmp::min(safe_actual_end, text_len);
-            if original_end > text_len {
-                println!(
-                    "WARNING: Clamping chunk end from {} to {} (doc len: {})",
-                    original_end, text_len, text_len
-                );
-            }
-            if safe_actual_end > safe_start {
-                let chunk_text = text[safe_start..safe_actual_end].trim_start().to_string();
-
-                if !chunk_text.is_empty() {
-                    chunks.push(DocumentChunk {
-                        content: chunk_text,
-                        start_pos: safe_start,
-                        end_pos: safe_actual_end,
-                    });
+            if safe_end > safe_start {
+                // Skip if this chunk would end at or before the previous chunk's end
+                // (this happens when overlap causes us to find the same break point)
+                let prev_end = chunks.last().map(|c: &DocumentChunk| c.end_pos).unwrap_or(0);
+                if safe_end > prev_end {
+                    let chunk_content = text[safe_start..safe_end].trim().to_string();
+                    if !chunk_content.is_empty() {
+                        chunks.push(DocumentChunk {
+                            content: chunk_content,
+                            start_pos: safe_start,
+                            end_pos: safe_end,
+                        });
+                    }
                 }
             }
 
-            // Move start position, accounting for overlap and word boundaries
-            let new_start = if safe_actual_end >= self.overlap {
-                let candidate_start = safe_actual_end - self.overlap;
-                // Adjust candidate_start to be on a word boundary
-                self.find_word_start(text, candidate_start)
+            // Move to next chunk position (with overlap)
+            if safe_end >= text_len {
+                break;
+            }
+            
+            let next_start = if safe_end > self.overlap {
+                self.find_word_start(text, safe_end - self.overlap)
             } else {
-                safe_actual_end
+                safe_end
             };
 
-            // Ensure we make reasonable progress - if new start is too close, advance by a minimum amount
-            start = if new_start <= start {
-                // If we can't make progress with overlap, jump forward by at least chunk_size / 4
+            // Ensure progress
+            start = if next_start <= start {
                 start + std::cmp::max(1, self.chunk_size / 4)
             } else {
-                new_start
+                next_start
             };
+        }
 
-            if start >= text_len {
-                break;
+        // Step 2: If last chunk is too small (< chunk_size/2), merge with previous
+        let min_last_chunk_size = self.chunk_size / 2;
+        if chunks.len() >= 2 {
+            let last_chunk_size = chunks.last().map(|c| c.end_pos - c.start_pos).unwrap_or(0);
+            if last_chunk_size < min_last_chunk_size {
+                // Remove the last chunk and extend the previous one to cover it
+                let last_chunk = chunks.pop().unwrap();
+                if let Some(prev_chunk) = chunks.last_mut() {
+                    // Extend previous chunk to include the last chunk's content
+                    prev_chunk.end_pos = last_chunk.end_pos;
+                    prev_chunk.content = text[prev_chunk.start_pos..prev_chunk.end_pos].trim().to_string();
+                }
             }
         }
 
-        if chunk_count >= max_chunks {
-            println!(
-                "⚠️ Hit maximum chunk limit ({}) - stopping to prevent excessive chunking",
-                max_chunks
-            );
-        }
-
         Ok(chunks)
+    }
+
+    /// Adjust a byte position to be on a valid UTF-8 character boundary
+    fn adjust_to_char_boundary(&self, text: &str, pos: usize, forward: bool) -> usize {
+        let mut adjusted = pos.min(text.len());
+        if forward {
+            while adjusted < text.len() && !text.is_char_boundary(adjusted) {
+                adjusted += 1;
+            }
+        } else {
+            while adjusted > 0 && !text.is_char_boundary(adjusted) {
+                adjusted -= 1;
+            }
+        }
+        adjusted
     }
 
     fn find_break_point(&self, text: &str, start: usize, preferred_end: usize) -> usize {

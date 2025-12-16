@@ -1,98 +1,17 @@
 use crate::{
     db::{Database, Document, OperationPriority},
     document::DocumentProcessor,
-    lmstudio::LMStudioClient,
-    ollama::OllamaClient,
+    local_embedding::LocalEmbeddingClient,
     vector::VectorStore,
     Result,
 };
 use std::collections::{HashMap, HashSet};
-use tokio::sync::{mpsc, Mutex};
-use tokio_util::sync::CancellationToken;
-
-pub enum EmbeddingClient {
-    Ollama(OllamaClient),
-    LMStudio(LMStudioClient),
-}
-
-impl EmbeddingClient {
-    async fn generate_embedding(
-        &self,
-        text: &str,
-        is_query: bool,
-        document_title: Option<&str>,
-    ) -> Result<Vec<f32>> {
-        match self {
-            EmbeddingClient::Ollama(client) => client.generate_embedding(text).await,
-            EmbeddingClient::LMStudio(client) => {
-                client
-                    .generate_embedding(text, is_query, document_title)
-                    .await
-            }
-        }
-    }
-
-    async fn generate_completion(&self, prompt: &str) -> Result<String> {
-        match self {
-            EmbeddingClient::Ollama(client) => client.generate_completion(prompt).await,
-            EmbeddingClient::LMStudio(_) => {
-                Err("LM Studio does not support completion generation. Please use Ollama for completions.".into())
-            }
-        }
-    }
-
-    async fn generate_completion_with_cancellation(
-        &self,
-        prompt: &str,
-        cancel_token: CancellationToken,
-    ) -> Result<String> {
-        match self {
-            EmbeddingClient::Ollama(client) => client.generate_completion_with_cancellation(prompt, cancel_token).await,
-            EmbeddingClient::LMStudio(_) => {
-                Err("LM Studio does not support completion generation. Please use Ollama for completions.".into())
-            }
-        }
-    }
-
-    async fn generate_completion_stream(
-        &self,
-        prompt: &str,
-        tx: mpsc::UnboundedSender<String>,
-    ) -> Result<()> {
-        match self {
-            EmbeddingClient::Ollama(client) => client.generate_completion_stream(prompt, tx).await,
-            EmbeddingClient::LMStudio(client) => {
-                client.generate_completion_stream(prompt, tx).await
-            }
-        }
-    }
-
-    async fn generate_completion_stream_with_cancellation(
-        &self,
-        prompt: &str,
-        tx: mpsc::UnboundedSender<String>,
-        cancel_token: CancellationToken,
-    ) -> Result<()> {
-        match self {
-            EmbeddingClient::Ollama(client) => {
-                client
-                    .generate_completion_stream_with_cancellation(prompt, tx, cancel_token)
-                    .await
-            }
-            EmbeddingClient::LMStudio(client) => {
-                client
-                    .generate_completion_stream_with_cancellation(prompt, tx, cancel_token)
-                    .await
-            }
-        }
-    }
-}
+use tokio::sync::Mutex;
 
 pub struct RagPipeline {
     pub db: Database,
     vector_store: Mutex<VectorStore>,
-    embedding_client: EmbeddingClient,
-    ollama_client: Option<OllamaClient>, // For completions only
+    embedding_client: LocalEmbeddingClient,
     document_processor: DocumentProcessor,
     query_embedding_cache: Mutex<HashMap<String, Vec<f32>>>,
 }
@@ -112,64 +31,38 @@ pub struct DocumentSource {
 }
 
 impl RagPipeline {
-    /// Initialize RAG pipeline with hard-coded Gemma embedding model.
-    pub async fn new(db: Database, ollama_client: OllamaClient) -> Result<Self> {
-        // Hard-coded embedding configuration (Gemma embedding)
-        let model = "text-embedding-embeddinggemma-300m-qat".to_string();
-        let url = "http://localhost:1234".to_string();
+    /// Initialize RAG pipeline with local Python embedding server.
+    ///
+    /// The embedding server should be running on localhost (default port 8000,
+    /// configurable via EMBEDDING_SERVER_PORT environment variable).
+    pub async fn new(db: Database) -> Result<Self> {
+        let embedding_client = LocalEmbeddingClient::new();
 
-        println!("Using hard-coded embedding config:");
-        println!("   Model: {}", model);
-        println!("   URL: {}", url);
-
-        // Initialize LM Studio client with hard-coded model
-        let mut lmstudio_client = LMStudioClient::new(url.clone(), model);
-
-        // Test connection and get available models
-        match lmstudio_client.test_connection().await {
-            Ok(_) => {
-                println!("LM Studio connection successful");
-
-                // Try to find Gemma 3 1B for completions, fallback to other chat models
-                if let Ok(response) = reqwest::get(format!("{}/v1/models", url)).await {
-                    if let Ok(models_data) = response.json::<serde_json::Value>().await {
-                        if let Some(models) = models_data["data"].as_array() {
-                            let available_models: Vec<&str> = models
-                                .iter()
-                                .filter_map(|m| m["id"].as_str())
-                                .filter(|id| {
-                                    !id.contains("embedding") && !id.starts_with("text-embedding")
-                                })
-                                .collect();
-
-                            // Priority: Gemma 3 1B > other Gemma > Qwen > first available
-                            let completion_model = available_models
-                                .iter()
-                                .find(|id| id.contains("gemma-3-1b") || id.contains("gemma3-1b"))
-                                .or_else(|| available_models.iter().find(|id| id.contains("gemma")))
-                                .or_else(|| available_models.iter().find(|id| id.contains("qwen")))
-                                .or_else(|| available_models.first())
-                                .unwrap_or(&"gemma-3-1b-it-qat");
-
-                            println!("Using LM Studio completion model: {}", completion_model);
-                            lmstudio_client =
-                                lmstudio_client.with_completion_model(completion_model.to_string());
-                        }
+        // Verify embedding server is ready before proceeding
+        println!("Checking embedding server health...");
+        match embedding_client.health_check().await {
+            Ok(true) => {
+                println!("Embedding server is ready and model is loaded");
+            }
+            Ok(false) => {
+                eprintln!("WARNING: Embedding server is running but model is not loaded yet");
+                eprintln!("Waiting for model to load...");
+                // Wait up to 30 seconds for model to load
+                for _ in 0..30 {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    if let Ok(true) = embedding_client.health_check().await {
+                        println!("Embedding server model is now loaded");
+                        break;
                     }
                 }
-
-                Self::new_with_lmstudio(db, lmstudio_client, Some(ollama_client)).await
             }
             Err(e) => {
-                println!("⚠️  LM Studio connection failed: {}", e);
-                println!("   Falling back to Ollama for embeddings");
-                Self::new_with_ollama_only(db, ollama_client).await
+                eprintln!("ERROR: Failed to connect to embedding server: {}", e);
+                eprintln!("Make sure the embedding server is running on localhost:8000");
+                return Err(format!("Embedding server not available: {}", e).into());
             }
         }
-    }
 
-    /// Initialize with Ollama only (legacy behavior)
-    pub async fn new_with_ollama_only(db: Database, ollama_client: OllamaClient) -> Result<Self> {
         let document_processor = DocumentProcessor::default();
         let mut vector_store = VectorStore::new();
 
@@ -179,61 +72,33 @@ impl RagPipeline {
         vector_store.load_chunk_vectors(chunk_embeddings)?;
         println!("Loaded {} chunk embeddings from database", chunk_count);
 
-        // For backward compatibility, also load old document embeddings
-        let legacy_embeddings = db.get_all_embeddings().await?;
-        let legacy_count = legacy_embeddings.len();
-        vector_store.load_vectors(legacy_embeddings)?;
-        if legacy_count > 0 {
-            println!("Loaded {} legacy document embeddings from database", legacy_count);
+        // Check total document count
+        let total_docs = db
+            .count_documents(OperationPriority::UserSearch)
+            .await
+            .unwrap_or(0);
+        println!("Total documents in database: {}", total_docs);
+
+        if chunk_count == 0 && total_docs > 0 {
+            println!("WARNING: Documents exist in database but have no embeddings!");
+            println!("You may need to re-index your documents using the reembed_batched tool.");
+        } else if total_docs == 0 {
+            println!("INFO: No documents in database. Add documents to enable search.");
         }
+
+        println!("RAG pipeline initialized with local Python embedding server");
 
         Ok(Self {
             db,
             vector_store: Mutex::new(vector_store),
-            embedding_client: EmbeddingClient::Ollama(ollama_client.clone()),
-            ollama_client: Some(ollama_client),
-            document_processor,
-            query_embedding_cache: Mutex::new(HashMap::new()),
-        })
-    }
-
-    pub async fn new_with_lmstudio(
-        db: Database,
-        lmstudio_client: LMStudioClient,
-        ollama_client: Option<OllamaClient>,
-    ) -> Result<Self> {
-        let document_processor = DocumentProcessor::default();
-        let mut vector_store = VectorStore::new();
-
-        // Load existing chunk embeddings from database
-        let chunk_embeddings = db.get_all_chunk_embeddings().await?;
-        let chunk_count = chunk_embeddings.len();
-        vector_store.load_chunk_vectors(chunk_embeddings)?;
-        println!("Loaded {} chunk embeddings from database", chunk_count);
-
-        // For backward compatibility, also load old document embeddings
-        let legacy_embeddings = db.get_all_embeddings().await?;
-        let legacy_count = legacy_embeddings.len();
-        vector_store.load_vectors(legacy_embeddings)?;
-        if legacy_count > 0 {
-            println!("Loaded {} legacy document embeddings from database", legacy_count);
-        }
-
-        Ok(Self {
-            db,
-            vector_store: Mutex::new(vector_store),
-            embedding_client: EmbeddingClient::LMStudio(lmstudio_client),
-            ollama_client,
+            embedding_client,
             document_processor,
             query_embedding_cache: Mutex::new(HashMap::new()),
         })
     }
 
     pub fn get_embedding_service_name(&self) -> &str {
-        match &self.embedding_client {
-            EmbeddingClient::Ollama(_) => "Ollama",
-            EmbeddingClient::LMStudio(_) => "LM Studio",
-        }
+        "Local Python Embedding Server"
     }
 
     async fn get_cached_query_embedding(&self, query: &str) -> Result<Vec<f32>> {
@@ -256,8 +121,9 @@ impl RagPipeline {
         );
         let embedding = self
             .embedding_client
-            .generate_embedding(query, true, None)
-            .await?;
+            .generate_embedding(query)
+            .await
+            .map_err(|e| format!("Failed to generate embedding: {}", e))?;
 
         // Cache the embedding
         {
@@ -312,12 +178,13 @@ impl RagPipeline {
             .await?;
 
         // Generate and store embeddings for each chunk
-        for (chunk_index, chunk) in chunks.iter().enumerate() {
+        for chunk in chunks.iter() {
             // Generate embedding for this chunk with document formatting
             let chunk_embedding = self
                 .embedding_client
-                .generate_embedding(&chunk.content, false, Some(title))
-                .await?;
+                .generate_embedding(&chunk.content)
+                .await
+                .map_err(|e| format!("Failed to generate embedding for chunk: {}", e))?;
             let embedding_bytes = bincode::serialize(&chunk_embedding)?;
 
             // Use actual chunk boundaries from DocumentChunk
@@ -329,7 +196,6 @@ impl RagPipeline {
                 .db
                 .insert_chunk_embedding(
                     doc_id,
-                    chunk_index,
                     chunk_start,
                     chunk_end,
                     &embedding_bytes,
@@ -343,14 +209,10 @@ impl RagPipeline {
                 vector_store.add_chunk_vector(
                     embedding_id,
                     doc_id,
-                    chunk_index,
                     chunk_start,
                     chunk_end,
                     chunk_embedding,
                 )?;
-                if chunk_index == 0 {
-                    println!("✓ Added chunk 0 embedding to in-memory vector store (embedding_id: {})", embedding_id);
-                }
             }
         }
 
@@ -392,25 +254,12 @@ impl RagPipeline {
         // Take only top 5 for response generation
         let top_sources = sources.into_iter().take(5).collect::<Vec<_>>();
 
-        // Build context from sources (now using chunk content)
-        let context = top_sources
-            .iter()
-            .map(|s| format!("Source: {}\n{}", s.title, s.content_snippet))
-            .collect::<Vec<_>>()
-            .join("\n\n---\n\n");
-
-        // Generate response using context
-        let prompt = format!(
-            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
-            context,
-            input
+        // Return sources without generating a completion (completions removed per spec)
+        let answer = format!(
+            "Found {} relevant document{} for your query.",
+            top_sources.len(),
+            if top_sources.len() == 1 { "" } else { "s" }
         );
-
-        let answer = self
-            .embedding_client
-            .generate_completion(&prompt)
-            .await
-            .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
 
         Ok(RagResponse {
             answer,
@@ -429,14 +278,35 @@ impl RagPipeline {
         limit: usize,
         cutoff: f32,
     ) -> Result<Vec<(Document, f32)>> {
+        println!(
+            "Searching for: '{}' (limit: {}, cutoff: {})",
+            query, limit, cutoff
+        );
+
+        // #region agent log
+        let log_entry = serde_json::json!({"location":"rag.rs:search_with_cutoff:entry","message":"Search started","data":{"query":query,"limit":limit,"cutoff":cutoff},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"B"});
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
+        // #endregion
+
         // Use cached embedding for the query
         let query_embedding = self.get_cached_query_embedding(query).await?;
+        println!(
+            "Generated query embedding (dimension: {})",
+            query_embedding.len()
+        );
 
         // Search chunk embeddings instead of document embeddings
         let chunk_results = {
             let vector_store = self.vector_store.lock().await;
+            let chunk_count = vector_store.chunk_vector_count();
+            println!(
+                "Searching in vector store: {} chunk vectors available",
+                chunk_count
+            );
             vector_store.search_chunks_with_cutoff(&query_embedding, limit * 2, cutoff)?
         };
+
+        println!("Found {} chunk results", chunk_results.len());
 
         let mut results = Vec::new();
         let mut seen_docs = HashSet::new();
@@ -449,6 +319,21 @@ impl RagPipeline {
             seen_docs.insert(chunk_result.doc_id);
 
             if let Some(doc) = self.db.get_document(chunk_result.doc_id).await? {
+                // #region agent log
+                // Use byte positions correctly (not as character indices)
+                let chunk_content: String = if chunk_result.chunk_end <= doc.content.len() 
+                    && doc.content.is_char_boundary(chunk_result.chunk_start) 
+                    && doc.content.is_char_boundary(chunk_result.chunk_end) {
+                    doc.content[chunk_result.chunk_start..chunk_result.chunk_end].to_string()
+                } else {
+                    format!("[invalid chunk bounds: {}..{} for content len {}]", chunk_result.chunk_start, chunk_result.chunk_end, doc.content.len())
+                };
+                let chunk_preview: String = chunk_content.chars().take(300).collect();
+                let is_mexgrocer = doc.title.to_lowercase().contains("mexgrocer");
+                let log_entry = serde_json::json!({"location":"rag.rs:search_result_doc","message":"Search result document","data":{"query":query,"doc_id":doc.id,"title":&doc.title,"is_mexgrocer":is_mexgrocer,"similarity":chunk_result.similarity,"chunk_start":chunk_result.chunk_start,"chunk_end":chunk_result.chunk_end,"chunk_byte_len":chunk_result.chunk_end - chunk_result.chunk_start,"chunk_char_len":chunk_content.chars().count(),"chunk_preview":chunk_preview,"total_content_len":doc.content.len(),"url":&doc.url},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"B,D"});
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
+                // #endregion
+
                 results.push((doc, chunk_result.similarity));
 
                 if results.len() >= limit {
@@ -523,6 +408,11 @@ impl RagPipeline {
         query: &str,
         cutoff: f32,
     ) -> Result<Vec<DocumentSource>> {
+        // #region agent log
+        let log_entry = serde_json::json!({"location":"rag.rs:get_search_hits_with_cutoff:entry","message":"Search hits started","data":{"query":query,"cutoff":cutoff},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"B"});
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
+        // #endregion
+
         // Use cached embedding for the query
         let query_embedding = self.get_cached_query_embedding(query).await?;
 
@@ -544,16 +434,24 @@ impl RagPipeline {
             seen_docs.insert(chunk_result.doc_id);
 
             if let Some(doc) = self.db.get_document(chunk_result.doc_id).await? {
-                // Extract the actual chunk content from the document
-                let content_chars: Vec<char> = doc.content.chars().collect();
-                let chunk_content = if chunk_result.chunk_end <= content_chars.len() {
-                    content_chars[chunk_result.chunk_start..chunk_result.chunk_end]
-                        .iter()
-                        .collect::<String>()
+                // Extract the actual chunk content from the document using BYTE positions (not char indices!)
+                let chunk_content = if chunk_result.chunk_end <= doc.content.len() 
+                    && doc.content.is_char_boundary(chunk_result.chunk_start) 
+                    && doc.content.is_char_boundary(chunk_result.chunk_end) {
+                    doc.content[chunk_result.chunk_start..chunk_result.chunk_end].to_string()
                 } else {
                     // Fallback to snippet extraction if chunk boundaries are off
                     self.extract_snippet(&doc.content, query)
                 };
+
+                // #region agent log
+                let is_mexgrocer = doc.title.to_lowercase().contains("mexgrocer");
+                let chunk_byte_len = chunk_result.chunk_end - chunk_result.chunk_start;
+                let chunk_char_len = chunk_content.chars().count();
+                let chunk_preview: String = chunk_content.chars().take(300).collect();
+                let log_entry = serde_json::json!({"location":"rag.rs:get_search_hits_doc","message":"Search result doc","data":{"query":query,"doc_id":doc.id,"title":&doc.title,"is_mexgrocer":is_mexgrocer,"similarity":chunk_result.similarity,"chunk_start":chunk_result.chunk_start,"chunk_end":chunk_result.chunk_end,"chunk_byte_len":chunk_byte_len,"chunk_char_len":chunk_char_len,"chunk_preview":chunk_preview,"total_content_len":doc.content.len()},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"B,D"});
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
+                // #endregion
 
                 sources.push(DocumentSource {
                     doc_id: chunk_result.doc_id,
@@ -572,173 +470,17 @@ impl RagPipeline {
         Ok(sources)
     }
 
-    pub async fn generate_answer(&self, query: &str, context_doc_ids: &[i64]) -> Result<String> {
-        let mut context_parts = Vec::new();
-
-        // Get documents by IDs
-        for &doc_id in context_doc_ids {
-            if let Some(doc) = self.db.get_document(doc_id).await? {
-                let snippet = self.extract_snippet(&doc.content, query);
-                context_parts.push(format!("Source: {}\n{}", doc.title, snippet));
-            }
-        }
-
-        if context_parts.is_empty() {
-            return Ok("I couldn't find any relevant information for your query.".to_string());
-        }
-
-        let context = context_parts.join("\n\n---\n\n");
-
-        // Generate response using context
-        let prompt = format!(
-            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
-            context,
-            query
-        );
-
-        let answer = self
-            .embedding_client
-            .generate_completion(&prompt)
-            .await
-            .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
-
-        Ok(answer)
-    }
-
-    pub async fn generate_answer_with_cancellation(
-        &self,
-        query: &str,
-        context_doc_ids: &[i64],
-        cancel_token: CancellationToken,
-    ) -> Result<String> {
-        let mut context_parts = Vec::new();
-
-        // Get documents by IDs
-        for &doc_id in context_doc_ids {
-            if let Some(doc) = self.db.get_document(doc_id).await? {
-                let snippet = self.extract_snippet(&doc.content, query);
-                context_parts.push(format!("Source: {}\n{}", doc.title, snippet));
-            }
-        }
-
-        if context_parts.is_empty() {
-            return Ok("I couldn't find any relevant information for your query.".to_string());
-        }
-
-        let context = context_parts.join("\n\n---\n\n");
-
-        // Generate response using context
-        let prompt = format!(
-            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
-            context,
-            query
-        );
-
-        let answer = self
-            .embedding_client
-            .generate_completion_with_cancellation(&prompt, cancel_token)
-            .await
-            .unwrap_or_else(|_| "I encountered an error generating a response.".to_string());
-
-        Ok(answer)
-    }
+    // Completion methods removed - this is an embedding-only service
 
     pub fn vector_store_stats(&self) -> (usize, bool) {
         // Use try_lock to avoid blocking, return 0 if locked
         if let Ok(vector_store) = self.vector_store.try_lock() {
             let chunk_count = vector_store.chunk_len();
-            let legacy_count = vector_store.len();
-            let total_count = chunk_count + legacy_count;
-            (total_count, total_count == 0)
+            (chunk_count, chunk_count == 0)
         } else {
             (0, true) // Return empty stats if locked
         }
     }
 
-    pub fn ollama(&self) -> Option<&OllamaClient> {
-        self.ollama_client.as_ref()
-    }
-
-    pub async fn generate_answer_stream(
-        &self,
-        query: &str,
-        context_doc_ids: &[i64],
-        tx: mpsc::UnboundedSender<String>,
-    ) -> Result<()> {
-        let mut context_parts = Vec::new();
-
-        // Get documents by IDs
-        for &doc_id in context_doc_ids {
-            if let Some(doc) = self.db.get_document(doc_id).await? {
-                let snippet = self.extract_snippet(&doc.content, query);
-                context_parts.push(format!("Source: {}\n{}", doc.title, snippet));
-            }
-        }
-
-        if context_parts.is_empty() {
-            let _ = tx.send("I couldn't find any relevant information for your query.".to_string());
-            return Ok(());
-        }
-
-        let context = context_parts.join("\n\n---\n\n");
-
-        // Generate response using context with streaming
-        let prompt = format!(
-            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
-            context,
-            query
-        );
-
-        // Use ollama_client if available, otherwise fall back to embedding_client
-        if let Some(ollama) = &self.ollama_client {
-            ollama.generate_completion_stream(&prompt, tx).await
-        } else {
-            self.embedding_client
-                .generate_completion_stream(&prompt, tx)
-                .await
-        }
-    }
-
-    pub async fn generate_answer_stream_with_cancellation(
-        &self,
-        query: &str,
-        context_doc_ids: &[i64],
-        tx: mpsc::UnboundedSender<String>,
-        cancel_token: CancellationToken,
-    ) -> Result<()> {
-        let mut context_parts = Vec::new();
-
-        // Get documents by IDs
-        for &doc_id in context_doc_ids {
-            if let Some(doc) = self.db.get_document(doc_id).await? {
-                let snippet = self.extract_snippet(&doc.content, query);
-                context_parts.push(format!("Source: {}\n{}", doc.title, snippet));
-            }
-        }
-
-        if context_parts.is_empty() {
-            let _ = tx.send("I couldn't find any relevant information for your query.".to_string());
-            return Ok(());
-        }
-
-        let context = context_parts.join("\n\n---\n\n");
-
-        // Generate response using context with streaming and cancellation
-        let prompt = format!(
-            "Context information:\n{}\n\nQuestion: {}\n\nBased on the context above, provide a helpful answer:",
-            context,
-            query
-        );
-
-        // Use ollama_client if available, otherwise fall back to embedding_client
-        if let Some(ollama) = &self.ollama_client {
-            ollama
-                .generate_completion_stream_with_cancellation(&prompt, tx, cancel_token)
-                .await
-        } else {
-            self.embedding_client
-                .generate_completion_stream_with_cancellation(&prompt, tx, cancel_token)
-                .await
-        }
-    }
+    // Streaming completion methods removed - this is an embedding-only service
 }

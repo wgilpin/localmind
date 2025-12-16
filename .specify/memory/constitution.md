@@ -1,18 +1,15 @@
 <!--
 Sync Impact Report
 ==================
-Version change: INITIAL → 1.0.0
-Modified principles: N/A (initial constitution)
-Added sections:
-  - Core Principles (5 principles)
-  - Technical Constraints
-  - Governance
-Removed sections: N/A
+Version change: 1.0.0 → 1.1.0
+Modified principles: I (Privacy), II (Performance), IV (Automation), V (Developer Quality)
+Added sections: Principle VI (Python Development Standards)
+Removed concepts: Ollama, LM Studio, chat features, streaming responses (app is now embeddings-only for RAG indexing and search)
 Templates requiring updates:
   ✅ .specify/templates/plan-template.md - reviewed, compatible
   ✅ .specify/templates/spec-template.md - reviewed, compatible
   ✅ .specify/templates/tasks-template.md - reviewed, compatible
-Follow-up TODOs: None - all placeholders filled
+Follow-up TODOs: None
 -->
 
 # LocalMind-rs Constitution
@@ -27,7 +24,7 @@ Follow-up TODOs: None - all placeholders filled
 - SQLite database MUST use bundled rusqlite with no external dependencies
 - Data MUST be encrypted at rest in `~/.localmind/` (Windows: `%APPDATA%/localmind/`)
 - Zero cloud dependencies for core functionality
-- Network requests ONLY to local LLM endpoints (Ollama/LM Studio)
+- Network requests ONLY to localhost:8000 (Python embedding server) - no external or remote requests
 - No telemetry, analytics, or external data transmission without explicit user consent
 - Zero-knowledge architecture: relay servers (if implemented) MUST NOT have access to 
   unencrypted user data
@@ -41,10 +38,9 @@ conditions and protects against service disruptions.
 **Non-Negotiable Rules:**
 
 - Search responses MUST target <100ms median latency
-- Memory footprint MUST target <50MB for core application
-- Single executable deployment (no installer sprawl)
+- Memory footprint MUST target <50MB for core application (excludes Python embedding server)
+- Single executable deployment with auto-managed Python server (no manual setup)
 - Rust async runtime (Tokio) for all I/O operations
-- Streaming responses MUST be used for LLM outputs (no blocking)
 - Cross-platform compatibility: Windows, macOS, Linux
 - Native window decorations and OS integration via Tauri
 
@@ -75,14 +71,14 @@ reactivity without framework magic.
 - Bookmark monitoring MUST be opt-in with clear explanation
 - Users MUST be able to exclude folders and domains before ingestion starts
 - All automated actions MUST be visible in UI (e.g., "Monitoring 127 bookmarks")
-- AI features MUST degrade gracefully if LLM unavailable (show raw search results)
+- Search MUST degrade gracefully if embedding server unavailable (show cached results or clear error)
 - No background data collection without active user session
 - Users MUST be able to export all data in standard formats (JSON, CSV)
 - Configuration MUST be editable via UI (no manual file editing required)
 
 **Rationale:** Automation saves time, but invisible automation erodes trust. Users must
 remain in control of their data. Graceful degradation ensures core search works even if
-LLM setup fails.
+embedding server setup fails.
 
 ### V. Developer Quality & Maintainability
 
@@ -90,16 +86,36 @@ LLM setup fails.
 
 - All code MUST pass `cargo clippy` with no warnings
 - All code MUST be formatted with `cargo fmt` before commit
-- All new modules MUST have unit tests for core logic
+- All new modules with business logic MUST have unit tests (HTTP client adapters MAY use integration tests)
 - Public functions MUST have doc comments explaining purpose and behavior
 - Tauri IPC commands MUST be documented in code with input/output examples
-- Clear module separation: `db.rs`, `rag.rs`, `ollama.rs`, `bookmark.rs`, `bookmark_exclusion.rs`
+- Clear module separation: `db.rs`, `rag.rs`, `local_embedding.rs`, `bookmark.rs`, `bookmark_exclusion.rs`
 - No orphaned dependencies (run `cargo +nightly udeps` periodically)
 - Breaking changes to Tauri commands MUST increment major version
 
 **Rationale:** Code is read 10x more than written. Clippy catches bugs before users do.
 Doc comments are living documentation that stays synchronized with code. Module boundaries
 prevent the codebase from becoming a tangled mess as features grow.
+
+### VI. Python Development Standards
+
+**Non-Negotiable Rules:**
+
+- Python 3.13+ MUST be used for all Python code
+- All Python package management MUST use `uv` (not pip or poetry)
+- Virtual environments (venv) MUST be used for dependency isolation
+- TypedDict MUST be used for structured data (avoid plain `dict` where possible)
+- All function arguments and return values MUST have explicit type hints
+- The `Any` type MUST be avoided (use specific types or `Union`)
+- All Python code MUST pass `mypy --strict` or `pyright` with zero errors
+- All Python code MUST be formatted with `ruff format` before commit
+- All Python code MUST pass `ruff check` with zero warnings
+
+**Rationale:** Python's dynamic typing can hide bugs that only surface at runtime.
+Strict type checking with mypy/pyright catches issues during development. TypedDict
+provides structured data validation without class overhead. `uv` is significantly
+faster than pip and provides better dependency resolution. Consistent formatting
+with ruff reduces cognitive load during code review.
 
 ## Technical Constraints
 
@@ -124,13 +140,12 @@ load. YAGNI (You Aren't Gonna Need It) prevents feature creep. Dependencies are 
 - Backend: Rust 1.75+ with Tauri 1.5+
 - Frontend: Svelte 5+ with Vite
 - Database: SQLite via rusqlite (bundled)
-- LLM: Ollama or LM Studio (user choice, both OpenAI-compatible API)
+- Embeddings: Python 3.11+ with FastAPI, llama-cpp-python, and embeddinggemma-300m-qat GGUF model
+- Package Management: `uv` for Python dependencies
 
 **Variable (user-configurable):**
 
-- Embedding model (via LLM backend)
-- Chat model (via LLM backend)
-- LLM endpoint URL
+- Python embedding server port (default: 8000, via `EMBEDDING_SERVER_PORT` env var)
 
 ### Bundle Identity
 
@@ -152,16 +167,23 @@ load. YAGNI (You Aren't Gonna Need It) prevents feature creep. Dependencies are 
 
 ### Quality Gates
 
-**Pre-Commit:**
+**Pre-Commit (Rust):**
 
 - `cargo fmt --check` MUST pass
 - `cargo clippy` MUST pass with zero warnings
+
+**Pre-Commit (Python):**
+
+- `ruff format --check` MUST pass (or run `ruff format` to auto-fix)
+- `ruff check` MUST pass with zero warnings
+- `mypy --strict` MUST pass with zero errors
 
 **Pre-Release:**
 
 - `cargo test` MUST pass all tests
 - Manual smoke test on target platforms (Windows, macOS, or Linux)
 - Tauri bundle MUST build successfully
+- Python embedding server MUST start within 30 seconds and respond to health checks
 - Version in `tauri.conf.json` MUST be updated per semantic versioning
 
 ### Compliance Review
@@ -177,4 +199,4 @@ load. YAGNI (You Aren't Gonna Need It) prevents feature creep. Dependencies are 
 - See `localmind-rs/README.md` for developer quickstart
 - See `.specify/templates/` for feature planning templates
 
-**Version**: 1.0.0 | **Ratified**: 2025-12-09 | **Last Amended**: 2025-12-09
+**Version**: 1.1.0 | **Ratified**: 2025-12-09 | **Last Amended**: 2025-01-21
