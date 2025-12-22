@@ -1,107 +1,244 @@
 # LocalMind
 
-LocalMind is a project that allows you to store and intelligently earch your notes and bookmarks locally. It consists of a desktop daemon that manages the data and a Chrome extension for interacting with it. It leverages a Retrieval-Augmented Generation (RAG) architecture with Ollama to provide intelligent search and summarization capabilities.
+A privacy-focused desktop knowledge management system that allows you to store and intelligently search notes and bookmarks locally using RAG (Retrieval-Augmented Generation). All data processing happens locally - no data ever leaves your device.
 
 ## Overview
 
-The project is structured as a monorepo with two main components:
+LocalMind is a privacy-focused knowledge management system consisting of three key components:
 
-- `desktop-daemon`: A Node.js server that handles data storage, indexing, and search. It uses Express for the API, and a local file-based database.
-- `chrome-extension`: A Chrome extension that provides a user interface for creating and searching notes.
+1. **Desktop Application** - A native Rust/egui desktop app for searching and managing your knowledge base
+2. **Chrome Extension** - Browser integration for capturing and ingesting web content directly from Chrome
+3. **Embedding Server** - Python FastAPI server that processes documents into embeddings for semantic search
 
-## Installation
+Together, these components provide semantic search across your bookmarks and documents with automatic bookmark monitoring, intelligent exclusion rules, and a native desktop GUI with dark theme support.
 
-### Prerequisites
+## Features
 
-- Node.js (v18 or higher)
-- npm
-- Ollama
+- **Chrome Extension Integration** - Capture web pages, bookmarks, and notes directly from your browser
+- Semantic search across bookmarks and documents
+- Automatic bookmark monitoring and ingestion
+- Bookmark folder and domain exclusion rules
+- Native desktop GUI with dark theme (egui/eframe)
+- 100% local - no data leaves your device
+- Fast, lightweight binary (< 15MB)
 
-### Ollama Installation
+## Tech Stack
 
-Ollama is required to run the large language models locally.
+- **Backend**: Rust with Tokio async runtime
+- **Frontend**: egui/eframe (pure Rust, no JavaScript)
+- **Database**: SQLite via rusqlite (bundled, no external dependencies)
+- **Embedding**: Python FastAPI server with `google/embeddinggemma-300M` model
+- **HTTP Server**: axum (for Chrome extension compatibility)
 
-**Windows:**
+## Prerequisites
 
-1.  Download the installer from the [Ollama website](https://ollama.com/download).
-2.  Run the downloaded `.exe` file and follow the installation instructions.
+- **Rust** (1.75+)
+- **Python 3.8+** with FastAPI
+- **Embedding server** (see setup below)
 
-**macOS:**
+## Quick Start
 
-1.  Download the Ollama app from the [Ollama website](https://ollama.com/download).
-2.  Unzip the downloaded file and drag `Ollama.app` to your Applications folder.
+### 1. Start the Embedding Server
 
-**Linux:**
-
-Run the following command in your terminal:
-
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-### Desktop Daemon
-
-1. Navigate to the `desktop-daemon` directory:
-
-    ```bash
-    cd desktop-daemon
-    ```
-
-2. Install the dependencies:
-
-    ```bash
-    npm install
-    ```
-
-### Frontend
-
-1. Navigate to the `desktop-daemon/frontend` directory:
-
-    ```bash
-    cd desktop-daemon/frontend
-    ```
-
-2. Install the dependencies:
-
-    ```bash
-    npm install
-    ```
-
-### Chrome Extension
-
-1. Open Chrome and navigate to `chrome://extensions`.
-2. Enable "Developer mode".
-3. Click "Load unpacked" and select the `chrome-extension` directory.
-
-## Running the application
-
-### Start the Application
-
-To start both the Ollama environment and the LocalMind server, run the following command from the project root directory:
+The embedding server must be running before starting the application:
 
 ```bash
-./start_dev.sh
+cd embedding-server
+python embedding_server.py
 ```
 
-This script will:
-1. Ensure Ollama is running and set `OLLAMA_NUM_PARALLEL=2` to enable concurrent model loading (preventing delays when switching between embedding and language models).
-2. Check for and install ChromaDB if not present (`pip install chromadb`).
-3. Start ChromaDB server at `http://localhost:8000` with persistent data storage in `~/.localmind/chromadb`.
-4. Install Node.js dependencies for the desktop daemon.
-5. Start the LocalMind server in development mode with auto-reloading.
+The server will start on `http://localhost:8000` by default.
 
-### How Vector Search Works
-
-- **ChromaDB Server**: Automatically started by the startup script, runs at `http://localhost:8000`
-- **Data Persistence**: Vector embeddings and metadata stored in `~/.localmind/chromadb` directory
-- **Similarity Calculation**: ChromaDB's `collection.query()` method performs cosine similarity search
-- **Connection**: LocalMind app connects to ChromaDB server using the JavaScript client
-- **Auto-Management**: Server startup and health checks handled automatically by the preparation script
-
-### Start the Frontend (if running separately)
-
-If you need to start the frontend independently (e.g., for frontend-only development), run the following command from the `desktop-daemon/frontend` directory:
+### 2. Build and Run the Desktop Application
 
 ```bash
-npm run dev
+cd localmind-rs
+cargo run
 ```
+
+The application will:
+- Initialize the SQLite database
+- Connect to the embedding server
+- Start the HTTP server (port 3000-3010) for Chrome extension
+- Launch the egui desktop window
+
+### 3. Install the Chrome Extension
+
+The Chrome extension is a key component that enables capturing web content:
+
+1. Open Chrome and navigate to `chrome://extensions`
+2. Enable "Developer mode"
+3. Click "Load unpacked" and select the `chrome-extension` directory
+4. The extension will automatically connect to the LocalMind HTTP server
+
+Once installed, you can use the extension to capture web pages, bookmarks, and notes directly from your browser.
+
+## Building for Production
+
+```bash
+cd localmind-rs
+cargo build --release
+```
+
+The built executable will be in:
+- **Windows**: `target/release/localmind-rs.exe`
+- **Linux/macOS**: `target/release/localmind-rs`
+
+**Binary size**: < 15MB (verified)
+
+## Project Structure
+
+```
+localmind/
+├── localmind-rs/              # Rust implementation (current)
+│   ├── src/                   # Rust source code
+│   │   ├── main.rs            # Application entry point (eframe)
+│   │   ├── gui/               # egui GUI modules
+│   │   │   ├── app.rs         # Main application state
+│   │   │   ├── state.rs       # UI state types
+│   │   │   ├── views/         # View components
+│   │   │   └── widgets/       # Reusable widgets
+│   │   ├── db.rs              # Database operations
+│   │   ├── rag.rs             # RAG pipeline
+│   │   ├── bookmark.rs        # Bookmark monitoring
+│   │   └── http_server.rs     # HTTP API for Chrome extension
+│   ├── Cargo.toml            # Rust dependencies
+│   └── README.md              # Detailed Rust implementation docs
+├── desktop-daemon/            # Node.js/TypeScript (legacy)
+│   └── README.md              # Legacy implementation docs
+├── chrome-extension/          # Browser integration (shared)
+├── embedding-server/         # Python FastAPI embedding server
+└── docs/                      # Documentation and planning
+```
+
+## UI Architecture
+
+The UI is built with **egui/eframe** (immediate mode GUI):
+
+- **LocalMindApp**: Main application state implementing `eframe::App`
+- **Views**: Home, SearchResults, DocumentDetail
+- **Widgets**: Toast, Settings, FolderTree
+- **State Management**: Direct access to RAG pipeline via `Arc<RwLock<Option<RagPipeline>>>`
+
+### Key UI Features
+
+- **Dark Theme**: Applied automatically on startup
+- **Async Operations**: Uses `poll-promise` for async operations in egui's single-threaded context
+- **Toast Notifications**: Auto-dismissing notifications for user feedback
+- **Settings Modal**: Manage bookmark exclusion rules (folders and domain patterns)
+
+## Database Location
+
+- **Windows**: `%APPDATA%/localmind/localmind.db`
+- **macOS/Linux**: `~/.local/share/localmind/localmind.db`
+
+## Chrome Extension
+
+The Chrome extension is a core component of LocalMind that enables seamless content capture from your browser. It communicates with the desktop application via HTTP API.
+
+### Features
+
+- Capture web pages with full content extraction
+- Save bookmarks directly to LocalMind
+- Create notes from selected text
+- Automatic content processing and embedding
+
+### Installation
+
+1. Open Chrome and navigate to `chrome://extensions`
+2. Enable "Developer mode"
+3. Click "Load unpacked" and select the `chrome-extension` directory
+4. The extension will automatically connect to the LocalMind HTTP server
+
+### HTTP API
+
+The desktop application exposes an HTTP API on port 3000-3010 for Chrome extension communication:
+
+- **POST /documents**: Ingest a document from the Chrome extension
+  - Body: `{ "title": "...", "content": "...", "url": "...", "extractionMethod": "..." }`
+  - Response: `{ "message": "...", "extractionMethod": "..." }`
+
+## Development
+
+### Common Commands
+
+```bash
+# Check Rust code
+cargo check
+
+# Format code
+cargo fmt
+
+# Run linter
+cargo clippy
+
+# Run tests
+cargo test
+
+# Build release
+cargo build --release
+
+# Run application
+cargo run
+```
+
+### Running in Debug Mode
+
+```bash
+cd localmind-rs
+cargo run
+```
+
+The application will show console output for debugging.
+
+### Hot Reload
+
+- Code changes require restarting `cargo run`
+- The embedding server can be restarted independently
+
+### Debugging
+
+- Use `println!` statements for backend debugging
+- egui provides built-in debugging tools (accessible via right-click)
+
+## Troubleshooting
+
+### "Failed to connect to embedding server"
+Make sure the Python embedding server is running on `http://localhost:8000`.
+
+### Bookmark monitoring not working
+Check that Chrome bookmark file is accessible and the file watcher has permissions.
+
+### HTTP server port conflicts
+The application tries ports 3000-3010. If all are in use, check for other instances.
+
+### Database errors
+Try deleting the database folder and restarting to reinitialize.
+
+## Legacy Implementation
+
+The repository also contains a legacy Node.js/TypeScript implementation in `desktop-daemon/`:
+
+- **Status**: Maintenance mode, fully functional
+- **Technology**: Node.js, TypeScript, ChromaDB, Better-SQLite3
+- **Use Case**: For users who prefer the Node.js ecosystem or need ChromaDB features
+
+See `desktop-daemon/README.md` for details on the legacy implementation.
+
+## Migration from Tauri/Svelte
+
+The current Rust implementation replaces the previous Tauri + Svelte frontend with a pure Rust egui implementation:
+
+- No Node.js/JavaScript dependencies
+- Single binary executable
+- Faster startup time
+- Lower memory footprint
+- Native look and feel
+
+## Contributing
+
+This is the active development version of LocalMind. Contributions are welcome! Please see the project structure and follow Rust best practices.
+
+## License
+
+See the LICENSE file for details.
