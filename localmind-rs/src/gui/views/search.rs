@@ -131,8 +131,10 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
 
                             ui.add_space(4.0);
 
-                            // Content snippet
-                            ui.label(&result.snippet);
+                            // Content snippet (skip if snippet starts with "Bookmark:")
+                            if !result.snippet.starts_with("Bookmark:") {
+                                ui.label(&result.snippet);
+                            }
                         });
 
                     // Handle click to view document

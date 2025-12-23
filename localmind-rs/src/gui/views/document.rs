@@ -65,13 +65,18 @@ pub fn render_document_view(ui: &mut Ui, app: &mut LocalMindApp) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            // Document content with better formatting
-            ui.add(
-                egui::TextEdit::multiline(&mut doc.content.as_str())
-                    .desired_width(f32::INFINITY)
-                    .font(egui::TextStyle::Body)
-                    .interactive(false), // Read-only
-            );
+            // Document content with better formatting (skip if content starts with "Bookmark:")
+            if doc.content.starts_with("Bookmark:") {
+                ui.label("No content available for this bookmark.");
+            } else {
+                let mut content = doc.content.clone();
+                ui.add(
+                    egui::TextEdit::multiline(&mut content)
+                        .desired_width(f32::INFINITY)
+                        .font(egui::TextStyle::Body)
+                        .interactive(false), // Read-only
+                );
+            }
         });
 }
 

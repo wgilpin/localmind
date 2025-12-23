@@ -87,9 +87,11 @@ pub fn render_home_view(ui: &mut Ui, app: &mut LocalMindApp) {
 
                                         ui.add_space(4.0);
 
-                                        // Content snippet
-                                        let snippet = create_snippet(&doc.content, 150);
-                                        ui.label(&snippet);
+                                        // Content snippet (skip if content starts with "Bookmark:")
+                                        if !doc.content.starts_with("Bookmark:") {
+                                            let snippet = create_snippet(&doc.content, 150);
+                                            ui.label(&snippet);
+                                        }
 
                                         ui.add_space(4.0);
 
