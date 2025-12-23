@@ -182,11 +182,11 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
 
 /// Get color based on similarity score
 fn similarity_color(score: f32) -> egui::Color32 {
-    if score >= 0.8 {
+    if score >= 0.5 {
         egui::Color32::from_rgb(34, 139, 34) // Forest green - excellent
-    } else if score >= 0.6 {
-        egui::Color32::from_rgb(60, 179, 113) // Medium sea green - good
     } else if score >= 0.4 {
+        egui::Color32::from_rgb(60, 179, 113) // Medium sea green - good
+    } else if score >= 0.3 {
         egui::Color32::from_rgb(255, 165, 0) // Orange - moderate
     } else {
         egui::Color32::from_rgb(178, 34, 34) // Firebrick - low
