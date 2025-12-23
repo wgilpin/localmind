@@ -916,9 +916,15 @@ impl eframe::App for LocalMindApp {
                 let mut should_search = false;
                 ui.add_enabled_ui(search_enabled, |ui| {
                     let response = ui.add_sized(
-                        [400.0, 24.0],
+                        [400.0, 32.0],
                         egui::TextEdit::singleline(&mut self.search_query)
-                            .hint_text("Search documents..."),
+                            .hint_text("Search documents...")
+                            .margin(egui::Margin {
+                                left: 8.0,
+                                right: 8.0,
+                                top: 8.0,
+                                bottom: 5.0,
+                            }),
                     );
 
                     // Handle Enter key for search
