@@ -49,6 +49,7 @@ notify = "6.0"
 eframe = "0.29"
 egui = "0.29"
 egui_extras = { version = "0.29", features = ["all_loaders"] }
+egui-remixicon = "0.29"
 
 # Utilities
 open = "5"

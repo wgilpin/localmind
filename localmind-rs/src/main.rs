@@ -42,6 +42,11 @@ fn main() -> eframe::Result<()> {
             // Apply dark theme
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
+            // Initialize icon fonts
+            let mut fonts = egui::FontDefinitions::default();
+            egui_remixicon::add_to_fonts(&mut fonts);
+            cc.egui_ctx.set_fonts(fonts);
+
             // Create the app with creation context
             Ok(Box::new(LocalMindApp::new(cc)))
         }),

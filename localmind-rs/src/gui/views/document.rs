@@ -1,6 +1,7 @@
 //! Document detail view showing full content
 
 use egui::Ui;
+use egui_remixicon::icons;
 
 use crate::gui::app::LocalMindApp;
 use crate::gui::state::View;
@@ -15,7 +16,13 @@ pub fn render_document_view(ui: &mut Ui, app: &mut LocalMindApp) {
         None => {
             // Shouldn't happen, but handle gracefully
             ui.label("No document selected");
-            if ui.button("← Back").clicked() {
+            let back_button = ui.button(icons::ARROW_LEFT_LINE);
+            
+            if back_button.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            
+            if back_button.clicked() {
                 app.current_view = View::SearchResults;
             }
             return;
@@ -24,7 +31,14 @@ pub fn render_document_view(ui: &mut Ui, app: &mut LocalMindApp) {
 
     // Header with back button
     ui.horizontal(|ui| {
-        if ui.button("← Back").clicked() {
+        // Back button with icon
+        let back_button = ui.button(icons::ARROW_LEFT_LINE);
+        
+        if back_button.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        
+        if back_button.clicked() {
             app.current_view = View::SearchResults;
             app.selected_document = None;
         }
