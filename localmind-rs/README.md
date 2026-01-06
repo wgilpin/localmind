@@ -184,9 +184,9 @@ The application tries ports 3000-3010. If all are in use, check for other instan
 ### Database errors
 Try deleting the database folder and restarting to reinitialize.
 
-## Migration from Tauri/Svelte
+## Architecture
 
-This version replaces the previous Tauri + Svelte frontend with a pure Rust egui implementation:
+This implementation uses a pure Rust egui/eframe GUI:
 - ✅ No Node.js/JavaScript dependencies
 - ✅ Single binary executable
 - ✅ Faster startup time

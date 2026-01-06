@@ -58,3 +58,7 @@ chrome-extension/.env*
 **/.venv/
 embedding-server/*.log
 embedding-server/embedding_server.log
+
+# Artifact files from dependency installation
+embedding-server/=*
+embedding-server/[0-9]*\.[0-9]*\.[0-9]*

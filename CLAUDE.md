@@ -4,7 +4,7 @@ This file provides guidance for working with the LocalMind project structure.
 
 ## Project Overview
 
-LocalMind is a privacy-focused knowledge management system that allows users to store and intelligently search notes and bookmarks locally using RAG (Retrieval-Augmented Generation) with Ollama. All data processing happens locally - no data ever leaves the user's device unencrypted.
+LocalMind is a privacy-focused knowledge management system that allows users to store and intelligently search notes and bookmarks locally using RAG (Retrieval-Augmented Generation). All data processing happens locally - no data ever leaves the user's device unencrypted.
 
 ## Repository Structure
 
@@ -20,7 +20,7 @@ localmind/
 ├── localmind-rs/           # Rust implementation (current development)
 │   ├── CLAUDE.md           # Rust-specific guidance
 │   ├── src/                # Rust source code
-│   ├── src-ui/             # Tauri frontend UI
+│   │   ├── gui/            # egui GUI modules
 │   └── Cargo.toml          # Rust dependencies
 ├── chrome-extension/        # Browser integration (shared)
 ├── docs/                   # Documentation and planning
@@ -37,10 +37,10 @@ localmind/
 - **Documentation**: See `desktop-daemon/CLAUDE.md`
 
 ### Rust Implementation (Active Development) 🟢
-- **Status**: Desktop application with Tauri GUI
+- **Status**: Desktop application with egui/eframe GUI
 - **Location**: `localmind-rs/`
-- **Technology**: Rust with Tauri, SQLite via rusqlite, native GUI
-- **Target**: Standalone desktop app with embedded web UI
+- **Technology**: Rust with egui/eframe, SQLite via rusqlite, native GUI
+- **Target**: Standalone desktop app with pure Rust GUI
 - **Documentation**: See `localmind-rs/CLAUDE.md`
 
 ### Chrome Extension (Shared) 🟢
@@ -63,8 +63,8 @@ See `desktop-daemon/CLAUDE.md` for detailed TypeScript-specific commands.
 ```bash
 cd localmind-rs
 cargo check                 # Check dependencies
-cargo tauri dev             # Development GUI
-cargo tauri build           # Build production app
+cargo run                   # Development GUI
+cargo build --release       # Build production app
 ```
 See `localmind-rs/CLAUDE.md` for detailed Rust-specific commands.
 
@@ -105,18 +105,20 @@ Both implementations share basic configuration concepts:
 - **TypeScript Data Directory**: `~/.localmind/`
 - **Rust Data Directory**: `~/.localmind/` (Windows: `%APPDATA%/localmind`)
 - **Default Port**: `3001` (TypeScript only)
-- **Ollama URL**: `http://localhost:11434`
-- **Chrome Extension**: Compatible with TypeScript version
+- **Embedding Server**: `http://localhost:8000` (Python FastAPI server)
+- **Chrome Extension**: Compatible with both versions
 
 ## Development Commands (Project Root)
 
 ### Start Development Environment
 ```bash
 # TypeScript version
-./start_dev.sh              # Starts Ollama + ChromaDB + TypeScript backend
+./start_dev.sh              # Starts ChromaDB + TypeScript backend
 
 # Rust version
-cd localmind-rs && cargo tauri dev
+./start_localmind.sh        # Starts Python embedding server + Rust GUI
+# Or manually:
+cd localmind-rs && cargo run
 ```
 
 ### Build Production Versions
@@ -125,7 +127,7 @@ cd localmind-rs && cargo tauri dev
 ./start_all.sh              # Build frontend + start production server
 
 # Rust version
-cd localmind-rs && cargo tauri build
+cd localmind-rs && cargo build --release
 ```
 
 ### Run Tests

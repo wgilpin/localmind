@@ -13,7 +13,11 @@ import logging
 import os
 import sys
 from enum import Enum
-from typing import TypedDict
+
+try:
+    from typing import TypedDict  # Python 3.12+
+except ImportError:
+    from typing_extensions import TypedDict  # Python < 3.12
 
 import torch
 from fastapi import FastAPI, HTTPException, status
