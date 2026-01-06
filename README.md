@@ -33,23 +33,51 @@ Together, these components provide semantic search across your bookmarks and doc
 ## Prerequisites
 
 - **Rust** (1.75+)
-- **Python 3.8+** with FastAPI
-- **Embedding server** (see setup below)
+- **Python 3.11+** (required for embedding server)
+- **uv** (Python package manager, will be installed automatically if missing)
+- **Hugging Face Account** with access to `google/embeddinggemma-300M` (gated model - see setup below)
 
 ## Quick Start
 
-### 1. Start the Embedding Server
+### Automated Setup (Recommended)
+
+**macOS/Linux**:
+```bash
+./start_localmind.sh
+```
+
+**Windows**:
+```batch
+start_localmind.bat
+```
+
+The startup script handles all setup automatically:
+- Checks Python installation
+- Sets up virtual environment
+- Installs dependencies
+- Starts the embedding server
+- Launches the desktop application
+
+**Note**: The embedding model (`google/embeddinggemma-300M`) is a gated model on Hugging Face. You'll need to:
+1. Request access at https://huggingface.co/google/embeddinggemma-300M
+2. Authenticate with Hugging Face (see "Hugging Face Authentication" below)
+
+### Manual Setup
+
+If you prefer to run components manually:
+
+#### 1. Start the Embedding Server
 
 The embedding server must be running before starting the application:
 
 ```bash
 cd embedding-server
-python embedding_server.py
+python3 embedding_server.py  # or python on Windows
 ```
 
 The server will start on `http://localhost:8000` by default.
 
-### 2. Build and Run the Desktop Application
+#### 2. Build and Run the Desktop Application
 
 ```bash
 cd localmind-rs
@@ -62,7 +90,41 @@ The application will:
 - Start the HTTP server (port 3000-3010) for Chrome extension
 - Launch the egui desktop window
 
-### 3. Install the Chrome Extension
+### 3. Hugging Face Authentication
+
+The embedding model `google/embeddinggemma-300M` is a gated model that requires authentication:
+
+1. **Request access**: Visit https://huggingface.co/google/embeddinggemma-300M and click "Agree and access repository"
+
+2. **Get your Hugging Face token**: 
+   - Go to https://huggingface.co/settings/tokens
+   - Create a new token (read access is sufficient)
+
+3. **Authenticate** (choose one method):
+
+   **Option A: Using environment variable** (recommended):
+   ```bash
+   export HF_TOKEN="your_token_here"
+   ./start_localmind.sh
+   ```
+
+   **Option B: Using Hugging Face CLI**:
+   ```bash
+   cd embedding-server
+   .venv/bin/python -m pip install huggingface_hub
+   .venv/bin/python -c "from huggingface_hub import login; login()"
+   cd ..
+   ```
+
+   **Option C: Set token in script** (for persistent use):
+   ```bash
+   # Add to ~/.zshrc or ~/.bashrc
+   export HF_TOKEN="your_token_here"
+   ```
+
+The server will automatically use the `HF_TOKEN` environment variable if set.
+
+### 4. Install the Chrome Extension
 
 The Chrome extension is a key component that enables capturing web content:
 
@@ -72,6 +134,73 @@ The Chrome extension is a key component that enables capturing web content:
 4. The extension will automatically connect to the LocalMind HTTP server
 
 Once installed, you can use the extension to capture web pages, bookmarks, and notes directly from your browser.
+
+## Platform-Specific Setup
+
+### macOS
+
+#### Quick Start with Startup Script
+
+The easiest way to run LocalMind on macOS is using the provided startup script:
+
+```bash
+./start_localmind.sh
+```
+
+This script will:
+- Check for Python 3.11+ installation
+- Install `uv` if needed
+- Set up the Python virtual environment
+- Install all dependencies
+- Start the embedding server
+- Launch the Rust application
+
+The script handles all setup automatically and cleans up processes on exit.
+
+#### Create Desktop Shortcut
+
+To create a launcher that can be added to your Dock:
+
+```bash
+./create_desktop_shortcut.sh
+```
+
+This will create a `LocalMind.command` file on your Desktop that you can:
+- Drag to your Dock for quick access
+- Double-click to launch LocalMind
+- Add to your Applications folder
+
+#### Manual Setup
+
+If you prefer to run components manually:
+
+1. **Start the Embedding Server**:
+   ```bash
+   cd embedding-server
+   python3 embedding_server.py
+   ```
+
+2. **Run the Desktop Application**:
+   ```bash
+   cd localmind-rs
+   cargo run
+   ```
+
+### Windows
+
+#### Quick Start with Startup Script
+
+On Windows, use the batch script:
+
+```batch
+start_localmind.bat
+```
+
+Or use PowerShell to create a desktop shortcut:
+
+```powershell
+.\create_taskbar_shortcut.ps1
+```
 
 ## Building for Production
 
@@ -225,9 +354,9 @@ The repository also contains a legacy Node.js/TypeScript implementation in `desk
 
 See `desktop-daemon/README.md` for details on the legacy implementation.
 
-## Migration from Tauri/Svelte
+## Architecture Notes
 
-The current Rust implementation replaces the previous Tauri + Svelte frontend with a pure Rust egui implementation:
+The current implementation uses a pure Rust egui/eframe GUI:
 
 - No Node.js/JavaScript dependencies
 - Single binary executable
