@@ -100,7 +100,7 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
                     // Clickable result card
                     let response = egui::Frame::none()
                         .fill(if ui.visuals().dark_mode {
-                            egui::Color32::from_gray(30)
+                            egui::Color32::from_rgb(30, 40, 60) // Dark blue-gray
                         } else {
                             egui::Color32::from_gray(245)
                         })
@@ -139,9 +139,25 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
 
                             ui.add_space(4.0);
 
-                            // Content snippet (skip if snippet starts with "Bookmark:")
-                            if !result.snippet.starts_with("Bookmark:") {
-                                ui.label(&result.snippet);
+                            // Content snippet (extract after bookmark metadata if present)
+                            let display_snippet = if result.snippet.starts_with("Bookmark:") {
+                                // Find the first double newline (end of metadata section)
+                                if let Some(content_start) = result.snippet.find("\n\n") {
+                                    let actual_content = result.snippet[content_start + 2..].trim();
+                                    if !actual_content.is_empty() {
+                                        Some(actual_content)
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                Some(result.snippet.as_str())
+                            };
+
+                            if let Some(snippet) = display_snippet {
+                                ui.label(snippet);
                             }
                         });
 

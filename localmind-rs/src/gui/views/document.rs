@@ -79,17 +79,32 @@ pub fn render_document_view(ui: &mut Ui, app: &mut LocalMindApp) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            // Document content with better formatting (skip if content starts with "Bookmark:")
-            if doc.content.starts_with("Bookmark:") {
-                ui.label("No content available for this bookmark.");
+            // Extract actual content, skipping bookmark metadata if present
+            let display_content = if doc.content.starts_with("Bookmark:") {
+                // Find the first double newline (end of metadata section)
+                if let Some(content_start) = doc.content.find("\n\n") {
+                    let actual_content = doc.content[content_start + 2..].trim();
+                    if actual_content.is_empty() {
+                        None
+                    } else {
+                        Some(actual_content.to_string())
+                    }
+                } else {
+                    None
+                }
             } else {
-                let mut content = doc.content.clone();
+                Some(doc.content.clone())
+            };
+
+            if let Some(mut content) = display_content {
                 ui.add(
                     egui::TextEdit::multiline(&mut content)
                         .desired_width(f32::INFINITY)
                         .font(egui::TextStyle::Body)
                         .interactive(false), // Read-only
                 );
+            } else {
+                ui.label("No content available for this bookmark.");
             }
         });
 }

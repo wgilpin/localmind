@@ -39,8 +39,15 @@ fn main() -> eframe::Result<()> {
         "LocalMind",
         options,
         Box::new(|cc| {
-            // Apply dark theme
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            // Apply dark blue theme
+            let mut visuals = egui::Visuals::dark();
+            // Set dark blue backgrounds
+            visuals.window_fill = egui::Color32::from_rgb(20, 30, 50); // Dark blue
+            visuals.panel_fill = egui::Color32::from_rgb(20, 30, 50); // Dark blue
+            visuals.extreme_bg_color = egui::Color32::from_rgb(15, 25, 40); // Darker blue
+            visuals.faint_bg_color = egui::Color32::from_rgb(25, 35, 55); // Slightly lighter blue
+            visuals.code_bg_color = egui::Color32::from_rgb(20, 30, 50); // Dark blue
+            cc.egui_ctx.set_visuals(visuals);
 
             // Initialize icon fonts
             let mut fonts = egui::FontDefinitions::default();

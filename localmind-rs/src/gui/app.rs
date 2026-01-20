@@ -1039,7 +1039,24 @@ impl eframe::App for LocalMindApp {
 /// # Returns
 /// Plain text version of the content with HTML tags removed
 pub fn strip_html(content: &str) -> String {
-    html2text::from_read(content.as_bytes(), 80)
+    // Check if this is bookmark content with metadata prefix
+    if content.starts_with("Bookmark:") {
+        // Find the double newline that separates metadata from actual content
+        if let Some(content_start) = content.find("\n\n") {
+            let metadata = &content[..content_start + 2]; // Keep metadata with its newlines
+            let actual_content = &content[content_start + 2..];
+
+            // Only process the actual content through html2text, preserve metadata as-is
+            let processed_content = html2text::from_read(actual_content.as_bytes(), 80);
+            format!("{}{}", metadata, processed_content)
+        } else {
+            // No actual content after metadata
+            content.to_string()
+        }
+    } else {
+        // Regular content, process normally
+        html2text::from_read(content.as_bytes(), 80)
+    }
 }
 
 /// Initialize the RAG system
