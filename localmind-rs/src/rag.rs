@@ -38,29 +38,44 @@ impl RagPipeline {
     pub async fn new(db: Database) -> Result<Self> {
         let embedding_client = LocalEmbeddingClient::new();
 
-        // Verify embedding server is ready before proceeding
-        println!("Checking embedding server health...");
-        match embedding_client.health_check().await {
-            Ok(true) => {
-                println!("Embedding server is ready and model is loaded");
-            }
-            Ok(false) => {
-                eprintln!("WARNING: Embedding server is running but model is not loaded yet");
-                eprintln!("Waiting for model to load...");
-                // Wait up to 30 seconds for model to load
-                for _ in 0..30 {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                    if let Ok(true) = embedding_client.health_check().await {
-                        println!("Embedding server model is now loaded");
-                        break;
+        // Wait for embedding server to be ready (handles both startup delay and model loading).
+        // Timeout matches start_localmind.sh (180 seconds).
+        println!("Waiting for embedding server...");
+        let max_wait_secs: u32 = 180;
+        let mut ready = false;
+        for i in 0..max_wait_secs {
+            match embedding_client.health_check().await {
+                Ok(true) => {
+                    println!("Embedding server ready (model loaded)");
+                    ready = true;
+                    break;
+                }
+                Ok(false) => {
+                    if i % 10 == 0 {
+                        println!(
+                            "Embedding server is loading model... ({}/{}s)",
+                            i, max_wait_secs
+                        );
+                    }
+                }
+                Err(_) => {
+                    if i % 10 == 0 {
+                        println!(
+                            "Waiting for embedding server to start... ({}/{}s)",
+                            i, max_wait_secs
+                        );
                     }
                 }
             }
-            Err(e) => {
-                eprintln!("ERROR: Failed to connect to embedding server: {}", e);
-                eprintln!("Make sure the embedding server is running on localhost:8000");
-                return Err(format!("Embedding server not available: {}", e).into());
-            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+        if !ready {
+            return Err(format!(
+                "Embedding server not ready after {} seconds. \
+                 Ensure the Python venv is set up (run start_localmind.sh).",
+                max_wait_secs
+            )
+            .into());
         }
 
         let document_processor = DocumentProcessor::default();

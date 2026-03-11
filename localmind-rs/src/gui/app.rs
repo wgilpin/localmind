@@ -69,8 +69,11 @@ pub struct LocalMindApp {
     #[allow(dead_code)]
     runtime: tokio::runtime::Handle,
 
-    /// Receiver for RAG initialization completion (just a success/error signal)
-    init_receiver: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    /// Receiver for RAG initialization completion (carries optional child process handle)
+    init_receiver: Option<std::sync::mpsc::Receiver<Result<Option<std::process::Child>, String>>>,
+
+    /// Child process handle for the embedding server, if we spawned it
+    embedding_server_child: Option<std::process::Child>,
 
     /// Receiver for recent documents
     recent_docs_receiver: Option<std::sync::mpsc::Receiver<Vec<DocumentView>>>,
@@ -217,7 +220,7 @@ impl LocalMindApp {
             println!("Starting RAG initialization task");
 
             match init_rag_system().await {
-                Ok(rag) => {
+                Ok((rag, child_opt)) => {
                     println!("RAG system initialized successfully");
                     {
                         let mut rag_lock = rag_state_clone.write().await;
@@ -225,8 +228,8 @@ impl LocalMindApp {
                         println!("RAG stored in state");
                     }
 
-                    // Signal success
-                    let _ = init_tx.send(Ok(()));
+                    // Signal success, passing back any spawned child handle
+                    let _ = init_tx.send(Ok(child_opt));
 
                     // Start bookmark monitoring with progress reporting
                     let rag_for_bookmarks = rag_state_clone.clone();
@@ -297,6 +300,7 @@ impl LocalMindApp {
             bookmark_progress_toast_id: None,
             exclusion_rules_receiver: None,
             save_exclusion_receiver: None,
+            embedding_server_child: None,
         }
     }
 
@@ -321,8 +325,9 @@ impl LocalMindApp {
     fn check_init_status(&mut self) {
         if let Some(ref rx) = self.init_receiver {
             match rx.try_recv() {
-                Ok(Ok(_)) => {
+                Ok(Ok(child_opt)) => {
                     println!("RAG initialization confirmed");
+                    self.embedding_server_child = child_opt;
                     self.init_status = InitStatus::Ready;
                     self.init_receiver = None;
 
@@ -849,6 +854,15 @@ fn create_snippet(content: &str, max_len: usize) -> String {
     }
 }
 
+impl Drop for LocalMindApp {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.embedding_server_child.take() {
+            let _ = child.kill();
+            log::info!("Embedding server process killed on app exit");
+        }
+    }
+}
+
 impl eframe::App for LocalMindApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for async updates
@@ -959,7 +973,7 @@ impl eframe::App for LocalMindApp {
                         }
                         InitStatus::WaitingForEmbedding => {
                             ui.spinner();
-                            ui.label("Initializing...");
+                            ui.label("Starting embedding server...");
                         }
                         InitStatus::Ready => {
                             ui.label("✓ Ready");
@@ -1060,7 +1074,28 @@ pub fn strip_html(content: &str) -> String {
 }
 
 /// Initialize the RAG system
-async fn init_rag_system() -> crate::Result<RagPipeline> {
+async fn init_rag_system() -> crate::Result<(RagPipeline, Option<std::process::Child>)> {
+    use crate::local_embedding::{spawn_embedding_server, LocalEmbeddingClient};
+
+    // Check if the embedding server is already running; if not, start it.
+    let temp_client = LocalEmbeddingClient::new();
+    let child_opt: Option<std::process::Child> = if temp_client.is_running().await {
+        println!("Embedding server already running");
+        None
+    } else {
+        println!("Embedding server not running, attempting to start it...");
+        match spawn_embedding_server() {
+            Ok(child) => {
+                println!("Embedding server spawned (PID {})", child.id());
+                Some(child)
+            }
+            Err(e) => {
+                eprintln!("Could not spawn embedding server: {}. Continuing anyway (may time out).", e);
+                None
+            }
+        }
+    };
+
     println!("Initializing database...");
 
     let db = match Database::new().await {
@@ -1086,7 +1121,7 @@ async fn init_rag_system() -> crate::Result<RagPipeline> {
         }
     };
 
-    Ok(rag)
+    Ok((rag, child_opt))
 }
 
 /// Start bookmark monitoring with progress reporting
@@ -1131,44 +1166,45 @@ async fn start_bookmark_monitoring(
         let total = bookmark_metadata.len();
         let mut ingested_count = 0;
 
-        for (index, (title, url)) in bookmark_metadata.into_iter().enumerate() {
+        for (_index, (title, url)) in bookmark_metadata.into_iter().enumerate() {
             {
                 let rag_lock = rag_state.read().await;
                 if let Some(ref rag) = *rag_lock {
-                    // Send progress update for all bookmarks being processed
+                    // Skip bookmarks that are already indexed
+                    if rag.document_exists(&url).await.unwrap_or(false) {
+                        continue;
+                    }
+
+                    // Send progress only for bookmarks that actually need ingesting
                     let _ = progress_tx.send(BookmarkProgress {
-                        current: index + 1,
+                        current: ingested_count + 1,
                         total,
                         current_title: title.clone(),
                         completed: false,
                     });
 
-                    // Check if bookmark already exists
-                    if !rag.document_exists(&url).await.unwrap_or(false) {
+                    // Fetch content
+                    let content = match monitor.fetch_bookmark_content(&url).await {
+                        Ok(content) => content,
+                        Err(e) => {
+                            eprintln!("Failed to fetch content for '{}': {}", title, e);
+                            format!(
+                                "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
+                                title, url, e
+                            )
+                        }
+                    };
 
-                        // Fetch content
-                        let content = match monitor.fetch_bookmark_content(&url).await {
-                            Ok(content) => content,
-                            Err(e) => {
-                                eprintln!("Failed to fetch content for '{}': {}", title, e);
-                                format!(
-                                    "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
-                                    title, url, e
-                                )
-                            }
-                        };
-
-                        match rag
-                            .ingest_document(&title, &content, Some(&url), "chrome_bookmark")
-                            .await
-                        {
-                            Ok(_) => {
-                                ingested_count += 1;
-                                println!("Ingested bookmark: {}", title);
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to ingest bookmark '{}': {}", title, e);
-                            }
+                    match rag
+                        .ingest_document(&title, &content, Some(&url), "chrome_bookmark")
+                        .await
+                    {
+                        Ok(_) => {
+                            ingested_count += 1;
+                            println!("Ingested bookmark: {}", title);
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to ingest bookmark '{}': {}", title, e);
                         }
                     }
                 }
@@ -1178,15 +1214,15 @@ async fn start_bookmark_monitoring(
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         }
 
-        // Always send completion notification, even if no new bookmarks were ingested
-        // This ensures the progress toast is dismissed
+        // Send completion notification only if we actually ingested something
+        // (if nothing was new, no toast was shown so no dismissal needed)
         let _ = progress_tx.send(BookmarkProgress {
-            current: total,
-            total,
+            current: ingested_count,
+            total: ingested_count,
             current_title: if ingested_count > 0 {
-                format!("Completed! {} new bookmarks ingested", ingested_count)
+                format!("{} new bookmarks ingested", ingested_count)
             } else {
-                format!("Completed! All {} bookmarks already indexed", total)
+                format!("All {} bookmarks already indexed", total)
             },
             completed: true,
         });

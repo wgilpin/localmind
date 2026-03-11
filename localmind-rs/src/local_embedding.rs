@@ -251,12 +251,95 @@ impl LocalEmbeddingClient {
 
         Ok(health.model_loaded)
     }
+
+    /// Quick check (2-second timeout) whether the server process is reachable at all.
+    ///
+    /// Returns `true` if any HTTP response is received, `false` if connection fails.
+    pub async fn is_running(&self) -> bool {
+        let client = match reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let url = format!("{}/health", self.base_url);
+        client.get(&url).send().await.is_ok()
+    }
 }
 
 impl Default for LocalEmbeddingClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Find the project root directory by walking up from the running executable
+/// until a directory containing `embedding-server/` is found.
+pub fn find_project_root() -> Option<std::path::PathBuf> {
+    // Check current working directory first (works when launched from project root)
+    if std::path::Path::new("embedding-server").is_dir() {
+        return Some(std::path::PathBuf::from("."));
+    }
+
+    // Walk up from the executable path (handles cargo run from any subdir)
+    let exe = std::env::current_exe().ok()?;
+    let mut dir = exe.parent()?.to_path_buf();
+
+    for _ in 0..10 {
+        if dir.join("embedding-server").is_dir() {
+            return Some(dir);
+        }
+        dir = match dir.parent() {
+            Some(p) => p.to_path_buf(),
+            None => break,
+        };
+    }
+
+    None
+}
+
+/// Spawn the Python embedding server as a background child process.
+///
+/// Requires the virtual environment at `embedding-server/.venv/` to exist.
+/// Returns the child process handle on success so the caller can kill it on exit.
+pub fn spawn_embedding_server() -> std::io::Result<std::process::Child> {
+    let project_root = find_project_root().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Cannot find project root (embedding-server/ directory not found). \
+             Run start_localmind.sh to set up the environment.",
+        )
+    })?;
+
+    let python = if cfg!(windows) {
+        project_root
+            .join("embedding-server")
+            .join(".venv")
+            .join("Scripts")
+            .join("python.exe")
+    } else {
+        project_root
+            .join("embedding-server")
+            .join(".venv")
+            .join("bin")
+            .join("python")
+    };
+
+    let work_dir = project_root.join("embedding-server");
+
+    log::info!(
+        "Spawning embedding server: {:?} in {:?}",
+        python,
+        work_dir
+    );
+
+    std::process::Command::new(&python)
+        .arg("embedding_server.py")
+        .current_dir(&work_dir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
 }
 
 #[cfg(test)]
