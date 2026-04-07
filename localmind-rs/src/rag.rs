@@ -298,11 +298,6 @@ impl RagPipeline {
             query, limit, cutoff
         );
 
-        // #region agent log
-        let log_entry = serde_json::json!({"location":"rag.rs:search_with_cutoff:entry","message":"Search started","data":{"query":query,"limit":limit,"cutoff":cutoff},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"B"});
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
-        // #endregion
-
         // Use cached embedding for the query
         let query_embedding = self.get_cached_query_embedding(query).await?;
         println!(
@@ -334,21 +329,6 @@ impl RagPipeline {
             seen_docs.insert(chunk_result.doc_id);
 
             if let Some(doc) = self.db.get_document(chunk_result.doc_id).await? {
-                // #region agent log
-                // Use byte positions correctly (not as character indices)
-                let chunk_content: String = if chunk_result.chunk_end <= doc.content.len() 
-                    && doc.content.is_char_boundary(chunk_result.chunk_start) 
-                    && doc.content.is_char_boundary(chunk_result.chunk_end) {
-                    doc.content[chunk_result.chunk_start..chunk_result.chunk_end].to_string()
-                } else {
-                    format!("[invalid chunk bounds: {}..{} for content len {}]", chunk_result.chunk_start, chunk_result.chunk_end, doc.content.len())
-                };
-                let chunk_preview: String = chunk_content.chars().take(300).collect();
-                let is_mexgrocer = doc.title.to_lowercase().contains("mexgrocer");
-                let log_entry = serde_json::json!({"location":"rag.rs:search_result_doc","message":"Search result document","data":{"query":query,"doc_id":doc.id,"title":&doc.title,"is_mexgrocer":is_mexgrocer,"similarity":chunk_result.similarity,"chunk_start":chunk_result.chunk_start,"chunk_end":chunk_result.chunk_end,"chunk_byte_len":chunk_result.chunk_end - chunk_result.chunk_start,"chunk_char_len":chunk_content.chars().count(),"chunk_preview":chunk_preview,"total_content_len":doc.content.len(),"url":&doc.url},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"B,D"});
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
-                // #endregion
-
                 results.push((doc, chunk_result.similarity));
 
                 if results.len() >= limit {
@@ -423,11 +403,6 @@ impl RagPipeline {
         query: &str,
         cutoff: f32,
     ) -> Result<Vec<DocumentSource>> {
-        // #region agent log
-        let log_entry = serde_json::json!({"location":"rag.rs:get_search_hits_with_cutoff:entry","message":"Search hits started","data":{"query":query,"cutoff":cutoff},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"B"});
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
-        // #endregion
-
         // Use cached embedding for the query
         let query_embedding = self.get_cached_query_embedding(query).await?;
 
@@ -458,15 +433,6 @@ impl RagPipeline {
                     // Fallback to snippet extraction if chunk boundaries are off
                     self.extract_snippet(&doc.content, query)
                 };
-
-                // #region agent log
-                let is_mexgrocer = doc.title.to_lowercase().contains("mexgrocer");
-                let chunk_byte_len = chunk_result.chunk_end - chunk_result.chunk_start;
-                let chunk_char_len = chunk_content.chars().count();
-                let chunk_preview: String = chunk_content.chars().take(300).collect();
-                let log_entry = serde_json::json!({"location":"rag.rs:get_search_hits_doc","message":"Search result doc","data":{"query":query,"doc_id":doc.id,"title":&doc.title,"is_mexgrocer":is_mexgrocer,"similarity":chunk_result.similarity,"chunk_start":chunk_result.chunk_start,"chunk_end":chunk_result.chunk_end,"chunk_byte_len":chunk_byte_len,"chunk_char_len":chunk_char_len,"chunk_preview":chunk_preview,"total_content_len":doc.content.len()},"timestamp":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"sessionId":"debug-session","hypothesisId":"B,D"});
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(r"c:\Users\wgilp\projects\localmind\.cursor\debug.log") { let _ = std::io::Write::write_all(&mut f, format!("{}\n", log_entry).as_bytes()); }
-                // #endregion
 
                 sources.push(DocumentSource {
                     doc_id: chunk_result.doc_id,
