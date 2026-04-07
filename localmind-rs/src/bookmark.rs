@@ -644,8 +644,7 @@ pub fn get_all_chrome_profiles() -> Vec<ChromeProfile> {
 
             // Only "Default" or "Profile N" directories
             let is_profile = dir_name == "Default"
-                || (dir_name.starts_with("Profile ")
-                    && dir_name[8..].parse::<u32>().is_ok());
+                || (dir_name.starts_with("Profile ") && dir_name[8..].parse::<u32>().is_ok());
 
             if !is_profile {
                 return None;

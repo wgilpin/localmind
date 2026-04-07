@@ -77,10 +77,7 @@ impl Database {
         );
 
         // Add profile column if it doesn't exist (migration)
-        let _ = conn.execute(
-            "ALTER TABLE documents ADD COLUMN profile TEXT",
-            [],
-        );
+        let _ = conn.execute("ALTER TABLE documents ADD COLUMN profile TEXT", []);
 
         // Create FTS table for text search (without content_tokenize for compatibility)
         conn.execute(
@@ -262,8 +259,9 @@ impl Database {
         profile: Option<String>,
     ) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::UserSearch, move |conn| {
-            let (sql, params_vec): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(ref p) = profile {
-                (
+            let (sql, params_vec): (String, Vec<Box<dyn rusqlite::ToSql>>) =
+                if let Some(ref p) = profile {
+                    (
                     "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
                      FROM documents
                      WHERE (is_dead = 0 OR is_dead IS NULL) AND profile = ?1
@@ -271,8 +269,8 @@ impl Database {
                      LIMIT ?2".to_string(),
                     vec![Box::new(p.clone()), Box::new(limit as i64)],
                 )
-            } else {
-                (
+                } else {
+                    (
                     "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
                      FROM documents
                      WHERE is_dead = 0 OR is_dead IS NULL
@@ -280,7 +278,7 @@ impl Database {
                      LIMIT ?1".to_string(),
                     vec![Box::new(limit as i64)],
                 )
-            };
+                };
 
             let mut stmt = conn.prepare(&sql)?;
             let param_refs: Vec<&dyn rusqlite::ToSql> =

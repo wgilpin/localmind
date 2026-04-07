@@ -395,7 +395,11 @@ impl LocalMindApp {
         runtime_handle.spawn(async move {
             let rag_lock = rag.read().await;
             let docs = if let Some(ref rag) = *rag_lock {
-                match rag.db.get_recent_documents_filtered(10, selected_profile).await {
+                match rag
+                    .db
+                    .get_recent_documents_filtered(10, selected_profile)
+                    .await
+                {
                     Ok(docs) => docs
                         .into_iter()
                         .map(|doc| DocumentView {
@@ -992,35 +996,32 @@ impl eframe::App for LocalMindApp {
                         .as_deref()
                         .unwrap_or("All")
                         .to_string();
-                    let profile_changed =
-                        egui::ComboBox::from_id_salt("profile_selector")
-                            .selected_text(&selected_label)
-                            .show_ui(ui, |ui| {
-                                let mut changed = false;
-                                if ui
-                                    .selectable_label(self.selected_profile.is_none(), "All")
-                                    .clicked()
-                                    && self.selected_profile.is_some()
+                    let profile_changed = egui::ComboBox::from_id_salt("profile_selector")
+                        .selected_text(&selected_label)
+                        .show_ui(ui, |ui| {
+                            let mut changed = false;
+                            if ui
+                                .selectable_label(self.selected_profile.is_none(), "All")
+                                .clicked()
+                                && self.selected_profile.is_some()
+                            {
+                                self.selected_profile = None;
+                                changed = true;
+                            }
+                            for p in self.available_profiles.clone() {
+                                let is_selected = self.selected_profile.as_deref()
+                                    == Some(p.display_name.as_str());
+                                if ui.selectable_label(is_selected, &p.display_name).clicked()
+                                    && !is_selected
                                 {
-                                    self.selected_profile = None;
+                                    self.selected_profile = Some(p.display_name.clone());
                                     changed = true;
                                 }
-                                for p in self.available_profiles.clone() {
-                                    let is_selected = self.selected_profile.as_deref()
-                                        == Some(p.display_name.as_str());
-                                    if ui
-                                        .selectable_label(is_selected, &p.display_name)
-                                        .clicked()
-                                        && !is_selected
-                                    {
-                                        self.selected_profile = Some(p.display_name.clone());
-                                        changed = true;
-                                    }
-                                }
-                                changed
-                            })
-                            .inner
-                            .unwrap_or(false);
+                            }
+                            changed
+                        })
+                        .inner
+                        .unwrap_or(false);
 
                     if profile_changed {
                         // Reload recent docs with new filter
@@ -1323,10 +1324,7 @@ async fn start_bookmark_monitoring(
                     {
                         Ok(_) => {
                             total_ingested += 1;
-                            println!(
-                                "Ingested bookmark: {} (profile: {})",
-                                title, profile_name
-                            );
+                            println!("Ingested bookmark: {} (profile: {})", title, profile_name);
                         }
                         Err(e) => {
                             eprintln!("Failed to ingest bookmark '{}': {}", title, e);
