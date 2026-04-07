@@ -158,12 +158,12 @@ if [ ! -d "embedding-server/.venv" ]; then
     # Explicitly use the detected Python version to ensure consistency
     # This overrides .python-version if present, using system Python instead
     UV_VENV_SUCCESS=0
+    # Resolve the full path so uv uses the system Python, not its own managed cache
+    PYTHON_FULL_PATH="$(command -v "$PYTHON_CMD")"
     if command -v uv &> /dev/null; then
-        # Use --python flag to explicitly specify Python version (overrides .python-version)
-        if uv venv .venv --python "$PYTHON_CMD"; then
+        if uv venv .venv --python "$PYTHON_FULL_PATH"; then
             UV_VENV_SUCCESS=1
         elif uv venv .venv; then
-            # Fallback without explicit version (respects .python-version if present)
             UV_VENV_SUCCESS=1
         fi
     fi

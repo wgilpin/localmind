@@ -128,28 +128,26 @@ fn clean_google_docs_content(content: &str) -> String {
     let css_prop_re = Regex::new(r"^\s*[a-z\-]+:\s*[^;]+;\s*$").unwrap();
     cleaned = css_prop_re.replace_all(&cleaned, "").to_string();
 
-    // Find where actual document content starts
-    // Look for common document patterns that indicate real content
-    let content_markers = [
-        "Architecting Intelligence",
-        "The State of",
-        "Executive Summary",
-        "Abstract",
-        "Introduction",
-        "Section 1",
-        "Part I",
-        "Chapter 1",
-    ];
-
-    // Find the earliest occurrence of a content marker
+    // Find where actual document content starts by scanning for the first line
+    // that looks like real prose or a heading: mostly alphabetic, no CSS/JS structure chars,
+    // longer than 10 characters. This is more robust than hardcoded title strings.
     let mut content_start = None;
-    for marker in &content_markers {
-        if let Some(pos) = cleaned.find(marker) {
-            // Only use if it's reasonably early (first 5000 chars) to avoid false positives
-            if pos < 5000 {
-                content_start = Some(content_start.map_or(pos, |current: usize| current.min(pos)));
-            }
+    let mut scan_pos = 0usize;
+    for line in cleaned.lines() {
+        if scan_pos >= 5000 {
+            break;
         }
+        let alpha_count = line.chars().filter(|c| c.is_alphabetic()).count();
+        let has_css_chars = line.contains('{')
+            || line.contains('}')
+            || line.contains(';')
+            || line.contains('@');
+        if line.len() > 10 && !has_css_chars && alpha_count * 2 > line.len() {
+            content_start = Some(scan_pos);
+            break;
+        }
+        // lines() strips the newline character, add 1 to account for it
+        scan_pos += line.len() + 1;
     }
 
     // If we found a content marker, remove everything before it

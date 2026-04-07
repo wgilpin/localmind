@@ -569,19 +569,18 @@ mod tests {
                         text_bytes.get(chunk.end_pos).unwrap_or(&0)
                     );
 
-                    // If not at end of text, should end with punctuation or whitespace, not mid-word
+                    // end_pos points into the original (untrimmed) text slice, so check
+                    // the last char of text[..end_pos] rather than text[end_pos].
+                    // content is trimmed, so end_pos may sit just past trailing whitespace.
+                    let raw_last_char = text[..chunk.end_pos].chars().last().unwrap_or(' ');
+
                     assert!(
-                        last_char.is_whitespace()
+                        raw_last_char.is_whitespace()
                             || last_char.is_ascii_punctuation()
-                            || content.ends_with('.')
-                            || content.ends_with('!')
-                            || content.ends_with('?')
-                            || content.ends_with(',')
-                            || content.ends_with(';')
-                            || content.ends_with(':')
-                            || next_char.is_whitespace(), // Allow if next char is whitespace (word boundary)
-                        "Chunk ends mid-word: '{}' (next char: '{}')",
+                            || next_char.is_whitespace(),
+                        "Chunk ends mid-word: '{}' (raw_last: '{}', next char: '{}')",
                         content,
+                        raw_last_char,
                         next_char
                     );
                 }

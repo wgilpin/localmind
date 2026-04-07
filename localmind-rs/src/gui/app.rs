@@ -1166,7 +1166,7 @@ async fn start_bookmark_monitoring(
         let total = bookmark_metadata.len();
         let mut ingested_count = 0;
 
-        for (_index, (title, url)) in bookmark_metadata.into_iter().enumerate() {
+        for (title, url) in bookmark_metadata.into_iter() {
             {
                 let rag_lock = rag_state.read().await;
                 if let Some(ref rag) = *rag_lock {

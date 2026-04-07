@@ -15,9 +15,10 @@ pub enum View {
 }
 
 /// Application initialization progress
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum InitStatus {
     /// Application just launched
+    #[default]
     Starting,
     /// Waiting for Python embedding server
     WaitingForEmbedding,
@@ -27,11 +28,6 @@ pub enum InitStatus {
     Error(String),
 }
 
-impl Default for InitStatus {
-    fn default() -> Self {
-        Self::Starting
-    }
-}
 
 /// Toast visual style
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
