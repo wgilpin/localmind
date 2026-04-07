@@ -128,6 +128,26 @@ fn clean_google_docs_content(content: &str) -> String {
     let css_prop_re = Regex::new(r"^\s*[a-z\-]+:\s*[^;]+;\s*$").unwrap();
     cleaned = css_prop_re.replace_all(&cleaned, "").to_string();
 
+    // Line-based filter: remove lines that are clearly CSS/JS remnants.
+    // This catches patterns that the regex-based cleanup above may miss,
+    // e.g. concatenated CSS rules or :before{content:"..."} fragments.
+    cleaned = cleaned
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return true;
+            }
+            // Drop lines containing CSS patterns that never appear in real content
+            let is_css_junk = trimmed.contains("lst-kix_")
+                || trimmed.contains("list-style-type:")
+                || trimmed.contains(":before{")
+                || trimmed.contains("{content:");
+            !is_css_junk
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
     // Find where actual document content starts by scanning for the first line
     // that looks like real prose or a heading: mostly alphabetic, no CSS/JS structure chars,
     // longer than 10 characters. This is more robust than hardcoded title strings.

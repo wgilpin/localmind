@@ -85,6 +85,11 @@ async function performGoogleDocsExtraction(url) {
       try {
         const parser = new DOMParser();
         const doc = parser.parseFromString(response.html, 'text/html');
+        // Remove style and script elements before extracting text.
+        // DOMParser creates an inert document with no layout, so innerText
+        // doesn't hide <style> content the way a live DOM would - the CSS
+        // rules leak into the extracted text as junk.
+        doc.querySelectorAll('style, script, noscript').forEach(el => el.remove());
         content = doc.body.innerText || doc.body.textContent || '';
         console.log(`Parsed HTML to text (${content.length} chars)`);
         console.log(`First 500 chars: ${content.substring(0, 500)}`);
