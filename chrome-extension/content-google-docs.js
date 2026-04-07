@@ -90,7 +90,16 @@ async function performGoogleDocsExtraction(url) {
         // doesn't hide <style> content the way a live DOM would - the CSS
         // rules leak into the extracted text as junk.
         doc.querySelectorAll('style, script, noscript').forEach(el => el.remove());
-        content = doc.body.innerText || doc.body.textContent || '';
+        // DOMParser documents have no layout engine, so innerText doesn't
+        // insert whitespace at block-element boundaries. Append a newline
+        // inside each block element so that textContent preserves word
+        // boundaries (e.g. prevents "paragraphOneparagraphTwo").
+        doc.querySelectorAll(
+          'p, div, li, br, h1, h2, h3, h4, h5, h6, tr, blockquote, section, article'
+        ).forEach(el => {
+          el.appendChild(doc.createTextNode('\n'));
+        });
+        content = doc.body.textContent || '';
         console.log(`Parsed HTML to text (${content.length} chars)`);
         console.log(`First 500 chars: ${content.substring(0, 500)}`);
         console.log(`Last 500 chars: ${content.substring(Math.max(0, content.length - 500))}`);
