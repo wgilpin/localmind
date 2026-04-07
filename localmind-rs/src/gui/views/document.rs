@@ -51,6 +51,27 @@ pub fn render_document_view(ui: &mut Ui, app: &mut LocalMindApp) {
 
     ui.add_space(10.0);
 
+    // Auth-required banner
+    if doc.is_needs_auth {
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(255, 243, 205))
+            .rounding(4.0)
+            .inner_margin(10.0)
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(150, 100, 0),
+                        format!("{} This page requires authentication.", icons::LOCK_LINE),
+                    );
+                });
+                ui.colored_label(
+                    egui::Color32::from_rgb(150, 100, 0),
+                    "Open the link below in your browser, log in, then use the Chrome extension to re-capture the content.",
+                );
+            });
+        ui.add_space(8.0);
+    }
+
     // URL as clickable link
     if let Some(ref url) = doc.url {
         ui.horizontal(|ui| {

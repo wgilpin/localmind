@@ -119,6 +119,8 @@ pub struct SearchResultView {
     pub url: Option<String>,
     /// Chrome profile this bookmark came from
     pub profile: Option<String>,
+    /// Whether this document requires authentication to access
+    pub is_needs_auth: bool,
 }
 
 /// UI representation of a full document
@@ -138,6 +140,8 @@ pub struct DocumentView {
     pub created_at: String,
     /// Chrome profile this document came from
     pub profile: Option<String>,
+    /// Whether this document requires authentication to access
+    pub is_needs_auth: bool,
 }
 
 /// UI representation of a bookmark folder for tree display

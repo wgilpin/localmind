@@ -88,12 +88,20 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
             for result in &app.search_results.clone() {
                 ui.push_id(result.doc_id, |ui| {
                     // Clickable result card
-                    let response = egui::Frame::none()
-                        .fill(if ui.visuals().dark_mode {
-                            egui::Color32::from_rgb(30, 40, 60) // Dark blue-gray
+                    let card_fill = if result.is_needs_auth {
+                        if ui.visuals().dark_mode {
+                            egui::Color32::from_rgb(50, 40, 20) // Dark amber tint
                         } else {
-                            egui::Color32::from_gray(245)
-                        })
+                            egui::Color32::from_rgb(255, 248, 230) // Light amber tint
+                        }
+                    } else if ui.visuals().dark_mode {
+                        egui::Color32::from_rgb(30, 40, 60) // Dark blue-gray
+                    } else {
+                        egui::Color32::from_gray(245)
+                    };
+
+                    let response = egui::Frame::none()
+                        .fill(card_fill)
                         .rounding(4.0)
                         .inner_margin(12.0)
                         .show(ui, |ui| {
@@ -101,6 +109,12 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
 
                             // Title row with similarity score
                             ui.horizontal(|ui| {
+                                if result.is_needs_auth {
+                                    ui.colored_label(
+                                        egui::Color32::from_rgb(200, 150, 0),
+                                        icons::LOCK_LINE,
+                                    );
+                                }
                                 ui.strong(&result.title);
 
                                 ui.with_layout(

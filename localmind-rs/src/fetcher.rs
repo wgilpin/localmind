@@ -4,6 +4,12 @@ use reqwest;
 use std::time::Duration;
 use url::Url;
 
+/// Result of a fetch attempt, including whether auth was required
+pub struct FetchResult {
+    pub content: String,
+    pub needs_auth: bool,
+}
+
 pub struct WebFetcher {
     client: reqwest::Client,
 }
@@ -20,14 +26,19 @@ impl WebFetcher {
         Self { client }
     }
 
-    pub async fn fetch_page_content(
+    /// Fetch page content with auth status detection.
+    /// Returns a FetchResult indicating whether auth was required.
+    pub async fn fetch_page_content_with_status(
         &self,
         url: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<FetchResult, Box<dyn std::error::Error>> {
         // Skip non-HTTP(S) URLs
         if !url.starts_with("http://") && !url.starts_with("https://") {
-            println!("⏭️ Skipping non-HTTP URL: {}", url);
-            return Ok(String::new());
+            println!("Skipping non-HTTP URL: {}", url);
+            return Ok(FetchResult {
+                content: String::new(),
+                needs_auth: false,
+            });
         }
 
         // Fetch the page
@@ -35,15 +46,53 @@ impl WebFetcher {
             Ok(resp) => resp,
             Err(e) => {
                 println!("Failed to fetch {}: {}", url, e);
-                return Ok(String::new());
+                return Ok(FetchResult {
+                    content: String::new(),
+                    needs_auth: false,
+                });
             }
         };
 
-        // Check status
-        if !response.status().is_success() {
-            println!("HTTP {} for {}", response.status(), url);
-            return Ok(String::new());
+        // Check status - detect auth-required responses
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED
+            || status == reqwest::StatusCode::FORBIDDEN
+        {
+            println!("Auth required ({}) for {}", status, url);
+            return Ok(FetchResult {
+                content: String::new(),
+                needs_auth: true,
+            });
         }
+
+        if !status.is_success() {
+            println!("HTTP {} for {}", status, url);
+            return Ok(FetchResult {
+                content: String::new(),
+                needs_auth: false,
+            });
+        }
+
+        let content = self.extract_content(url, response).await?;
+        Ok(FetchResult {
+            content,
+            needs_auth: false,
+        })
+    }
+
+    pub async fn fetch_page_content(
+        &self,
+        url: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let result = self.fetch_page_content_with_status(url).await?;
+        Ok(result.content)
+    }
+
+    async fn extract_content(
+        &self,
+        url: &str,
+        response: reqwest::Response,
+    ) -> Result<String, Box<dyn std::error::Error>> {
 
         // Check content type to handle different file types properly
         let content_type = response

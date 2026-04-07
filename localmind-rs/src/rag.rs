@@ -29,6 +29,7 @@ pub struct DocumentSource {
     pub content_snippet: String,
     pub similarity: f32,
     pub profile: Option<String>,
+    pub needs_auth: bool,
 }
 
 impl RagPipeline {
@@ -165,6 +166,19 @@ impl RagPipeline {
         source: &str,
         profile: Option<&str>,
     ) -> Result<i64> {
+        self.ingest_document_with_auth(title, content, url, source, profile, false)
+            .await
+    }
+
+    pub async fn ingest_document_with_auth(
+        &self,
+        title: &str,
+        content: &str,
+        url: Option<&str>,
+        source: &str,
+        profile: Option<&str>,
+        needs_auth: bool,
+    ) -> Result<i64> {
         // Chunk the document
         let chunks = self.document_processor.chunk_text(content)?;
 
@@ -174,7 +188,7 @@ impl RagPipeline {
         }
 
         println!(
-            "Processing document: '{}' → {} chunks (content: {} chars)",
+            "Processing document: '{}' -> {} chunks (content: {} chars)",
             title.chars().take(60).collect::<String>(),
             chunks.len(),
             content.len()
@@ -194,6 +208,13 @@ impl RagPipeline {
                 profile,
             )
             .await?;
+
+        // Mark as needs_auth if the URL required authentication
+        if needs_auth {
+            if let Some(url) = url {
+                self.db.mark_url_as_needs_auth(url).await?;
+            }
+        }
 
         // Generate and store embeddings for each chunk
         for chunk in chunks.iter() {
@@ -444,6 +465,7 @@ impl RagPipeline {
                     content_snippet: chunk_content,
                     similarity: chunk_result.similarity,
                     profile: doc.profile,
+                    needs_auth: doc.needs_auth.unwrap_or(false),
                 });
 
                 // Limit to 10 documents
@@ -457,6 +479,71 @@ impl RagPipeline {
     }
 
     // Completion methods removed - this is an embedding-only service
+
+    /// Update an existing document by URL: replace content, clear auth/dead flags, re-embed.
+    pub async fn update_document(
+        &self,
+        doc_id: i64,
+        title: &str,
+        content: &str,
+    ) -> Result<i64> {
+        // Update document content in DB (clears is_dead and needs_auth)
+        self.db
+            .update_document_content(doc_id, title, content)
+            .await?;
+
+        // Remove old embeddings from DB and vector store
+        self.db.delete_embeddings_for_document(doc_id).await?;
+        {
+            let mut vector_store = self.vector_store.lock().await;
+            vector_store.remove_vectors_for_document(doc_id);
+        }
+
+        // Re-chunk and re-embed
+        let chunks = self.document_processor.chunk_text(content)?;
+        if chunks.is_empty() {
+            println!("Updated document produced no chunks");
+            return Ok(doc_id);
+        }
+
+        println!(
+            "Re-indexing document id={}: '{}' -> {} chunks",
+            doc_id,
+            title.chars().take(60).collect::<String>(),
+            chunks.len()
+        );
+
+        for chunk in chunks.iter() {
+            let chunk_embedding = self
+                .embedding_client
+                .generate_embedding(&chunk.content)
+                .await
+                .map_err(|e| format!("Failed to generate embedding for chunk: {}", e))?;
+            let embedding_bytes = bincode::serialize(&chunk_embedding)?;
+
+            let embedding_id = self
+                .db
+                .insert_chunk_embedding(
+                    doc_id,
+                    chunk.start_pos,
+                    chunk.end_pos,
+                    &embedding_bytes,
+                    OperationPriority::BackgroundIngest,
+                )
+                .await?;
+
+            let mut vector_store = self.vector_store.lock().await;
+            vector_store.add_chunk_vector(
+                embedding_id,
+                doc_id,
+                chunk.start_pos,
+                chunk.end_pos,
+                chunk_embedding,
+            )?;
+        }
+
+        Ok(doc_id)
+    }
 
     pub fn vector_store_stats(&self) -> (usize, bool) {
         // Use try_lock to avoid blocking, return 0 if locked

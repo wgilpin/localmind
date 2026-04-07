@@ -1,6 +1,7 @@
 //! Home view showing recent documents
 
 use egui::Ui;
+use egui_remixicon::icons;
 
 use crate::gui::app::LocalMindApp;
 use crate::gui::state::InitStatus;
@@ -64,19 +65,33 @@ pub fn render_home_view(ui: &mut Ui, app: &mut LocalMindApp) {
                         for doc in &docs {
                             ui.push_id(doc.id, |ui| {
                                 // Clickable frame for the document card
-                                let response = egui::Frame::none()
-                                    .fill(if ui.visuals().dark_mode {
-                                        egui::Color32::from_rgb(30, 40, 60) // Dark blue-gray
+                                let card_fill = if doc.is_needs_auth {
+                                    if ui.visuals().dark_mode {
+                                        egui::Color32::from_rgb(50, 40, 20) // Dark amber tint
                                     } else {
-                                        egui::Color32::from_gray(245)
-                                    })
+                                        egui::Color32::from_rgb(255, 248, 230) // Light amber tint
+                                    }
+                                } else if ui.visuals().dark_mode {
+                                    egui::Color32::from_rgb(30, 40, 60) // Dark blue-gray
+                                } else {
+                                    egui::Color32::from_gray(245)
+                                };
+
+                                let response = egui::Frame::none()
+                                    .fill(card_fill)
                                     .rounding(4.0)
                                     .inner_margin(12.0)
                                     .show(ui, |ui| {
                                         ui.set_width(ui.available_width());
 
-                                        // Title
+                                        // Title row with optional auth badge
                                         ui.horizontal(|ui| {
+                                            if doc.is_needs_auth {
+                                                ui.colored_label(
+                                                    egui::Color32::from_rgb(200, 150, 0),
+                                                    icons::LOCK_LINE,
+                                                );
+                                            }
                                             ui.strong(&doc.title);
                                         });
 
@@ -117,6 +132,14 @@ pub fn render_home_view(ui: &mut Ui, app: &mut LocalMindApp) {
                                             ui.weak("•");
                                             ui.weak(&doc.created_at);
                                         });
+
+                                        if doc.is_needs_auth {
+                                            ui.add_space(4.0);
+                                            ui.colored_label(
+                                                egui::Color32::from_rgb(200, 150, 0),
+                                                "Login required - open link and use extension to re-capture",
+                                            );
+                                        }
                                     });
 
                                 // Handle click to view document

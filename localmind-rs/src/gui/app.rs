@@ -410,6 +410,7 @@ impl LocalMindApp {
                             source: doc.source,
                             created_at: doc.created_at,
                             profile: doc.profile,
+                            is_needs_auth: doc.needs_auth.unwrap_or(false),
                         })
                         .collect(),
                     Err(e) => {
@@ -476,6 +477,7 @@ impl LocalMindApp {
                                 similarity: hit.similarity,
                                 url: None, // URL not in SearchHit, will need to fetch from doc
                                 profile: hit.profile,
+                                is_needs_auth: hit.needs_auth,
                             })
                             .collect()
                     }
@@ -562,6 +564,7 @@ impl LocalMindApp {
                         source: doc.source,
                         created_at: doc.created_at,
                         profile: doc.profile,
+                        is_needs_auth: doc.needs_auth.unwrap_or(false),
                     }),
                     Ok(None) => {
                         eprintln!("Document not found: {}", doc_id);
@@ -1300,25 +1303,33 @@ async fn start_bookmark_monitoring(
                         completed: false,
                     });
 
-                    // Fetch content
-                    let content = match monitor.fetch_bookmark_content(&url).await {
-                        Ok(content) => content,
-                        Err(e) => {
-                            eprintln!("Failed to fetch content for '{}': {}", title, e);
-                            format!(
-                                "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
-                                title, url, e
-                            )
-                        }
-                    };
+                    // Fetch content (returns content + auth status)
+                    let (fetched_content, needs_auth) =
+                        match monitor.fetch_bookmark_content(&url).await {
+                            Ok(result) => result,
+                            Err(e) => {
+                                eprintln!("Failed to fetch content for '{}': {}", title, e);
+                                (
+                                    format!(
+                                        "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
+                                        title, url, e
+                                    ),
+                                    false,
+                                )
+                            }
+                        };
+
+                    // Always prepend title so it gets embedded and is searchable
+                    let content = format!("{}\n\n{}", title, fetched_content);
 
                     match rag
-                        .ingest_document(
+                        .ingest_document_with_auth(
                             &title,
                             &content,
                             Some(&url),
                             "chrome_bookmark",
                             Some(&profile_name),
+                            needs_auth,
                         )
                         .await
                     {
@@ -1432,6 +1443,28 @@ async fn start_http_server(rag_state: RagState) -> crate::Result<()> {
             request.title.chars().take(60).collect::<String>(),
             request.url.as_deref()
         );
+
+        // Check if this URL already exists (update instead of duplicate)
+        if let Some(ref url) = request.url {
+            if let Ok(Some(existing_doc)) = rag.db.get_document_by_url(url).await {
+                println!(
+                    "Document already exists for URL {}, updating (id={})",
+                    url, existing_doc.id
+                );
+
+                rag.update_document(existing_doc.id, &request.title, &request.content)
+                    .await
+                    .map_err(|e| ApiError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        message: format!("Failed to update document: {}", e),
+                    })?;
+
+                return Ok(Json(SuccessResponse {
+                    message: "Document updated successfully.".to_string(),
+                    extraction_method: request.extraction_method,
+                }));
+            }
+        }
 
         rag.ingest_document(
             &request.title,

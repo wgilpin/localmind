@@ -4,6 +4,25 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{Semaphore, SemaphorePermit};
 
+/// Normalize a URL for deduplication.
+/// Strips fragments (#...) and Google Docs query params (tab=, etc.)
+/// so that the same document isn't stored multiple times.
+pub fn normalize_url(url: &str) -> String {
+    // Strip fragment
+    let without_fragment = url.split('#').next().unwrap_or(url);
+
+    // For Google Docs, strip query params entirely - the doc ID is the identity
+    if without_fragment.contains("docs.google.com/document/") {
+        without_fragment
+            .split('?')
+            .next()
+            .unwrap_or(without_fragment)
+            .to_string()
+    } else {
+        without_fragment.to_string()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum OperationPriority {
     UserSearch,       // Highest priority - immediate access
@@ -26,6 +45,7 @@ pub struct Document {
     pub created_at: String,
     pub embedding: Option<Vec<u8>>,
     pub is_dead: Option<bool>,
+    pub needs_auth: Option<bool>,
     pub profile: Option<String>,
 }
 
@@ -56,6 +76,8 @@ impl Database {
             .await?;
         let conn = self.conn.lock().unwrap();
 
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,6 +95,12 @@ impl Database {
         // Add is_dead column if it doesn't exist (migration)
         let _ = conn.execute(
             "ALTER TABLE documents ADD COLUMN is_dead BOOLEAN DEFAULT 0",
+            [],
+        );
+
+        // Add needs_auth column if it doesn't exist (migration)
+        let _ = conn.execute(
+            "ALTER TABLE documents ADD COLUMN needs_auth BOOLEAN DEFAULT 0",
             [],
         );
 
@@ -205,10 +233,12 @@ impl Database {
         priority: OperationPriority,
         profile: Option<&str>,
     ) -> Result<i64> {
+        let normalized_url = url.map(normalize_url);
+        let url_ref = normalized_url.as_deref();
         self.execute_with_priority(priority, |conn| {
             conn.execute(
                 "INSERT INTO documents (title, content, url, source, embedding, is_dead, profile) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![title, content, url, source, embedding, is_dead, profile],
+                params![title, content, url_ref, source, embedding, is_dead, profile],
             )?;
             Ok(conn.last_insert_rowid())
         }).await
@@ -217,7 +247,7 @@ impl Database {
     pub async fn get_document(&self, id: i64) -> Result<Option<Document>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead, needs_auth, profile
                  FROM documents WHERE id = ?1",
             )?;
 
@@ -231,7 +261,8 @@ impl Database {
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
                     is_dead: row.get(7)?,
-                    profile: row.get(8)?,
+                    needs_auth: row.get(8)?,
+                    profile: row.get(9)?,
                 })
             });
 
@@ -262,7 +293,7 @@ impl Database {
             let (sql, params_vec): (String, Vec<Box<dyn rusqlite::ToSql>>) =
                 if let Some(ref p) = profile {
                     (
-                    "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
+                    "SELECT id, title, content, url, source, created_at, embedding, is_dead, needs_auth, profile
                      FROM documents
                      WHERE (is_dead = 0 OR is_dead IS NULL) AND profile = ?1
                      ORDER BY created_at DESC
@@ -271,7 +302,7 @@ impl Database {
                 )
                 } else {
                     (
-                    "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
+                    "SELECT id, title, content, url, source, created_at, embedding, is_dead, needs_auth, profile
                      FROM documents
                      WHERE is_dead = 0 OR is_dead IS NULL
                      ORDER BY created_at DESC
@@ -295,7 +326,8 @@ impl Database {
                         created_at: row.get(5)?,
                         embedding: row.get(6)?,
                         is_dead: row.get(7)?,
-                        profile: row.get(8)?,
+                        needs_auth: row.get(8)?,
+                        profile: row.get(9)?,
                     })
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -314,7 +346,7 @@ impl Database {
             // Build the IN clause with placeholders
             let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
             let query = format!(
-                "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead, needs_auth, profile
                  FROM documents WHERE id IN ({})",
                 placeholders
             );
@@ -335,7 +367,8 @@ impl Database {
                         created_at: row.get(5)?,
                         embedding: row.get(6)?,
                         is_dead: row.get(7)?,
-                        profile: row.get(8)?,
+                        needs_auth: row.get(8)?,
+                        profile: row.get(9)?,
                     })
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -348,7 +381,7 @@ impl Database {
     pub async fn search_documents(&self, query: &str, limit: i64) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT d.id, d.title, d.content, d.url, d.source, d.created_at, d.embedding, d.is_dead, d.profile
+                "SELECT d.id, d.title, d.content, d.url, d.source, d.created_at, d.embedding, d.is_dead, d.needs_auth, d.profile
                  FROM documents d
                  JOIN documents_fts fts ON d.id = fts.rowid
                  WHERE documents_fts MATCH ?1 AND (d.is_dead IS NULL OR d.is_dead = 0)
@@ -366,7 +399,8 @@ impl Database {
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
                     is_dead: row.get(7)?,
-                    profile: row.get(8)?,
+                    needs_auth: row.get(8)?,
+                    profile: row.get(9)?,
                 })
             })?;
 
@@ -480,10 +514,10 @@ impl Database {
     }
 
     pub async fn url_exists(&self, url: &str, priority: OperationPriority) -> Result<bool> {
-        self.execute_with_priority(priority, |conn| {
+        let normalized = normalize_url(url);
+        self.execute_with_priority(priority, move |conn| {
             let mut stmt = conn.prepare("SELECT COUNT(*) FROM documents WHERE url = ?1")?;
-
-            let count: i64 = stmt.query_row(params![url], |row| row.get(0))?;
+            let count: i64 = stmt.query_row(params![normalized], |row| row.get(0))?;
             Ok(count > 0)
         })
         .await
@@ -537,10 +571,86 @@ impl Database {
     }
 
     pub async fn mark_url_as_dead(&self, url: &str) -> Result<()> {
-        self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
+        let normalized = normalize_url(url);
+        self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
             conn.execute(
                 "UPDATE documents SET is_dead = 1 WHERE url = ?1",
-                params![url],
+                params![normalized],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn mark_url_as_needs_auth(&self, url: &str) -> Result<()> {
+        let normalized = normalize_url(url);
+        self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
+            conn.execute(
+                "UPDATE documents SET needs_auth = 1 WHERE url = ?1",
+                params![normalized],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn get_document_by_url(&self, url: &str) -> Result<Option<Document>> {
+        let normalized = normalize_url(url);
+        self.execute_with_priority(OperationPriority::UserSearch, move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead, needs_auth, profile
+                 FROM documents WHERE url = ?1 LIMIT 1",
+            )?;
+
+            match stmt.query_row(params![normalized], |row| {
+                Ok(Document {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    content: row.get(2)?,
+                    url: row.get(3)?,
+                    source: row.get(4)?,
+                    created_at: row.get(5)?,
+                    embedding: row.get(6)?,
+                    is_dead: row.get(7)?,
+                    needs_auth: row.get(8)?,
+                    profile: row.get(9)?,
+                })
+            }) {
+                Ok(doc) => Ok(Some(doc)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(Box::new(e)),
+            }
+        })
+        .await
+    }
+
+    pub async fn update_document_content(
+        &self,
+        doc_id: i64,
+        title: &str,
+        content: &str,
+    ) -> Result<()> {
+        self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
+            conn.execute(
+                "UPDATE documents SET title = ?1, content = ?2, is_dead = 0, needs_auth = 0
+                 WHERE id = ?3",
+                params![title, content, doc_id],
+            )?;
+            // Update FTS index
+            conn.execute(
+                "UPDATE documents_fts SET title = ?1, content = ?2 WHERE rowid = ?3",
+                params![title, content, doc_id],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn delete_embeddings_for_document(&self, doc_id: i64) -> Result<()> {
+        self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
+            conn.execute(
+                "DELETE FROM embeddings WHERE document_id = ?1",
+                params![doc_id],
             )?;
             Ok(())
         })
@@ -550,7 +660,7 @@ impl Database {
     pub async fn get_live_documents_with_urls(&self) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead, needs_auth, profile
                  FROM documents
                  WHERE url IS NOT NULL AND (is_dead IS NULL OR is_dead = 0)",
             )?;
@@ -565,7 +675,8 @@ impl Database {
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
                     is_dead: row.get(7)?,
-                    profile: row.get(8)?,
+                    needs_auth: row.get(8)?,
+                    profile: row.get(9)?,
                 })
             })?;
 
@@ -586,21 +697,28 @@ impl Database {
             .build()
             .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-        let mut marked_dead_count = 0;
+        let mut marked_count = 0;
 
         for doc in documents {
             if let Some(url) = &doc.url {
                 match client.head(url).send().await {
                     Ok(response) => {
-                        if response.status() == reqwest::StatusCode::NOT_FOUND {
+                        let status = response.status();
+                        if status == reqwest::StatusCode::NOT_FOUND {
                             println!("Marking {} as dead (404)", url);
                             self.mark_url_as_dead(url).await?;
-                            marked_dead_count += 1;
+                            marked_count += 1;
+                        } else if status == reqwest::StatusCode::UNAUTHORIZED
+                            || status == reqwest::StatusCode::FORBIDDEN
+                        {
+                            println!("Marking {} as needs auth ({})", url, status);
+                            self.mark_url_as_needs_auth(url).await?;
+                            marked_count += 1;
                         }
                     }
                     Err(e) => {
-                        println!("⚠️ Error checking {}: {}", url, e);
-                        // Don't mark as dead for network errors, only for explicit 404s
+                        println!("Warning: error checking {}: {}", url, e);
+                        // Don't mark as dead for network errors, only for explicit status codes
                     }
                 }
 
@@ -609,13 +727,13 @@ impl Database {
             }
         }
 
-        Ok(marked_dead_count)
+        Ok(marked_count)
     }
 
     pub async fn get_all_documents(&self) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead, needs_auth, profile
                  FROM documents
                  WHERE is_dead IS NULL OR is_dead = 0
                  ORDER BY id",
@@ -631,7 +749,8 @@ impl Database {
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
                     is_dead: row.get(7)?,
-                    profile: row.get(8)?,
+                    needs_auth: row.get(8)?,
+                    profile: row.get(9)?,
                 })
             })?;
 

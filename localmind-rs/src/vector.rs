@@ -64,6 +64,11 @@ impl VectorStore {
         Ok(())
     }
 
+    pub fn remove_vectors_for_document(&mut self, doc_id: i64) {
+        self.chunk_vectors.retain(|v| v.1 != doc_id);
+        self.vectors.retain(|v| v.0 != doc_id);
+    }
+
     pub fn search(&self, query_vector: &[f32], limit: usize) -> Result<Vec<SearchResult>> {
         self.search_with_cutoff(query_vector, limit, 0.0)
     }
@@ -129,9 +134,10 @@ impl VectorStore {
         let mut similarities: Vec<ChunkSearchResult> = Vec::new();
 
         for (embedding_id, doc_id, chunk_start, chunk_end, vector) in &self.chunk_vectors {
-            // Skip chunks that are too small to be semantically meaningful
+            // Skip chunks that are too small to be semantically meaningful,
+            // but allow if it's the only chunk for the doc (e.g. title-only auth-blocked docs)
             let chunk_size = chunk_end - chunk_start;
-            if chunk_size < MIN_CHUNK_SIZE {
+            if chunk_size < MIN_CHUNK_SIZE && *chunk_start > 0 {
                 continue;
             }
 

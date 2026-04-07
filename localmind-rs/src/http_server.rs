@@ -354,7 +354,31 @@ async fn handle_post_documents(
         extraction_method
     );
 
-    // Ingest document (lock is held during async call, which is fine for read lock)
+    // Check if this URL already exists (update instead of duplicate)
+    if let Some(ref url) = request.url {
+        if let Ok(Some(existing_doc)) = rag.db.get_document_by_url(url).await {
+            println!(
+                "Document already exists for URL {}, updating (id={})",
+                url, existing_doc.id
+            );
+
+            rag.update_document(existing_doc.id, &title, &content)
+                .await
+                .map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("Failed to update document: {}", e),
+                })?;
+
+            drop(rag_lock);
+
+            return Ok(Json(SuccessResponse {
+                message: "Document updated successfully.".to_string(),
+                extraction_method,
+            }));
+        }
+    }
+
+    // Ingest new document (lock is held during async call, which is fine for read lock)
     rag.ingest_document(&title, &content, request.url.as_deref(), "chrome_extension", None)
         .await
         .map_err(|e| ApiError {

@@ -532,7 +532,8 @@ impl BookmarkMonitor {
         count
     }
 
-    pub async fn fetch_bookmark_content(&self, url: &str) -> Result<String> {
+    /// Fetch bookmark content. Returns (content, needs_auth).
+    pub async fn fetch_bookmark_content(&self, url: &str) -> Result<(String, bool)> {
         let fetcher = WebFetcher::new();
 
         // Check if this is a YouTube URL and try to get transcript
@@ -541,39 +542,47 @@ impl BookmarkMonitor {
             match YouTubeProcessor::fetch_transcript(url).await {
                 Ok(Some(transcript)) => {
                     println!("Using YouTube transcript for bookmark: {}", url);
-                    return Ok(format!("Bookmark: {}\nURL: {}\n\n{}", url, url, transcript));
+                    return Ok((
+                        format!("Bookmark: {}\nURL: {}\n\n{}", url, url, transcript),
+                        false,
+                    ));
                 }
                 Ok(None) => {
-                    println!("⚠️ No YouTube transcript available, using original content");
+                    println!("No YouTube transcript available, using original content");
                 }
                 Err(e) => {
                     println!(
-                        "⚠️ Failed to fetch YouTube transcript: {}, using original content",
+                        "Failed to fetch YouTube transcript: {}, using original content",
                         e
                     );
                 }
             }
         }
 
-        // Fallback to regular content fetching
-        let content = match fetcher.fetch_page_content(url).await {
-            Ok(content) => {
-                if content.is_empty() {
+        // Fallback to regular content fetching with auth detection
+        match fetcher.fetch_page_content_with_status(url).await {
+            Ok(result) => {
+                let content = if result.needs_auth {
+                    // Auth-blocked: no useful content to embed, title is prepended by caller
+                    String::new()
+                } else if result.content.is_empty() {
                     format!("Bookmark: {}\nURL: {}\n\n[No content extracted]", url, url)
                 } else {
-                    format!("Bookmark: {}\nURL: {}\n\n{}", url, url, content)
-                }
+                    format!("Bookmark: {}\nURL: {}\n\n{}", url, url, result.content)
+                };
+                Ok((content, result.needs_auth))
             }
             Err(e) => {
-                println!("⚠️ Failed to fetch content from {}: {}", url, e);
-                format!(
-                    "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
-                    url, url, e
-                )
+                println!("Failed to fetch content from {}: {}", url, e);
+                Ok((
+                    format!(
+                        "Bookmark: {}\nURL: {}\n\n[Error fetching content: {}]",
+                        url, url, e
+                    ),
+                    false,
+                ))
             }
-        };
-
-        Ok(content)
+        }
     }
 }
 
