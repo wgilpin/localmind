@@ -4,7 +4,7 @@ use crate::{
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +42,17 @@ pub struct ChromeBookmarkRoots {
     pub bookmark_bar: BookmarkItem,
     pub other: BookmarkItem,
     pub synced: Option<BookmarkItem>,
+}
+
+/// A discovered Chrome user profile with its bookmarks file path
+#[derive(Debug, Clone)]
+pub struct ChromeProfile {
+    /// Directory name: "Default", "Profile 1", etc.
+    pub dir_name: String,
+    /// Human-readable name from Preferences JSON (e.g. "Will")
+    pub display_name: String,
+    /// Path to the Bookmarks file for this profile
+    pub bookmarks_path: PathBuf,
 }
 
 pub struct BookmarkMonitor {
@@ -570,6 +581,133 @@ impl Default for BookmarkMonitor {
     fn default() -> Self {
         Self::new().unwrap().0
     }
+}
+
+/// Create a BookmarkMonitor targeting a specific Chrome profile
+impl BookmarkMonitor {
+    pub fn for_profile(
+        profile: &ChromeProfile,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<Vec<BookmarkItem>>)> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        Ok((
+            Self {
+                bookmarks_path: profile.bookmarks_path.clone(),
+                tx,
+            },
+            rx,
+        ))
+    }
+}
+
+/// Return the Chrome "User Data" directory (parent of Default/, Profile 1/, etc.)
+pub fn get_chrome_data_dir() -> Result<PathBuf> {
+    let home_dir = dirs::home_dir().ok_or("Could not find home directory")?;
+
+    #[cfg(target_os = "windows")]
+    let data_dir = home_dir
+        .join("AppData")
+        .join("Local")
+        .join("Google")
+        .join("Chrome")
+        .join("User Data");
+
+    #[cfg(target_os = "macos")]
+    let data_dir = home_dir
+        .join("Library")
+        .join("Application Support")
+        .join("Google")
+        .join("Chrome");
+
+    #[cfg(target_os = "linux")]
+    let data_dir = home_dir.join(".config").join("google-chrome");
+
+    Ok(data_dir)
+}
+
+/// Discover all Chrome profiles that have a Bookmarks file.
+/// Returns profiles sorted: Default first, then Profile 1, Profile 2, ...
+pub fn get_all_chrome_profiles() -> Vec<ChromeProfile> {
+    let data_dir = match get_chrome_data_dir() {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+
+    let entries = match std::fs::read_dir(&data_dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut profiles: Vec<ChromeProfile> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let dir_name = entry.file_name().to_string_lossy().to_string();
+
+            // Only "Default" or "Profile N" directories
+            let is_profile = dir_name == "Default"
+                || (dir_name.starts_with("Profile ")
+                    && dir_name[8..].parse::<u32>().is_ok());
+
+            if !is_profile {
+                return None;
+            }
+
+            let bookmarks_path = entry.path().join("Bookmarks");
+            if !bookmarks_path.exists() {
+                return None;
+            }
+
+            let prefs_path = entry.path().join("Preferences");
+            let display_name = read_profile_display_name(&prefs_path, &dir_name);
+
+            Some(ChromeProfile {
+                dir_name,
+                display_name,
+                bookmarks_path,
+            })
+        })
+        .collect();
+
+    profiles.sort_by(|a, b| {
+        if a.dir_name == "Default" {
+            std::cmp::Ordering::Less
+        } else if b.dir_name == "Default" {
+            std::cmp::Ordering::Greater
+        } else {
+            a.dir_name.cmp(&b.dir_name)
+        }
+    });
+
+    profiles
+}
+
+/// Read the human-readable profile name from Chrome's Preferences JSON.
+/// Falls back to the directory name if parsing fails.
+fn read_profile_display_name(prefs_path: &Path, fallback: &str) -> String {
+    let content = match std::fs::read_to_string(prefs_path) {
+        Ok(c) => c,
+        Err(_) => return fallback.to_string(),
+    };
+
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return fallback.to_string(),
+    };
+
+    // Try account_info[0].given_name (signed-in Google account)
+    if let Some(name) = json["account_info"][0]["given_name"].as_str() {
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
+
+    // Try profile.name (local profile name)
+    if let Some(name) = json["profile"]["name"].as_str() {
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
+
+    fallback.to_string()
 }
 
 #[cfg(test)]

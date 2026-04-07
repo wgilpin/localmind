@@ -7,7 +7,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::state::{
-    BookmarkFolderView, DocumentView, InitStatus, SearchResultView, Toast, ToastType, View,
+    BookmarkFolderView, ChromeProfileInfo, DocumentView, InitStatus, SearchResultView, Toast,
+    ToastType, View,
 };
 use super::views;
 use super::widgets;
@@ -98,6 +99,12 @@ pub struct LocalMindApp {
 
     /// ID of the current bookmark progress toast (for replacing)
     bookmark_progress_toast_id: Option<u64>,
+
+    /// Chrome profiles discovered at startup (only populated when >1 exists)
+    pub available_profiles: Vec<ChromeProfileInfo>,
+
+    /// Currently selected profile filter (None = "All")
+    pub selected_profile: Option<String>,
 }
 
 /// Bookmark ingestion progress event
@@ -271,6 +278,18 @@ impl LocalMindApp {
         // We leak the runtime intentionally - it will live for the app's lifetime
         std::mem::forget(runtime);
 
+        // Discover Chrome profiles at startup
+        let chrome_profiles: Vec<ChromeProfileInfo> = {
+            use crate::bookmark::get_all_chrome_profiles;
+            get_all_chrome_profiles()
+                .into_iter()
+                .map(|p| ChromeProfileInfo {
+                    dir_name: p.dir_name,
+                    display_name: p.display_name,
+                })
+                .collect()
+        };
+
         println!("LocalMindApp::new() complete");
 
         Self {
@@ -301,6 +320,8 @@ impl LocalMindApp {
             exclusion_rules_receiver: None,
             save_exclusion_receiver: None,
             embedding_server_child: None,
+            available_profiles: chrome_profiles,
+            selected_profile: None,
         }
     }
 
@@ -369,11 +390,12 @@ impl LocalMindApp {
         let rag = self.rag.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         let runtime_handle = self.runtime.clone();
+        let selected_profile = self.selected_profile.clone();
 
         runtime_handle.spawn(async move {
             let rag_lock = rag.read().await;
             let docs = if let Some(ref rag) = *rag_lock {
-                match rag.db.get_recent_documents(10).await {
+                match rag.db.get_recent_documents_filtered(10, selected_profile).await {
                     Ok(docs) => docs
                         .into_iter()
                         .map(|doc| DocumentView {
@@ -383,6 +405,7 @@ impl LocalMindApp {
                             url: doc.url,
                             source: doc.source,
                             created_at: doc.created_at,
+                            profile: doc.profile,
                         })
                         .collect(),
                     Err(e) => {
@@ -448,6 +471,7 @@ impl LocalMindApp {
                                 snippet: create_snippet(&hit.content_snippet, 200),
                                 similarity: hit.similarity,
                                 url: None, // URL not in SearchHit, will need to fetch from doc
+                                profile: hit.profile,
                             })
                             .collect()
                     }
@@ -473,13 +497,7 @@ impl LocalMindApp {
                 Ok(results) => {
                     println!("Search returned {} results", results.len());
                     self.all_results = results;
-                    // Filter by current cutoff
-                    self.search_results = self
-                        .all_results
-                        .iter()
-                        .filter(|r| r.similarity >= self.similarity_cutoff)
-                        .cloned()
-                        .collect();
+                    self.apply_search_filters();
                     self.search_receiver = None;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
@@ -491,6 +509,24 @@ impl LocalMindApp {
                 }
             }
         }
+    }
+
+    /// Apply similarity cutoff and profile filter to produce search_results from all_results
+    pub fn apply_search_filters(&mut self) {
+        self.search_results = self
+            .all_results
+            .iter()
+            .filter(|r| {
+                if r.similarity < self.similarity_cutoff {
+                    return false;
+                }
+                if let Some(ref selected) = self.selected_profile {
+                    return r.profile.as_deref() == Some(selected.as_str());
+                }
+                true
+            })
+            .cloned()
+            .collect();
     }
 
     /// Check if a search is in progress
@@ -521,6 +557,7 @@ impl LocalMindApp {
                         url: doc.url,
                         source: doc.source,
                         created_at: doc.created_at,
+                        profile: doc.profile,
                     }),
                     Ok(None) => {
                         eprintln!("Document not found: {}", doc_id);
@@ -946,6 +983,54 @@ impl eframe::App for LocalMindApp {
                     self.trigger_search();
                 }
 
+                // Profile filter dropdown (only shown when multiple profiles exist)
+                if self.available_profiles.len() > 1 {
+                    ui.add_space(10.0);
+                    ui.label("Profile:");
+                    let selected_label = self
+                        .selected_profile
+                        .as_deref()
+                        .unwrap_or("All")
+                        .to_string();
+                    let profile_changed =
+                        egui::ComboBox::from_id_salt("profile_selector")
+                            .selected_text(&selected_label)
+                            .show_ui(ui, |ui| {
+                                let mut changed = false;
+                                if ui
+                                    .selectable_label(self.selected_profile.is_none(), "All")
+                                    .clicked()
+                                    && self.selected_profile.is_some()
+                                {
+                                    self.selected_profile = None;
+                                    changed = true;
+                                }
+                                for p in self.available_profiles.clone() {
+                                    let is_selected = self.selected_profile.as_deref()
+                                        == Some(p.display_name.as_str());
+                                    if ui
+                                        .selectable_label(is_selected, &p.display_name)
+                                        .clicked()
+                                        && !is_selected
+                                    {
+                                        self.selected_profile = Some(p.display_name.clone());
+                                        changed = true;
+                                    }
+                                }
+                                changed
+                            })
+                            .inner
+                            .unwrap_or(false);
+
+                    if profile_changed {
+                        // Reload recent docs with new filter
+                        self.recent_docs_receiver = None;
+                        self.load_recent_documents();
+                        // Re-apply filter on existing search results
+                        self.apply_search_filters();
+                    }
+                }
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Settings button
                     if ui.button("⚙").clicked() {
@@ -1126,18 +1211,20 @@ async fn start_bookmark_monitoring(
     rag_state: RagState,
     progress_tx: std::sync::mpsc::Sender<BookmarkProgress>,
 ) -> crate::Result<()> {
-    use crate::bookmark::BookmarkMonitor;
+    use crate::bookmark::{get_all_chrome_profiles, BookmarkMonitor};
     use crate::bookmark_exclusion::ExclusionRules;
 
     println!("Initializing bookmark monitor...");
-    let (monitor, mut rx) = BookmarkMonitor::new()?;
 
-    println!("Starting file system monitoring...");
-    monitor.start_monitoring().await?;
+    // Discover all Chrome profiles
+    let profiles = get_all_chrome_profiles();
+    if profiles.is_empty() {
+        println!("No Chrome profiles found, skipping bookmark monitoring");
+        return Ok(());
+    }
+    println!("Found {} Chrome profile(s) to index", profiles.len());
 
-    println!("Getting existing bookmarks...");
-
-    // Load exclusion rules from database
+    // Load exclusion rules from database (shared across all profiles)
     let exclusion_rules = {
         let rag_lock = rag_state.read().await;
         if let Some(ref rag) = *rag_lock {
@@ -1149,19 +1236,52 @@ async fn start_bookmark_monitoring(
         }
     };
 
-    // Get bookmark metadata only (no content fetching yet), applying exclusion rules
-    let bookmark_metadata = monitor
-        .get_bookmarks_metadata_with_exclusion(&exclusion_rules)
-        .await?;
+    let mut total_ingested = 0;
 
-    if !bookmark_metadata.is_empty() {
+    for profile in &profiles {
         println!(
-            "Processing {} existing bookmarks WITH PROGRESS...",
-            bookmark_metadata.len()
+            "Processing profile: {} ({})",
+            profile.display_name, profile.dir_name
+        );
+
+        let (monitor, _rx) = match BookmarkMonitor::for_profile(profile) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!(
+                    "Failed to create monitor for profile {}: {}",
+                    profile.display_name, e
+                );
+                continue;
+            }
+        };
+
+        let bookmark_metadata = match monitor
+            .get_bookmarks_metadata_with_exclusion(&exclusion_rules)
+            .await
+        {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!(
+                    "Failed to get bookmarks for profile {}: {}",
+                    profile.display_name, e
+                );
+                continue;
+            }
+        };
+
+        if bookmark_metadata.is_empty() {
+            println!("No bookmarks found in profile {}", profile.display_name);
+            continue;
+        }
+
+        println!(
+            "Processing {} bookmarks from profile {}",
+            bookmark_metadata.len(),
+            profile.display_name
         );
 
         let total = bookmark_metadata.len();
-        let mut ingested_count = 0;
+        let profile_name = profile.display_name.clone();
 
         for (title, url) in bookmark_metadata.into_iter() {
             {
@@ -1172,9 +1292,8 @@ async fn start_bookmark_monitoring(
                         continue;
                     }
 
-                    // Send progress only for bookmarks that actually need ingesting
                     let _ = progress_tx.send(BookmarkProgress {
-                        current: ingested_count + 1,
+                        current: total_ingested + 1,
                         total,
                         current_title: title.clone(),
                         completed: false,
@@ -1193,12 +1312,21 @@ async fn start_bookmark_monitoring(
                     };
 
                     match rag
-                        .ingest_document(&title, &content, Some(&url), "chrome_bookmark")
+                        .ingest_document(
+                            &title,
+                            &content,
+                            Some(&url),
+                            "chrome_bookmark",
+                            Some(&profile_name),
+                        )
                         .await
                     {
                         Ok(_) => {
-                            ingested_count += 1;
-                            println!("Ingested bookmark: {}", title);
+                            total_ingested += 1;
+                            println!(
+                                "Ingested bookmark: {} (profile: {})",
+                                title, profile_name
+                            );
                         }
                         Err(e) => {
                             eprintln!("Failed to ingest bookmark '{}': {}", title, e);
@@ -1210,40 +1338,24 @@ async fn start_bookmark_monitoring(
             // Small delay to prevent overwhelming the system
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         }
-
-        // Send completion notification only if we actually ingested something
-        // (if nothing was new, no toast was shown so no dismissal needed)
-        let _ = progress_tx.send(BookmarkProgress {
-            current: ingested_count,
-            total: ingested_count,
-            current_title: if ingested_count > 0 {
-                format!("{} new bookmarks ingested", ingested_count)
-            } else {
-                format!("All {} bookmarks already indexed", total)
-            },
-            completed: true,
-        });
-
-        println!(
-            "Initial bookmark ingestion completed: {} new bookmarks ingested ({} total processed)",
-            ingested_count, total
-        );
-    } else {
-        println!("No existing bookmarks found");
     }
 
-    // Listen for bookmark changes
-    println!("Starting bookmark change listener...");
-    tokio::spawn(async move {
-        while let Some(updated_bookmarks) = rx.recv().await {
-            println!(
-                "Detected bookmark changes, processing {} bookmarks...",
-                updated_bookmarks.len()
-            );
-            // TODO: Process updated bookmarks with progress reporting
-            // For now just log the change
-        }
+    // Send completion notification
+    let _ = progress_tx.send(BookmarkProgress {
+        current: total_ingested,
+        total: total_ingested,
+        current_title: if total_ingested > 0 {
+            format!("{} new bookmarks ingested", total_ingested)
+        } else {
+            "All bookmarks already indexed".to_string()
+        },
+        completed: true,
     });
+
+    println!(
+        "Bookmark ingestion complete: {} new bookmarks ingested",
+        total_ingested
+    );
 
     Ok(())
 }
@@ -1328,6 +1440,7 @@ async fn start_http_server(rag_state: RagState) -> crate::Result<()> {
             &request.content,
             request.url.as_deref(),
             "chrome_extension",
+            None,
         )
         .await
         .map_err(|e| ApiError {

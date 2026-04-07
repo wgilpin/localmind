@@ -26,6 +26,7 @@ pub struct Document {
     pub created_at: String,
     pub embedding: Option<Vec<u8>>,
     pub is_dead: Option<bool>,
+    pub profile: Option<String>,
 }
 
 impl Database {
@@ -72,6 +73,12 @@ impl Database {
         // Add is_dead column if it doesn't exist (migration)
         let _ = conn.execute(
             "ALTER TABLE documents ADD COLUMN is_dead BOOLEAN DEFAULT 0",
+            [],
+        );
+
+        // Add profile column if it doesn't exist (migration)
+        let _ = conn.execute(
+            "ALTER TABLE documents ADD COLUMN profile TEXT",
             [],
         );
 
@@ -199,11 +206,12 @@ impl Database {
         embedding: Option<&[u8]>,
         is_dead: Option<bool>,
         priority: OperationPriority,
+        profile: Option<&str>,
     ) -> Result<i64> {
         self.execute_with_priority(priority, |conn| {
             conn.execute(
-                "INSERT INTO documents (title, content, url, source, embedding, is_dead) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![title, content, url, source, embedding, is_dead],
+                "INSERT INTO documents (title, content, url, source, embedding, is_dead, profile) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![title, content, url, source, embedding, is_dead, profile],
             )?;
             Ok(conn.last_insert_rowid())
         }).await
@@ -212,7 +220,7 @@ impl Database {
     pub async fn get_document(&self, id: i64) -> Result<Option<Document>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, title, content, url, source, created_at, embedding, is_dead
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
                  FROM documents WHERE id = ?1",
             )?;
 
@@ -226,6 +234,7 @@ impl Database {
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
                     is_dead: row.get(7)?,
+                    profile: row.get(8)?,
                 })
             });
 
@@ -243,17 +252,42 @@ impl Database {
     /// Returns up to `limit` documents ordered by creation date (newest first).
     /// Excludes dead/broken bookmarks.
     pub async fn get_recent_documents(&self, limit: usize) -> Result<Vec<Document>> {
+        self.get_recent_documents_filtered(limit, None).await
+    }
+
+    /// Like `get_recent_documents` but optionally filtered to a specific Chrome profile.
+    pub async fn get_recent_documents_filtered(
+        &self,
+        limit: usize,
+        profile: Option<String>,
+    ) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::UserSearch, move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, title, content, url, source, created_at, embedding, is_dead
-                 FROM documents
-                 WHERE is_dead = 0 OR is_dead IS NULL
-                 ORDER BY created_at DESC
-                 LIMIT ?1",
-            )?;
+            let (sql, params_vec): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(ref p) = profile {
+                (
+                    "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
+                     FROM documents
+                     WHERE (is_dead = 0 OR is_dead IS NULL) AND profile = ?1
+                     ORDER BY created_at DESC
+                     LIMIT ?2".to_string(),
+                    vec![Box::new(p.clone()), Box::new(limit as i64)],
+                )
+            } else {
+                (
+                    "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
+                     FROM documents
+                     WHERE is_dead = 0 OR is_dead IS NULL
+                     ORDER BY created_at DESC
+                     LIMIT ?1".to_string(),
+                    vec![Box::new(limit as i64)],
+                )
+            };
+
+            let mut stmt = conn.prepare(&sql)?;
+            let param_refs: Vec<&dyn rusqlite::ToSql> =
+                params_vec.iter().map(|p| p.as_ref()).collect();
 
             let docs = stmt
-                .query_map(params![limit as i64], |row| {
+                .query_map(&param_refs[..], |row| {
                     Ok(Document {
                         id: row.get(0)?,
                         title: row.get(1)?,
@@ -263,6 +297,7 @@ impl Database {
                         created_at: row.get(5)?,
                         embedding: row.get(6)?,
                         is_dead: row.get(7)?,
+                        profile: row.get(8)?,
                     })
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -281,7 +316,7 @@ impl Database {
             // Build the IN clause with placeholders
             let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
             let query = format!(
-                "SELECT id, title, content, url, source, created_at, embedding, is_dead
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
                  FROM documents WHERE id IN ({})",
                 placeholders
             );
@@ -302,6 +337,7 @@ impl Database {
                         created_at: row.get(5)?,
                         embedding: row.get(6)?,
                         is_dead: row.get(7)?,
+                        profile: row.get(8)?,
                     })
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -314,7 +350,7 @@ impl Database {
     pub async fn search_documents(&self, query: &str, limit: i64) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::UserSearch, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT d.id, d.title, d.content, d.url, d.source, d.created_at, d.embedding, d.is_dead
+                "SELECT d.id, d.title, d.content, d.url, d.source, d.created_at, d.embedding, d.is_dead, d.profile
                  FROM documents d
                  JOIN documents_fts fts ON d.id = fts.rowid
                  WHERE documents_fts MATCH ?1 AND (d.is_dead IS NULL OR d.is_dead = 0)
@@ -332,6 +368,7 @@ impl Database {
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
                     is_dead: row.get(7)?,
+                    profile: row.get(8)?,
                 })
             })?;
 
@@ -515,7 +552,7 @@ impl Database {
     pub async fn get_live_documents_with_urls(&self) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, title, content, url, source, created_at, embedding, is_dead
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
                  FROM documents
                  WHERE url IS NOT NULL AND (is_dead IS NULL OR is_dead = 0)",
             )?;
@@ -530,6 +567,7 @@ impl Database {
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
                     is_dead: row.get(7)?,
+                    profile: row.get(8)?,
                 })
             })?;
 
@@ -579,7 +617,7 @@ impl Database {
     pub async fn get_all_documents(&self) -> Result<Vec<Document>> {
         self.execute_with_priority(OperationPriority::BackgroundIngest, |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, title, content, url, source, created_at, embedding, is_dead
+                "SELECT id, title, content, url, source, created_at, embedding, is_dead, profile
                  FROM documents
                  WHERE is_dead IS NULL OR is_dead = 0
                  ORDER BY id",
@@ -595,6 +633,7 @@ impl Database {
                     created_at: row.get(5)?,
                     embedding: row.get(6)?,
                     is_dead: row.get(7)?,
+                    profile: row.get(8)?,
                 })
             })?;
 
@@ -832,7 +871,6 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     async fn create_test_db() -> (Database, TempDir) {
@@ -930,6 +968,7 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
+            None,
         )
         .await
         .unwrap();
@@ -942,6 +981,7 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
+            None,
         )
         .await
         .unwrap();
@@ -954,6 +994,7 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
+            None,
         )
         .await
         .unwrap();
@@ -996,6 +1037,7 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
+            None,
         )
         .await
         .unwrap();
@@ -1008,6 +1050,7 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
+            None,
         )
         .await
         .unwrap();
@@ -1020,6 +1063,7 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
+            None,
         )
         .await
         .unwrap();
@@ -1047,6 +1091,7 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
+            None,
         )
         .await
         .unwrap();
@@ -1059,6 +1104,7 @@ mod tests {
             None,
             None,
             OperationPriority::BackgroundIngest,
+            None,
         )
         .await
         .unwrap();

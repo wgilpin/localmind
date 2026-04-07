@@ -95,6 +95,15 @@ impl Toast {
     }
 }
 
+/// A Chrome profile available for filtering
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChromeProfileInfo {
+    /// Directory name: "Default", "Profile 1", etc.
+    pub dir_name: String,
+    /// Human-readable name, e.g. "Will"
+    pub display_name: String,
+}
+
 /// UI representation of a search result
 #[derive(Debug, Clone)]
 pub struct SearchResultView {
@@ -108,6 +117,8 @@ pub struct SearchResultView {
     pub similarity: f32,
     /// Source URL if available
     pub url: Option<String>,
+    /// Chrome profile this bookmark came from
+    pub profile: Option<String>,
 }
 
 /// UI representation of a full document
@@ -125,6 +136,8 @@ pub struct DocumentView {
     pub source: String,
     /// Creation timestamp
     pub created_at: String,
+    /// Chrome profile this document came from
+    pub profile: Option<String>,
 }
 
 /// UI representation of a bookmark folder for tree display

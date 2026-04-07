@@ -28,6 +28,7 @@ pub struct DocumentSource {
     pub title: String,
     pub content_snippet: String,
     pub similarity: f32,
+    pub profile: Option<String>,
 }
 
 impl RagPipeline {
@@ -162,6 +163,7 @@ impl RagPipeline {
         content: &str,
         url: Option<&str>,
         source: &str,
+        profile: Option<&str>,
     ) -> Result<i64> {
         // Chunk the document
         let chunks = self.document_processor.chunk_text(content)?;
@@ -189,6 +191,7 @@ impl RagPipeline {
                 None, // No embedding at document level
                 None, // is_dead defaults to false
                 OperationPriority::BackgroundIngest,
+                profile,
             )
             .await?;
 
@@ -440,6 +443,7 @@ impl RagPipeline {
                     title: doc.title,
                     content_snippet: chunk_content,
                     similarity: chunk_result.similarity,
+                    profile: doc.profile,
                 });
 
                 // Limit to 10 documents

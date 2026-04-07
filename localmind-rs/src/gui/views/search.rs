@@ -43,12 +43,7 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
 
         // Re-filter results if cutoff changed
         if (old_cutoff - app.similarity_cutoff).abs() > 0.001 {
-            app.search_results = app
-                .all_results
-                .iter()
-                .filter(|r| r.similarity >= app.similarity_cutoff)
-                .cloned()
-                .collect();
+            app.apply_search_filters();
         }
     });
 
@@ -79,12 +74,7 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
                 ui.add_space(20.0);
                 if ui.button("Lower threshold and retry").clicked() {
                     app.similarity_cutoff = (app.similarity_cutoff - 0.1).max(0.0);
-                    app.search_results = app
-                        .all_results
-                        .iter()
-                        .filter(|r| r.similarity >= app.similarity_cutoff)
-                        .cloned()
-                        .collect();
+                    app.apply_search_filters();
                 }
             }
         });
@@ -192,12 +182,7 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
                         .clicked()
                     {
                         app.similarity_cutoff = (app.similarity_cutoff - 0.1).max(0.0);
-                        app.search_results = app
-                            .all_results
-                            .iter()
-                            .filter(|r| r.similarity >= app.similarity_cutoff)
-                            .cloned()
-                            .collect();
+                        app.apply_search_filters();
                     }
                 });
             }

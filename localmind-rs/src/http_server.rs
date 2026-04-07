@@ -355,7 +355,7 @@ async fn handle_post_documents(
     );
 
     // Ingest document (lock is held during async call, which is fine for read lock)
-    rag.ingest_document(&title, &content, request.url.as_deref(), "chrome_extension")
+    rag.ingest_document(&title, &content, request.url.as_deref(), "chrome_extension", None)
         .await
         .map_err(|e| ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
