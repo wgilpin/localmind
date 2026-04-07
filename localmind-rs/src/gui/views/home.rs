@@ -91,7 +91,8 @@ pub fn render_home_view(ui: &mut Ui, app: &mut LocalMindApp) {
                                         let snippet_text = if doc.content.starts_with("Bookmark:") {
                                             // Find the first double newline (end of metadata section)
                                             if let Some(content_start) = doc.content.find("\n\n") {
-                                                let actual_content = doc.content[content_start + 2..].trim();
+                                                let actual_content =
+                                                    doc.content[content_start + 2..].trim();
                                                 if !actual_content.is_empty() {
                                                     Some(create_snippet(actual_content, 150))
                                                 } else {
@@ -165,5 +166,3 @@ fn truncate_url(url: &str, max_len: usize) -> String {
         format!("{}...", &url[..max_len])
     }
 }
-
-

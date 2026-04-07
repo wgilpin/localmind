@@ -328,11 +328,7 @@ pub fn spawn_embedding_server() -> std::io::Result<std::process::Child> {
 
     let work_dir = project_root.join("embedding-server");
 
-    log::info!(
-        "Spawning embedding server: {:?} in {:?}",
-        python,
-        work_dir
-    );
+    log::info!("Spawning embedding server: {:?} in {:?}", python, work_dir);
 
     std::process::Command::new(&python)
         .arg("embedding_server.py")

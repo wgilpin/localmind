@@ -28,7 +28,6 @@ pub enum InitStatus {
     Error(String),
 }
 
-
 /// Toast visual style
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToastType {

@@ -21,11 +21,11 @@ impl DocumentProcessor {
     }
 
     /// Split text into chunks of approximately `chunk_size` bytes with `overlap` bytes overlap.
-    /// 
+    ///
     /// Algorithm:
     /// 1. Split into chunk_size blocks with overlap, finding good break points (sentences, words)
     /// 2. If the last chunk is less than chunk_size/2, merge it with the previous chunk
-    /// 
+    ///
     /// This ensures no tiny trailing chunks (with default 500/50, last chunk is always >= 250 bytes)
     pub fn chunk_text(&self, text: &str) -> Result<Vec<DocumentChunk>> {
         if text.is_empty() {
@@ -67,7 +67,10 @@ impl DocumentProcessor {
             if safe_end > safe_start {
                 // Skip if this chunk would end at or before the previous chunk's end
                 // (this happens when overlap causes us to find the same break point)
-                let prev_end = chunks.last().map(|c: &DocumentChunk| c.end_pos).unwrap_or(0);
+                let prev_end = chunks
+                    .last()
+                    .map(|c: &DocumentChunk| c.end_pos)
+                    .unwrap_or(0);
                 if safe_end > prev_end {
                     let chunk_content = text[safe_start..safe_end].trim().to_string();
                     if !chunk_content.is_empty() {
@@ -84,7 +87,7 @@ impl DocumentProcessor {
             if safe_end >= text_len {
                 break;
             }
-            
+
             let next_start = if safe_end > self.overlap {
                 self.find_word_start(text, safe_end - self.overlap)
             } else {
@@ -109,7 +112,9 @@ impl DocumentProcessor {
                 if let Some(prev_chunk) = chunks.last_mut() {
                     // Extend previous chunk to include the last chunk's content
                     prev_chunk.end_pos = last_chunk.end_pos;
-                    prev_chunk.content = text[prev_chunk.start_pos..prev_chunk.end_pos].trim().to_string();
+                    prev_chunk.content = text[prev_chunk.start_pos..prev_chunk.end_pos]
+                        .trim()
+                        .to_string();
                 }
             }
         }

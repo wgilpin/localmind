@@ -29,7 +29,7 @@ fn backup_database() -> Result<PathBuf> {
         .unwrap()
         .as_secs();
     let backup_path = db_path.with_file_name(format!("localmind_backup_{}.db", timestamp));
-    
+
     std::fs::copy(&db_path, &backup_path)?;
     Ok(backup_path)
 }

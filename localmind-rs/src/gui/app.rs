@@ -699,17 +699,11 @@ impl LocalMindApp {
             let rag_lock = rag.read().await;
             let result = if let Some(ref rag) = *rag_lock {
                 // Save exclusion rules
-                if let Err(e) = rag.db
-                    .set_excluded_folders(&folders)
-                    .await
-                {
+                if let Err(e) = rag.db.set_excluded_folders(&folders).await {
                     let _ = tx.send(Err(e.to_string()));
                     return;
                 }
-                if let Err(e) = rag.db
-                    .set_excluded_domains(&domains)
-                    .await
-                {
+                if let Err(e) = rag.db.set_excluded_domains(&domains).await {
                     let _ = tx.send(Err(e.to_string()));
                     return;
                 }
@@ -1090,7 +1084,10 @@ async fn init_rag_system() -> crate::Result<(RagPipeline, Option<std::process::C
                 Some(child)
             }
             Err(e) => {
-                eprintln!("Could not spawn embedding server: {}. Continuing anyway (may time out).", e);
+                eprintln!(
+                    "Could not spawn embedding server: {}. Continuing anyway (may time out).",
+                    e
+                );
                 None
             }
         }

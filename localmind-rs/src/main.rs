@@ -20,7 +20,7 @@ fn main() -> eframe::Result<()> {
         .with_title("LocalMind")
         .with_inner_size([1024.0, 768.0])
         .with_min_inner_size([800.0, 600.0]);
-    
+
     if let Some(icon) = icon {
         viewport_builder = viewport_builder.with_icon(icon);
     } else {

@@ -425,9 +425,10 @@ impl RagPipeline {
 
             if let Some(doc) = self.db.get_document(chunk_result.doc_id).await? {
                 // Extract the actual chunk content from the document using BYTE positions (not char indices!)
-                let chunk_content = if chunk_result.chunk_end <= doc.content.len() 
-                    && doc.content.is_char_boundary(chunk_result.chunk_start) 
-                    && doc.content.is_char_boundary(chunk_result.chunk_end) {
+                let chunk_content = if chunk_result.chunk_end <= doc.content.len()
+                    && doc.content.is_char_boundary(chunk_result.chunk_start)
+                    && doc.content.is_char_boundary(chunk_result.chunk_end)
+                {
                     doc.content[chunk_result.chunk_start..chunk_result.chunk_end].to_string()
                 } else {
                     // Fallback to snippet extraction if chunk boundaries are off

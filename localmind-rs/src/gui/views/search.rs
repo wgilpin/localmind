@@ -14,11 +14,11 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
     ui.horizontal(|ui| {
         // Back button with icon
         let back_button = ui.button(icons::ARROW_LEFT_LINE);
-        
+
         if back_button.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        
+
         if back_button.clicked() {
             app.current_view = View::Home;
             app.search_results.clear();

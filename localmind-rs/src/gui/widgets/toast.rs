@@ -43,5 +43,3 @@ fn get_toast_color(toast_type: ToastType) -> Color32 {
         ToastType::Error => Color32::from_rgb(220, 20, 60), // Crimson
     }
 }
-
-
