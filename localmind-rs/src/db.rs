@@ -153,6 +153,32 @@ impl Database {
             )",
             [],
         )?;
+
+        // Create watched_folders table for folder-watch-ingest feature
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS watched_folders (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                path        TEXT UNIQUE NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'active',
+                created_at  TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Create watched_files table tracking per-file ingest state
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS watched_files (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                folder_id     INTEGER NOT NULL
+                                REFERENCES watched_folders(id) ON DELETE CASCADE,
+                file_path     TEXT UNIQUE NOT NULL,
+                modified_at   INTEGER NOT NULL DEFAULT 0,
+                document_id   INTEGER,
+                ingest_status TEXT NOT NULL DEFAULT 'pending'
+            )",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -410,6 +436,50 @@ impl Database {
             }
             Ok(results)
         }).await
+    }
+
+    /// FTS5 search returning each document alongside its positive BM25 score (-rank).
+    /// Higher score = better match. Results are ordered best-first.
+    pub async fn search_documents_scored(
+        &self,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<(Document, f64)>> {
+        self.execute_with_priority(OperationPriority::UserSearch, |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT d.id, d.title, d.content, d.url, d.source, d.created_at, d.embedding,
+                        d.is_dead, d.needs_auth, d.profile, -fts.rank AS bm25_score
+                 FROM documents d
+                 JOIN documents_fts fts ON d.id = fts.rowid
+                 WHERE documents_fts MATCH ?1 AND (d.is_dead IS NULL OR d.is_dead = 0)
+                 ORDER BY rank
+                 LIMIT ?2",
+            )?;
+
+            let rows = stmt.query_map(params![query, limit], |row| {
+                let doc = Document {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    content: row.get(2)?,
+                    url: row.get(3)?,
+                    source: row.get(4)?,
+                    created_at: row.get(5)?,
+                    embedding: row.get(6)?,
+                    is_dead: row.get(7)?,
+                    needs_auth: row.get(8)?,
+                    profile: row.get(9)?,
+                };
+                let bm25_score: f64 = row.get(10)?;
+                Ok((doc, bm25_score))
+            })?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+        .await
     }
 
     pub async fn insert_chunk_embedding(
@@ -983,6 +1053,254 @@ impl Database {
 
         Ok(deleted_count)
     }
+
+    // -----------------------------------------------------------------------
+    // Folder-watch CRUD (T009-T016, T046)
+    // -----------------------------------------------------------------------
+
+    /// Create an in-memory database suitable for unit tests.
+    ///
+    /// Same schema as the live database; schema is initialized synchronously
+    /// within a temporary tokio runtime so callers don't need async.
+    #[cfg(test)]
+    pub fn new_in_memory_sync() -> Self {
+        let conn = Connection::open_in_memory().expect("in-memory SQLite");
+        let db = Self {
+            conn: Arc::new(Mutex::new(conn)),
+            search_semaphore: Arc::new(Semaphore::new(10)),
+            ingest_semaphore: Arc::new(Semaphore::new(1)),
+        };
+        // Run schema init synchronously via a temporary runtime
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(db.init_schema()).expect("init_schema");
+        db
+    }
+
+    /// Insert a watched folder, returning its new row ID.
+    ///
+    /// Returns `Err` (rusqlite unique constraint) if the path already exists.
+    pub async fn add_watched_folder(&self, path: &std::path::Path) -> Result<i64> {
+        let path_str = path.to_string_lossy().to_string();
+        let created_at = chrono_utc_now();
+        self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
+            conn.execute(
+                "INSERT INTO watched_folders (path, status, created_at)
+                 VALUES (?1, 'active', ?2)",
+                params![path_str, created_at],
+            )?;
+            Ok(conn.last_insert_rowid())
+        })
+        .await
+    }
+
+    /// Return all watched folders ordered by creation time.
+    pub async fn get_watched_folders(&self) -> Result<Vec<crate::folder_watcher::WatchedFolder>> {
+        use crate::folder_watcher::{FolderStatus, WatchedFolder};
+        self.execute_with_priority(OperationPriority::UserSearch, |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, path, status, created_at FROM watched_folders ORDER BY created_at",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                let id: i64 = row.get(0)?;
+                let path: String = row.get(1)?;
+                let status_str: String = row.get(2)?;
+                let created_at: String = row.get(3)?;
+                Ok(WatchedFolder {
+                    id,
+                    path: std::path::PathBuf::from(path),
+                    status: FolderStatus::from_db_str(&status_str),
+                    created_at,
+                })
+            })?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
+        .await
+    }
+
+    /// Insert or update a watched-file record.
+    ///
+    /// Uses `INSERT OR REPLACE` so callers don't need to distinguish between
+    /// first-seen and update-on-re-ingest cases.
+    pub async fn upsert_watched_file(
+        &self,
+        folder_id: i64,
+        file_path: &std::path::Path,
+        modified_at: i64,
+        document_id: Option<i64>,
+        status: &crate::folder_watcher::IngestStatus,
+    ) -> Result<i64> {
+        let path_str = file_path.to_string_lossy().to_string();
+        let status_str = status.as_db_str().to_string();
+        self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
+            conn.execute(
+                "INSERT INTO watched_files
+                     (folder_id, file_path, modified_at, document_id, ingest_status)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(file_path) DO UPDATE SET
+                     modified_at    = excluded.modified_at,
+                     document_id    = excluded.document_id,
+                     ingest_status  = excluded.ingest_status",
+                params![folder_id, path_str, modified_at, document_id, status_str],
+            )?;
+            Ok(conn.last_insert_rowid())
+        })
+        .await
+    }
+
+    /// Look up a single watched-file record by its filesystem path.
+    pub async fn get_watched_file_by_path(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<Option<crate::folder_watcher::WatchedFile>> {
+        use crate::folder_watcher::{IngestStatus, WatchedFile};
+        let path_str = path.to_string_lossy().to_string();
+        self.execute_with_priority(OperationPriority::UserSearch, move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, folder_id, file_path, modified_at, document_id, ingest_status
+                 FROM watched_files WHERE file_path = ?1",
+            )?;
+            match stmt.query_row(params![path_str], |row| {
+                let path_val: String = row.get(2)?;
+                let status_str: String = row.get(5)?;
+                Ok(WatchedFile {
+                    id: row.get(0)?,
+                    folder_id: row.get(1)?,
+                    file_path: std::path::PathBuf::from(path_val),
+                    modified_at: row.get(3)?,
+                    document_id: row.get(4)?,
+                    ingest_status: IngestStatus::from_db_str(&status_str),
+                })
+            }) {
+                Ok(wf) => Ok(Some(wf)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(Box::new(e)),
+            }
+        })
+        .await
+    }
+
+    /// Return all watched-file records belonging to a folder.
+    pub async fn get_watched_files_for_folder(
+        &self,
+        folder_id: i64,
+    ) -> Result<Vec<crate::folder_watcher::WatchedFile>> {
+        use crate::folder_watcher::{IngestStatus, WatchedFile};
+        self.execute_with_priority(OperationPriority::UserSearch, move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, folder_id, file_path, modified_at, document_id, ingest_status
+                 FROM watched_files WHERE folder_id = ?1 ORDER BY file_path",
+            )?;
+            let rows = stmt.query_map(params![folder_id], |row| {
+                let path_val: String = row.get(2)?;
+                let status_str: String = row.get(5)?;
+                Ok(WatchedFile {
+                    id: row.get(0)?,
+                    folder_id: row.get(1)?,
+                    file_path: std::path::PathBuf::from(path_val),
+                    modified_at: row.get(3)?,
+                    document_id: row.get(4)?,
+                    ingest_status: IngestStatus::from_db_str(&status_str),
+                })
+            })?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
+        .await
+    }
+
+    /// Delete a watched folder row (CASCADE removes all its watched_files).
+    pub async fn delete_watched_folder(&self, id: i64) -> Result<()> {
+        self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
+            conn.execute("DELETE FROM watched_folders WHERE id = ?1", params![id])?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Delete a single document and all its embeddings and FTS entries.
+    ///
+    /// Foreign-key CASCADE on `embeddings` handles chunk rows automatically.
+    /// The FTS `rowid` matches the document `id`.
+    pub async fn delete_document(&self, document_id: i64) -> Result<()> {
+        self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
+            // FTS must be deleted manually (virtual table, no FK cascade)
+            conn.execute(
+                "DELETE FROM documents_fts WHERE rowid = ?1",
+                params![document_id],
+            )?;
+            // Embeddings are CASCADE-deleted by FK when document is deleted
+            conn.execute("DELETE FROM documents WHERE id = ?1", params![document_id])?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Update the status column of a watched folder.
+    pub async fn update_watched_folder_status(
+        &self,
+        id: i64,
+        status: &crate::folder_watcher::FolderStatus,
+    ) -> Result<()> {
+        let status_str = status.as_db_str().to_string();
+        self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
+            conn.execute(
+                "UPDATE watched_folders SET status = ?1 WHERE id = ?2",
+                params![status_str, id],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Delete all documents whose `source` column equals `folder_path`, returning
+    /// the deleted document IDs so the caller can evict them from the VectorStore.
+    ///
+    /// Call this BEFORE `delete_watched_folder` so the document IDs are still
+    /// available (watched_files rows are CASCADE-deleted with the folder).
+    pub async fn delete_documents_by_source(
+        &self,
+        folder_path: &std::path::Path,
+    ) -> Result<Vec<i64>> {
+        let source = folder_path.to_string_lossy().to_string();
+        self.execute_with_priority(OperationPriority::BackgroundIngest, move |conn| {
+            // Collect IDs first so we can return them for VectorStore eviction
+            let mut stmt = conn.prepare("SELECT id FROM documents WHERE source = ?1")?;
+            let ids: Vec<i64> = stmt
+                .query_map(params![source], |row| row.get(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+
+            for &doc_id in &ids {
+                conn.execute(
+                    "DELETE FROM documents_fts WHERE rowid = ?1",
+                    params![doc_id],
+                )?;
+                conn.execute("DELETE FROM documents WHERE id = ?1", params![doc_id])?;
+            }
+            Ok(ids)
+        })
+        .await
+    }
+}
+
+/// Return current UTC timestamp as an ISO 8601 string.
+fn chrono_utc_now() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    // Store as unix timestamp string — no chrono dependency needed
+    format!("{}", secs)
 }
 
 #[cfg(test)]
@@ -1312,5 +1630,255 @@ mod tests {
             assert_eq!(retrieved[0], "*.internal.com");
             assert_eq!(retrieved[1], "localhost");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // T006: add_watched_folder / get_watched_folders
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn add_and_get_watched_folder() {
+        let (db, _tmp) = create_test_db().await;
+        let path = std::path::Path::new("/tmp/test_folder");
+
+        let id = db.add_watched_folder(path).await.unwrap();
+        assert!(id > 0);
+
+        let folders = db.get_watched_folders().await.unwrap();
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].path, path);
+        assert_eq!(
+            folders[0].status,
+            crate::folder_watcher::FolderStatus::Active
+        );
+    }
+
+    #[tokio::test]
+    async fn add_duplicate_folder_fails() {
+        let (db, _tmp) = create_test_db().await;
+        let path = std::path::Path::new("/tmp/dup_folder");
+
+        db.add_watched_folder(path).await.unwrap();
+        let result = db.add_watched_folder(path).await;
+        assert!(
+            result.is_err(),
+            "duplicate path must fail with UNIQUE constraint"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // T007: upsert_watched_file / get_watched_file_by_path / get_watched_files_for_folder
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn upsert_and_get_watched_file() {
+        use crate::folder_watcher::IngestStatus;
+        let (db, _tmp) = create_test_db().await;
+        let folder_id = db
+            .add_watched_folder(std::path::Path::new("/tmp/f1"))
+            .await
+            .unwrap();
+        let file_path = std::path::Path::new("/tmp/f1/note.txt");
+
+        db.upsert_watched_file(folder_id, file_path, 1000, None, &IngestStatus::Pending)
+            .await
+            .unwrap();
+
+        let wf = db
+            .get_watched_file_by_path(file_path)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(wf.folder_id, folder_id);
+        assert_eq!(wf.file_path, file_path);
+        assert_eq!(wf.modified_at, 1000);
+        assert_eq!(wf.ingest_status, IngestStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn upsert_updates_existing_file() {
+        use crate::folder_watcher::IngestStatus;
+        let (db, _tmp) = create_test_db().await;
+        let folder_id = db
+            .add_watched_folder(std::path::Path::new("/tmp/f2"))
+            .await
+            .unwrap();
+        let file_path = std::path::Path::new("/tmp/f2/note.txt");
+
+        db.upsert_watched_file(folder_id, file_path, 1000, None, &IngestStatus::Pending)
+            .await
+            .unwrap();
+        db.upsert_watched_file(
+            folder_id,
+            file_path,
+            2000,
+            Some(42),
+            &IngestStatus::Ingested,
+        )
+        .await
+        .unwrap();
+
+        let wf = db
+            .get_watched_file_by_path(file_path)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(wf.modified_at, 2000);
+        assert_eq!(wf.document_id, Some(42));
+        assert_eq!(wf.ingest_status, IngestStatus::Ingested);
+    }
+
+    #[tokio::test]
+    async fn get_watched_files_for_folder_returns_all() {
+        use crate::folder_watcher::IngestStatus;
+        let (db, _tmp) = create_test_db().await;
+        let fid = db
+            .add_watched_folder(std::path::Path::new("/tmp/f3"))
+            .await
+            .unwrap();
+
+        db.upsert_watched_file(
+            fid,
+            std::path::Path::new("/tmp/f3/a.txt"),
+            100,
+            None,
+            &IngestStatus::Pending,
+        )
+        .await
+        .unwrap();
+        db.upsert_watched_file(
+            fid,
+            std::path::Path::new("/tmp/f3/b.md"),
+            200,
+            None,
+            &IngestStatus::Pending,
+        )
+        .await
+        .unwrap();
+
+        let files = db.get_watched_files_for_folder(fid).await.unwrap();
+        assert_eq!(files.len(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // T008: delete_watched_folder CASCADE + delete_document
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn delete_watched_folder_cascades_files() {
+        use crate::folder_watcher::IngestStatus;
+        let (db, _tmp) = create_test_db().await;
+        let fid = db
+            .add_watched_folder(std::path::Path::new("/tmp/del_f"))
+            .await
+            .unwrap();
+
+        db.upsert_watched_file(
+            fid,
+            std::path::Path::new("/tmp/del_f/a.txt"),
+            1,
+            None,
+            &IngestStatus::Pending,
+        )
+        .await
+        .unwrap();
+
+        // Verify file exists
+        assert!(db
+            .get_watched_file_by_path(std::path::Path::new("/tmp/del_f/a.txt"))
+            .await
+            .unwrap()
+            .is_some());
+
+        db.delete_watched_folder(fid).await.unwrap();
+
+        // CASCADE should have removed the file row
+        assert!(db
+            .get_watched_file_by_path(std::path::Path::new("/tmp/del_f/a.txt"))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(db.get_watched_folders().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_document_removes_from_all_tables() {
+        let (db, _tmp) = create_test_db().await;
+
+        let doc_id = db
+            .insert_document(
+                "Test",
+                "content",
+                None,
+                "source",
+                None,
+                None,
+                OperationPriority::BackgroundIngest,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Verify document exists
+        assert!(db.get_document(doc_id).await.unwrap().is_some());
+
+        db.delete_document(doc_id).await.unwrap();
+
+        assert!(db.get_document(doc_id).await.unwrap().is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // T045: delete_documents_by_source
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn delete_documents_by_source_removes_matching_docs() {
+        let (db, _tmp) = create_test_db().await;
+        let folder_path = std::path::Path::new("/tmp/source_folder");
+
+        db.insert_document(
+            "Doc1",
+            "content1",
+            None,
+            &folder_path.to_string_lossy(),
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+            None,
+        )
+        .await
+        .unwrap();
+        db.insert_document(
+            "Doc2",
+            "content2",
+            None,
+            &folder_path.to_string_lossy(),
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+            None,
+        )
+        .await
+        .unwrap();
+        db.insert_document(
+            "Other",
+            "other",
+            None,
+            "other_source",
+            None,
+            None,
+            OperationPriority::BackgroundIngest,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let deleted_ids = db.delete_documents_by_source(folder_path).await.unwrap();
+        assert_eq!(deleted_ids.len(), 2);
+
+        // The "Other" document must still exist
+        let remaining = db.get_all_documents().await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].source, "other_source");
     }
 }

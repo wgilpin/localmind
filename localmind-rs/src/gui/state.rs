@@ -144,6 +144,57 @@ pub struct DocumentView {
     pub is_needs_auth: bool,
 }
 
+// ---------------------------------------------------------------------------
+// Folder-watch types (T004)
+// ---------------------------------------------------------------------------
+
+/// Progress state for an in-progress folder scan shown in the UI.
+#[derive(Debug, Clone)]
+pub struct FolderWatchProgress {
+    pub folder_path: std::path::PathBuf,
+    pub files_total: usize,
+    pub files_done: usize,
+    pub current_file: Option<std::path::PathBuf>,
+    pub error: Option<String>,
+}
+
+/// Events sent from the folder-watch backend to the egui update loop.
+#[derive(Debug, Clone)]
+pub enum FolderWatchEvent {
+    /// Initial scan started; `files_total` is the count of supported files found.
+    ScanStarted {
+        folder_path: std::path::PathBuf,
+        files_total: usize,
+    },
+    /// One file was successfully ingested during a scan or re-ingest.
+    FileIngested {
+        folder_path: std::path::PathBuf,
+        file_path: std::path::PathBuf,
+    },
+    /// One file failed to ingest; others in the same folder continue.
+    FileError {
+        folder_path: std::path::PathBuf,
+        file_path: std::path::PathBuf,
+        error: String,
+    },
+    /// Initial scan for a folder has completed (all files attempted).
+    ScanComplete { folder_path: std::path::PathBuf },
+    /// A watched folder and all its content have been removed.
+    FolderRemoved { folder_path: std::path::PathBuf },
+    /// The operational status of a folder changed (e.g., became unavailable).
+    FolderStatusChanged {
+        folder_path: std::path::PathBuf,
+        status: crate::folder_watcher::FolderStatus,
+    },
+    /// `add_folder` failed at the service layer (e.g., AlreadyWatched, DbError).
+    ///
+    /// The folder was NOT added to the watched list.
+    AddFolderFailed {
+        folder_path: std::path::PathBuf,
+        error: String,
+    },
+}
+
 /// UI representation of a bookmark folder for tree display
 #[derive(Debug, Clone)]
 pub struct BookmarkFolderView {

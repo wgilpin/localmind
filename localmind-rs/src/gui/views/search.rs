@@ -35,13 +35,12 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
 
     ui.add_space(10.0);
 
-    // Similarity cutoff slider
+    // Relevance cutoff slider (filters fused RRF scores, normalised 0-1)
     ui.horizontal(|ui| {
-        ui.label("Similarity threshold:");
+        ui.label("Relevance threshold:");
         let old_cutoff = app.similarity_cutoff;
         ui.add(egui::Slider::new(&mut app.similarity_cutoff, 0.0..=1.0).step_by(0.05));
 
-        // Re-filter results if cutoff changed
         if (old_cutoff - app.similarity_cutoff).abs() > 0.001 {
             app.apply_search_filters();
         }
@@ -68,7 +67,7 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
             ui.add_space(50.0);
             ui.label("No results found");
             ui.add_space(10.0);
-            ui.weak("Try a different search query or lower the similarity threshold.");
+            ui.weak("Try a different search query or lower the relevance threshold.");
 
             if app.similarity_cutoff > 0.1 {
                 ui.add_space(20.0);
@@ -120,7 +119,6 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
-                                        // Similarity score badge
                                         let score_color = similarity_color(result.similarity);
                                         egui::Frame::none()
                                             .fill(score_color)

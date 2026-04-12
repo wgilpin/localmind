@@ -161,3 +161,10 @@ For implementation-specific details, see the respective CLAUDE.md files in each 
 - **DO NOT use absolute paths.**
 - Example: `C:/Users/user/project/src/components/Component.tsx` ❌
 - Reason: This is a workaround for a known bug in Claude Code v1.0.111 (GitHub Issue
+
+## Active Technologies
+- Rust stable (via rustup), matching existing project toolchain + `notify` 6.0 (already present), `rusqlite` 0.31 bundled (008-folder-watch-ingest)
+- SQLite via rusqlite — two new tables: `watched_folders`, `watched_files` (008-folder-watch-ingest)
+
+## Recent Changes
+- 008-folder-watch-ingest: Added Rust stable (via rustup), matching existing project toolchain + `notify` 6.0 (already present), `rusqlite` 0.31 bundled

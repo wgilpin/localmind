@@ -39,6 +39,9 @@ pub struct LocalMindApp {
     /// Currently viewed document
     pub selected_document: Option<DocumentView>,
 
+    /// Reusable cache for the Markdown renderer (must persist across frames)
+    pub markdown_cache: egui_commonmark::CommonMarkCache,
+
     /// Recent documents for home screen
     pub recent_documents: Vec<DocumentView>,
 
@@ -105,6 +108,52 @@ pub struct LocalMindApp {
 
     /// Currently selected profile filter (None = "All")
     pub selected_profile: Option<String>,
+
+    // -----------------------------------------------------------------------
+    // Folder-watch fields (T023)
+    // -----------------------------------------------------------------------
+    /// Currently watched folders (UI state, refreshed from DB events)
+    pub watched_folders: Vec<crate::folder_watcher::WatchedFolder>,
+
+    /// Active scan progress per folder path
+    pub folder_watch_progress:
+        std::collections::HashMap<std::path::PathBuf, crate::gui::state::FolderWatchProgress>,
+
+    /// Per-folder file errors: path → list of (file_path, error_string)
+    pub folder_file_errors:
+        std::collections::HashMap<std::path::PathBuf, Vec<(std::path::PathBuf, String)>>,
+
+    /// Receiver for UI events from the folder-watch service
+    pub folder_watch_rx: Option<std::sync::mpsc::Receiver<crate::gui::state::FolderWatchEvent>>,
+
+    /// Receiver for raw file-system events from watcher threads
+    pub folder_file_event_rx: Option<std::sync::mpsc::Receiver<crate::folder_watcher::FileEvent>>,
+
+    /// Shared service (manages watcher handles, quick synchronous ops)
+    pub folder_watch_service:
+        Option<std::sync::Arc<std::sync::Mutex<crate::folder_watcher::FolderWatchService>>>,
+
+    /// Sender used by the watched_folders widget to request adding a folder
+    pub add_folder_tx: Option<std::sync::mpsc::SyncSender<std::path::PathBuf>>,
+
+    /// Receiver polled each frame to forward add-folder requests to the service
+    add_folder_rx: Option<std::sync::mpsc::Receiver<std::path::PathBuf>>,
+
+    /// Sender used by the watched_folders widget to request removing a folder
+    pub remove_folder_tx: Option<std::sync::mpsc::SyncSender<std::path::PathBuf>>,
+
+    /// Receiver polled each frame to forward remove-folder requests to the service
+    remove_folder_rx: Option<std::sync::mpsc::Receiver<std::path::PathBuf>>,
+
+    /// Text field value for the "Add Folder" input
+    pub add_folder_input: String,
+
+    /// Inline error shown below the "Add Folder" input (T047)
+    pub add_folder_error: Option<String>,
+
+    /// Transient receiver for the watched-folders DB load (cleared after first recv)
+    _watched_folders_loader:
+        Option<std::sync::mpsc::Receiver<Vec<crate::folder_watcher::WatchedFolder>>>,
 }
 
 /// Bookmark ingestion progress event
@@ -219,6 +268,15 @@ impl LocalMindApp {
         // Create channel for bookmark progress
         let (bookmark_progress_tx, bookmark_progress_rx) = std::sync::mpsc::channel();
 
+        // Create folder-watch service and its channels (T023)
+        let (folder_watch_svc, folder_file_rx, folder_watch_event_rx) =
+            crate::folder_watcher::FolderWatchService::new();
+        let folder_watch_service = std::sync::Arc::new(std::sync::Mutex::new(folder_watch_svc));
+        let (add_folder_tx, add_folder_rx) =
+            std::sync::mpsc::sync_channel::<std::path::PathBuf>(32);
+        let (remove_folder_tx, remove_folder_rx) =
+            std::sync::mpsc::sync_channel::<std::path::PathBuf>(32);
+
         // Spawn RAG initialization in background
         let ctx = cc.egui_ctx.clone();
         let bookmark_progress_tx_clone = bookmark_progress_tx.clone();
@@ -300,6 +358,7 @@ impl LocalMindApp {
             all_results: Vec::new(),
             similarity_cutoff: 0.3,
             selected_document: None,
+            markdown_cache: egui_commonmark::CommonMarkCache::default(),
             recent_documents: Vec::new(),
             settings_open: false,
             excluded_folders: HashSet::new(),
@@ -322,6 +381,20 @@ impl LocalMindApp {
             embedding_server_child: None,
             available_profiles: chrome_profiles,
             selected_profile: None,
+            // Folder-watch fields (T023)
+            watched_folders: Vec::new(),
+            folder_watch_progress: std::collections::HashMap::new(),
+            folder_file_errors: std::collections::HashMap::new(),
+            folder_watch_rx: Some(folder_watch_event_rx),
+            folder_file_event_rx: Some(folder_file_rx),
+            folder_watch_service: Some(folder_watch_service),
+            add_folder_tx: Some(add_folder_tx),
+            add_folder_rx: Some(add_folder_rx),
+            remove_folder_tx: Some(remove_folder_tx),
+            remove_folder_rx: Some(remove_folder_rx),
+            add_folder_input: String::new(),
+            add_folder_error: None,
+            _watched_folders_loader: None,
         }
     }
 
@@ -358,6 +431,10 @@ impl LocalMindApp {
 
                     // Trigger loading recent documents
                     self.load_recent_documents();
+
+                    // Load watched folders and resume any active watchers (T040)
+                    self.load_watched_folders();
+                    self.resume_watchers_on_startup();
                 }
                 Ok(Err(e)) => {
                     eprintln!("RAG initialization failed: {}", e);
@@ -378,6 +455,256 @@ impl LocalMindApp {
                     self.init_receiver = None;
                 }
             }
+        }
+    }
+
+    /// Load the list of watched folders from DB and update UI state (T040 startup check).
+    fn load_watched_folders(&mut self) {
+        let rag = self.rag.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let runtime = self.runtime.clone();
+        runtime.spawn(async move {
+            let rag_lock = rag.read().await;
+            if let Some(ref rag_pipeline) = *rag_lock {
+                let folders = rag_pipeline
+                    .db
+                    .get_watched_folders()
+                    .await
+                    .unwrap_or_default();
+                let _ = tx.send(folders);
+            }
+        });
+        // Store receiver so we pick it up next frame
+        self._watched_folders_loader = Some(rx);
+    }
+
+    /// On startup, resume watchers for all active folders and mark unavailable
+    /// any folder whose path no longer exists (T040).
+    fn resume_watchers_on_startup(&mut self) {
+        use crate::folder_watcher::FolderStatus;
+        use crate::gui::state::FolderWatchEvent;
+
+        let rag = self.rag.clone();
+        let service = match self.folder_watch_service.clone() {
+            Some(s) => s,
+            None => return,
+        };
+        let ui_tx = match service.lock().ok().map(|s| s.ui_event_tx.clone()) {
+            Some(tx) => tx,
+            None => return,
+        };
+        let service2 = service.clone();
+
+        self.runtime.spawn(async move {
+            let rag_lock = rag.read().await;
+            let rag_pipeline = match &*rag_lock {
+                Some(r) => r,
+                None => return,
+            };
+
+            let folders = rag_pipeline
+                .db
+                .get_watched_folders()
+                .await
+                .unwrap_or_default();
+            for folder in folders {
+                if folder.path.exists() {
+                    // Resume watcher
+                    if let Ok(mut svc) = service2.lock() {
+                        svc.start_watching(folder.path.clone(), folder.id);
+                    }
+                } else {
+                    // Mark as unavailable
+                    let _ = rag_pipeline
+                        .db
+                        .update_watched_folder_status(folder.id, &FolderStatus::Unavailable)
+                        .await;
+                    let _ = ui_tx.try_send(FolderWatchEvent::FolderStatusChanged {
+                        folder_path: folder.path,
+                        status: FolderStatus::Unavailable,
+                    });
+                }
+            }
+        });
+    }
+
+    /// Poll the watched-folders load result if one is pending.
+    fn check_watched_folders_loaded(&mut self) {
+        if let Some(ref rx) = self._watched_folders_loader {
+            if let Ok(folders) = rx.try_recv() {
+                self.watched_folders = folders;
+                self._watched_folders_loader = None;
+            }
+        }
+    }
+
+    /// Poll folder-watch UI events and update state (T024).
+    pub fn check_folder_watch_events(&mut self) {
+        use crate::gui::state::FolderWatchEvent;
+
+        while let Some(event) = self
+            .folder_watch_rx
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            match event {
+                FolderWatchEvent::ScanStarted {
+                    folder_path,
+                    files_total,
+                } => {
+                    self.folder_watch_progress.insert(
+                        folder_path.clone(),
+                        crate::gui::state::FolderWatchProgress {
+                            folder_path,
+                            files_total,
+                            files_done: 0,
+                            current_file: None,
+                            error: None,
+                        },
+                    );
+                    // Folder is already in DB at this point — refresh the list so it
+                    // appears immediately, even while the scan is still running.
+                    self.load_watched_folders();
+                }
+                FolderWatchEvent::FileIngested {
+                    folder_path,
+                    file_path,
+                } => {
+                    if let Some(p) = self.folder_watch_progress.get_mut(&folder_path) {
+                        p.files_done += 1;
+                        p.current_file = Some(file_path);
+                    }
+                }
+                FolderWatchEvent::FileError {
+                    folder_path,
+                    file_path,
+                    error,
+                } => {
+                    if let Some(p) = self.folder_watch_progress.get_mut(&folder_path) {
+                        p.files_done += 1;
+                    }
+                    self.folder_file_errors
+                        .entry(folder_path)
+                        .or_default()
+                        .push((file_path, error));
+                }
+                FolderWatchEvent::ScanComplete { folder_path } => {
+                    self.folder_watch_progress.remove(&folder_path);
+                    // Refresh the folder list from DB
+                    self.load_watched_folders();
+                }
+                FolderWatchEvent::FolderRemoved { folder_path } => {
+                    self.watched_folders.retain(|f| f.path != folder_path);
+                    self.folder_watch_progress.remove(&folder_path);
+                    self.folder_file_errors.remove(&folder_path);
+                }
+                FolderWatchEvent::FolderStatusChanged {
+                    folder_path,
+                    status,
+                } => {
+                    if let Some(f) = self
+                        .watched_folders
+                        .iter_mut()
+                        .find(|f| f.path == folder_path)
+                    {
+                        f.status = status;
+                    }
+                }
+                FolderWatchEvent::AddFolderFailed {
+                    folder_path: _,
+                    error,
+                } => {
+                    self.add_folder_error = Some(error);
+                }
+            }
+        }
+    }
+
+    /// Poll add_folder_rx and forward requests to the service (T048).
+    fn check_add_folder_requests(&mut self) {
+        while let Some(path) = self
+            .add_folder_rx
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            let rag = self.rag.clone();
+            let service = match self.folder_watch_service.clone() {
+                Some(s) => s,
+                None => continue,
+            };
+            let ui_tx = match self
+                .folder_watch_service
+                .as_ref()
+                .and_then(|s| s.lock().ok().map(|svc| svc.ui_event_tx.clone()))
+            {
+                Some(tx) => tx,
+                None => continue,
+            };
+            let runtime = self.runtime.clone();
+            let runtime_handle = runtime.clone();
+
+            runtime.spawn(async move {
+                use crate::folder_watcher::add_folder;
+                use crate::gui::state::FolderWatchEvent;
+
+                if let Err(e) = add_folder(&path, rag, ui_tx.clone(), service, runtime_handle).await
+                {
+                    let _ = ui_tx.try_send(FolderWatchEvent::AddFolderFailed {
+                        folder_path: path,
+                        error: e.to_string(),
+                    });
+                }
+            });
+        }
+    }
+
+    /// Poll remove_folder_rx and forward requests to the service (T037).
+    fn check_remove_folder_requests(&mut self) {
+        while let Some(path) = self
+            .remove_folder_rx
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            let rag = self.rag.clone();
+            let service = match self.folder_watch_service.clone() {
+                Some(s) => s,
+                None => continue,
+            };
+            let ui_tx = match self
+                .folder_watch_service
+                .as_ref()
+                .and_then(|s| s.lock().ok().map(|svc| svc.ui_event_tx.clone()))
+            {
+                Some(tx) => tx,
+                None => continue,
+            };
+
+            self.runtime.spawn(async move {
+                crate::folder_watcher::remove_folder(&path, rag, ui_tx, service).await;
+            });
+        }
+    }
+
+    /// Poll raw file-system events and spawn handlers (T031-T033).
+    fn check_file_events(&mut self) {
+        while let Some(event) = self
+            .folder_file_event_rx
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            let rag = self.rag.clone();
+            let ui_tx = match self
+                .folder_watch_service
+                .as_ref()
+                .and_then(|s| s.lock().ok().map(|svc| svc.ui_event_tx.clone()))
+            {
+                Some(tx) => tx,
+                None => continue,
+            };
+
+            self.runtime.spawn(async move {
+                crate::folder_watcher::handle_file_event(event, rag, ui_tx).await;
+            });
         }
     }
 
@@ -405,7 +732,7 @@ impl LocalMindApp {
                         .map(|doc| DocumentView {
                             id: doc.id,
                             title: doc.title,
-                            content: strip_html(&doc.content),
+                            content: prepare_content(&doc.content, doc.url.as_deref()),
                             url: doc.url,
                             source: doc.source,
                             created_at: doc.created_at,
@@ -467,20 +794,19 @@ impl LocalMindApp {
         runtime_handle.spawn(async move {
             let rag_lock = rag.read().await;
             let results = if let Some(ref rag) = *rag_lock {
-                match rag.get_search_hits_with_cutoff(&query, 0.0).await {
-                    Ok(hits) => {
-                        hits.into_iter()
-                            .map(|hit| SearchResultView {
-                                doc_id: hit.doc_id,
-                                title: hit.title,
-                                snippet: create_snippet(&hit.content_snippet, 200),
-                                similarity: hit.similarity,
-                                url: None, // URL not in SearchHit, will need to fetch from doc
-                                profile: hit.profile,
-                                is_needs_auth: hit.needs_auth,
-                            })
-                            .collect()
-                    }
+                match rag.get_search_hits_fused(&query).await {
+                    Ok(hits) => hits
+                        .into_iter()
+                        .map(|hit| SearchResultView {
+                            doc_id: hit.doc_id,
+                            title: hit.title,
+                            snippet: create_snippet(&hit.content_snippet, 200),
+                            similarity: hit.similarity,
+                            url: None,
+                            profile: hit.profile,
+                            is_needs_auth: hit.needs_auth,
+                        })
+                        .collect(),
                     Err(e) => {
                         eprintln!("Search failed: {}", e);
                         Vec::new()
@@ -517,12 +843,16 @@ impl LocalMindApp {
         }
     }
 
-    /// Apply similarity cutoff and profile filter to produce search_results from all_results
+    /// Apply similarity cutoff, profile filter, and deduplication to produce search_results.
     pub fn apply_search_filters(&mut self) {
+        let mut seen_ids = std::collections::HashSet::new();
         self.search_results = self
             .all_results
             .iter()
             .filter(|r| {
+                if !seen_ids.insert(r.doc_id) {
+                    return false;
+                }
                 if r.similarity < self.similarity_cutoff {
                     return false;
                 }
@@ -559,7 +889,7 @@ impl LocalMindApp {
                     Ok(Some(doc)) => Some(DocumentView {
                         id: doc.id,
                         title: doc.title,
-                        content: strip_html(&doc.content),
+                        content: prepare_content(&doc.content, doc.url.as_deref()),
                         url: doc.url,
                         source: doc.source,
                         created_at: doc.created_at,
@@ -876,9 +1206,10 @@ impl LocalMindApp {
     }
 }
 
-/// Create a content snippet, truncating at word boundaries
+/// Create a content snippet, truncating at word boundaries.
+/// Strips YAML frontmatter so `---\n{}\n---` never leaks into the UI.
 fn create_snippet(content: &str, max_len: usize) -> String {
-    let content = content.trim();
+    let content = strip_frontmatter_snippet(content.trim());
     if content.len() <= max_len {
         return content.to_string();
     }
@@ -889,6 +1220,19 @@ fn create_snippet(content: &str, max_len: usize) -> String {
         format!("{}...", &content[..last_space])
     } else {
         format!("{}...", truncated)
+    }
+}
+
+/// Strip YAML frontmatter (`---` … `---`) from the start of a string.
+fn strip_frontmatter_snippet(s: &str) -> &str {
+    if !s.starts_with("---") {
+        return s;
+    }
+    let after_open = &s["---".len()..];
+    if let Some(close) = after_open.find("\n---") {
+        after_open[close + "\n---".len()..].trim_start_matches('\n')
+    } else {
+        s
     }
 }
 
@@ -910,6 +1254,12 @@ impl eframe::App for LocalMindApp {
         self.check_document_loaded();
         self.check_bookmark_progress();
         self.check_exclusion_rules_loaded();
+        // Folder-watch polling (T024, T037, T048)
+        self.check_folder_watch_events();
+        self.check_add_folder_requests();
+        self.check_remove_folder_requests();
+        self.check_file_events();
+        self.check_watched_folders_loaded();
         self.cleanup_toasts();
 
         // Handle Escape key for back navigation or closing settings
@@ -1122,6 +1472,25 @@ impl eframe::App for LocalMindApp {
         {
             ctx.request_repaint();
         }
+    }
+}
+
+/// Choose the right content preparation for a document based on its URL.
+///
+/// Local `.md` files must NOT go through `html2text` — they are plain text /
+/// Markdown, not HTML. Running them through `html2text` collapses newlines into
+/// spaces, which breaks frontmatter stripping and degrades snippet quality.
+///
+/// Everything else (web pages, bookmarks) goes through the normal `strip_html` path.
+fn prepare_content(content: &str, url: Option<&str>) -> String {
+    let is_local_md = url
+        .map(|u| u.starts_with("file://") && u.ends_with(".md"))
+        .unwrap_or(false);
+
+    if is_local_md {
+        strip_frontmatter_snippet(content.trim()).to_string()
+    } else {
+        strip_html(content)
     }
 }
 

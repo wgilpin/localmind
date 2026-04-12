@@ -166,18 +166,39 @@ pub fn render_home_view(ui: &mut Ui, app: &mut LocalMindApp) {
     }
 }
 
-/// Create a content snippet, truncating at word boundaries
+/// Create a content snippet, truncating at char boundaries.
+/// Strips YAML frontmatter so `---\n{}\n---` never leaks into the UI.
 fn create_snippet(content: &str, max_len: usize) -> String {
+    let content = strip_frontmatter(content);
     if content.len() <= max_len {
         return content.to_string();
     }
 
-    // Find a good break point (whitespace)
-    let truncated = &content[..max_len];
+    // Walk back to a valid char boundary so we never slice mid-codepoint.
+    let boundary = content
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|&i| i <= max_len)
+        .last()
+        .unwrap_or(0);
+
+    let truncated = &content[..boundary];
     if let Some(last_space) = truncated.rfind(char::is_whitespace) {
         format!("{}...", &content[..last_space])
     } else {
         format!("{}...", truncated)
+    }
+}
+
+fn strip_frontmatter(s: &str) -> &str {
+    if !s.starts_with("---") {
+        return s;
+    }
+    let after_open = &s["---".len()..];
+    if let Some(close) = after_open.find("\n---") {
+        after_open[close + "\n---".len()..].trim_start_matches('\n')
+    } else {
+        s
     }
 }
 

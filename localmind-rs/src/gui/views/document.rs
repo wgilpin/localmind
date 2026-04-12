@@ -1,6 +1,7 @@
 //! Document detail view showing full content
 
 use egui::Ui;
+use egui_commonmark::CommonMarkViewer;
 use egui_remixicon::icons;
 
 use crate::gui::app::LocalMindApp;
@@ -96,36 +97,87 @@ pub fn render_document_view(ui: &mut Ui, app: &mut LocalMindApp) {
     ui.separator();
     ui.add_space(10.0);
 
+    // Determine if this is a local markdown file
+    let is_local_md = doc
+        .url
+        .as_deref()
+        .map(|u| u.starts_with("file://") && u.ends_with(".md"))
+        .unwrap_or(false);
+
+    // For local .md files, read and render from disk; fall back to DB content if unavailable.
+    let markdown_source: Option<String> = if is_local_md {
+        doc.url
+            .as_deref()
+            .and_then(|u| u.strip_prefix("file://"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|s| prepare_markdown(&s))
+    } else {
+        None
+    };
+
     // Scrollable content area
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            // Extract actual content, skipping bookmark metadata if present
-            let display_content = if doc.content.starts_with("Bookmark:") {
-                // Find the first double newline (end of metadata section)
-                if let Some(content_start) = doc.content.find("\n\n") {
-                    let actual_content = doc.content[content_start + 2..].trim();
-                    if actual_content.is_empty() {
-                        None
+            if let Some(md) = markdown_source {
+                // Render Markdown for local .md files
+                CommonMarkViewer::new().show(ui, &mut app.markdown_cache, &md);
+            } else {
+                // Extract actual content, skipping bookmark metadata if present
+                let display_content = if doc.content.starts_with("Bookmark:") {
+                    if let Some(content_start) = doc.content.find("\n\n") {
+                        let actual_content = doc.content[content_start + 2..].trim();
+                        if actual_content.is_empty() {
+                            None
+                        } else {
+                            Some(actual_content.to_string())
+                        }
                     } else {
-                        Some(actual_content.to_string())
+                        None
                     }
                 } else {
-                    None
-                }
-            } else {
-                Some(doc.content.clone())
-            };
+                    Some(doc.content.clone())
+                };
 
-            if let Some(mut content) = display_content {
-                ui.add(
-                    egui::TextEdit::multiline(&mut content)
-                        .desired_width(f32::INFINITY)
-                        .font(egui::TextStyle::Body)
-                        .interactive(false), // Read-only
-                );
-            } else {
-                ui.label("No content available for this bookmark.");
+                if let Some(mut content) = display_content {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut content)
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Body)
+                            .interactive(false),
+                    );
+                } else {
+                    ui.label("No content available for this bookmark.");
+                }
             }
         });
+}
+
+/// Prepare Markdown content for rendering:
+/// - Strip YAML frontmatter (`---` … `---` at the start of the file)
+/// - Convert HTML `<br>` / `<br/>` tags to Markdown line breaks (two spaces + newline)
+///   since egui_commonmark does not interpret inline HTML
+fn prepare_markdown(content: &str) -> String {
+    let body = strip_frontmatter(content);
+    // <br> and variants → two trailing spaces then newline (CommonMark hard line break)
+    let re_br = regex::Regex::new(r"(?i)<br\s*/?>").unwrap();
+    re_br.replace_all(body, "  \n").into_owned()
+}
+
+/// Remove a YAML frontmatter block if the file starts with `---`.
+fn strip_frontmatter(content: &str) -> &str {
+    let s = content.trim_start();
+    if !s.starts_with("---") {
+        return content;
+    }
+    // Skip the opening `---` line and find the closing `---`
+    let after_open = &s["---".len()..];
+    // Closing delimiter must be `---` on its own line
+    if let Some(close) = after_open.find("\n---") {
+        let after_close = &after_open[close + "\n---".len()..];
+        // Skip optional trailing newline after closing delimiter
+        after_close.trim_start_matches('\n')
+    } else {
+        content
+    }
 }

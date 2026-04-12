@@ -5,3 +5,4 @@
 pub mod folder_tree;
 pub mod settings;
 pub mod toast;
+pub mod watched_folders;
