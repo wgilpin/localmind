@@ -11,6 +11,15 @@ use egui::Ui;
 pub fn render_settings_modal(ui: &mut Ui, app: &mut LocalMindApp) -> bool {
     let mut should_close = false;
     ui.vertical(|ui| {
+        // Watched Folders section (T027)
+        ui.collapsing("Watched Folders", |ui| {
+            crate::gui::widgets::watched_folders::render_watched_folders(ui, app);
+        });
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.add_space(10.0);
+
         ui.heading("Exclusion Rules");
         ui.add_space(10.0);
 

@@ -1,14 +1,19 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.0 → 1.2.0
-Modified principles: II (Performance), III (UI/UX), V (Developer Quality)
-Removed concepts: Tauri, Svelte, Vite (replaced with egui/eframe)
-Updated technology stack to reflect current egui/eframe implementation
+Version change: 1.3.0 → 1.3.1
+Bump rationale: PATCH — clarified Principle IV exclusion rule scope to bookmark tree
+  folders only (not filesystem directories), preventing ambiguity with folder-watch
+  ingestion features.
+Modified principles:
+  IV (Intelligent Automation with User Control) — exclusion rule scoped to bookmark
+    tree folders and domains; filesystem directory watching is governed separately
+Added sections: None
+Removed sections: None
 Templates requiring updates:
-  ✅ .specify/templates/plan-template.md - reviewed, compatible
-  ✅ .specify/templates/spec-template.md - reviewed, compatible
-  ✅ .specify/templates/tasks-template.md - reviewed, compatible
+  ✅ .specify/templates/plan-template.md — no change required
+  ✅ .specify/templates/spec-template.md — no change required
+  ✅ .specify/templates/tasks-template.md — no change required
 Follow-up TODOs: None
 -->
 
@@ -24,9 +29,10 @@ Follow-up TODOs: None
 - SQLite database MUST use bundled rusqlite with no external dependencies
 - Data MUST be encrypted at rest in `~/.localmind/` (Windows: `%APPDATA%/localmind/`)
 - Zero cloud dependencies for core functionality
-- Network requests ONLY to localhost:8000 (Python embedding server) - no external or remote requests
+- Network requests ONLY to localhost:8000 (Python embedding server) — no external or
+  remote requests
 - No telemetry, analytics, or external data transmission without explicit user consent
-- Zero-knowledge architecture: relay servers (if implemented) MUST NOT have access to 
+- Zero-knowledge architecture: relay servers (if implemented) MUST NOT have access to
   unencrypted user data
 
 **Rationale:** Users trust LocalMind with sensitive research and personal notes. Privacy is
@@ -69,9 +75,11 @@ predictable UI updates without complex state management.
 **Non-Negotiable Rules:**
 
 - Bookmark monitoring MUST be opt-in with clear explanation
-- Users MUST be able to exclude folders and domains before ingestion starts
+- Users MUST be able to exclude bookmark tree folders and domains before bookmark
+  ingestion starts (this rule applies to the bookmark tree, not filesystem directories)
 - All automated actions MUST be visible in UI (e.g., "Monitoring 127 bookmarks")
-- Search MUST degrade gracefully if embedding server unavailable (show cached results or clear error)
+- Search MUST degrade gracefully if embedding server unavailable (show cached results
+  or clear error)
 - No background data collection without active user session
 - Users MUST be able to export all data in standard formats (JSON, CSV)
 - Configuration MUST be editable via UI (no manual file editing required)
@@ -84,18 +92,59 @@ embedding server setup fails.
 
 **Non-Negotiable Rules:**
 
-- All code MUST pass `cargo clippy` with no warnings
-- All code MUST be formatted with `cargo fmt` before commit
-- All new modules with business logic MUST have unit tests (HTTP client adapters MAY use integration tests)
+#### Type Safety
+
+- Use strong typing throughout — no untyped `HashMap<String, serde_json::Value>` as a
+  substitute for real types
+- Define explicit structs for all function arguments and return types where the shape
+  is non-trivial
+- Avoid `unwrap()` and `expect()` in library/service code; use `?` and explicit error
+  types
+- Use `thiserror` for defining error types; use `anyhow` only in binaries/main.rs
+- Never use `Box<dyn Any>` or type-erase without a documented, compelling reason
+
+#### Code Style
+
+- Prefer functional style: iterators, `map`/`filter`/`fold` over manual loops where clear
+- Avoid unnecessary OOP — use plain structs and free functions unless trait polymorphism
+  is genuinely needed
+- Keep modules small and focused; split files before they become unwieldy
+- No dead code — `#[allow(dead_code)]` in committed code is a red flag
+
+#### Architecture
+
+- Separate concerns strictly: backend services (data, storage, business logic) MUST be
+  distinct from egui frontend code
+- Backend services MUST be pure and independently testable (no egui dependencies)
+- egui components are NOT unit tested — UI is inherently hard to test headlessly
+- Use channels (`std` or `tokio`) for all communication between async backend tasks and
+  egui's synchronous update loop
+- The egui update loop MUST NOT be blocked by I/O or long-running computation
+
+#### Testing
+
+- Apply TDD for all backend services and business logic
+- No unit tests for egui components or rendering logic
+- Never call remote APIs in tests — mock all external services
+- Tests that rely on a live LLM or remote API are not valid; use recorded fixtures or
+  mocks
+- Use `mockall` or manual trait-based mocks; prefer trait objects to enable substitution
+- Test database MUST never be the live database
+- Automated backups MUST be scheduled on any live database
+
+#### Tooling
+
+- All code MUST pass `cargo clippy -- -D warnings` (zero warnings) before committing
+- All code MUST be formatted with `cargo fmt` before saving
+- Use `cargo check` frequently; do not accumulate type errors
+- Run `cargo +nightly udeps` periodically to remove orphaned dependencies
 - Public functions MUST have doc comments explaining purpose and behavior
-- Public API functions MUST be documented in code with input/output examples
-- Clear module separation: `db.rs`, `rag.rs`, `local_embedding.rs`, `bookmark.rs`, `bookmark_exclusion.rs`
-- No orphaned dependencies (run `cargo +nightly udeps` periodically)
 - Breaking changes to public APIs MUST increment major version
 
-**Rationale:** Code is read 10x more than written. Clippy catches bugs before users do.
-Doc comments are living documentation that stays synchronized with code. Module boundaries
-prevent the codebase from becoming a tangled mess as features grow.
+**Rationale:** Code is read 10x more than written. Clippy and strict types catch bugs
+before users do. Module boundaries and architectural separation prevent the codebase
+becoming a tangled mess. TDD for services ensures correctness without brittle UI test
+overhead.
 
 ### VI. Python Development Standards
 
@@ -112,10 +161,38 @@ prevent the codebase from becoming a tangled mess as features grow.
 - All Python code MUST pass `ruff check` with zero warnings
 
 **Rationale:** Python's dynamic typing can hide bugs that only surface at runtime.
-Strict type checking with mypy/pyright catches issues during development. TypedDict
-provides structured data validation without class overhead. `uv` is significantly
-faster than pip and provides better dependency resolution. Consistent formatting
-with ruff reduces cognitive load during code review.
+Strict type checking catches issues during development. `uv` is significantly faster
+than pip and provides better dependency resolution.
+
+### VII. Observability & Logging
+
+**Non-Negotiable Rules:**
+
+- Use the `tracing` crate (not `log`) with `tracing-subscriber` for all logging
+- Every error MUST be logged before being swallowed or converted
+- No silent exceptions — if an error is handled it MUST be logged at `warn!` or
+  `error!` level
+- Use structured fields rather than format strings where possible:
+  `tracing::info!(user_id = %id, "action")` not `tracing::info!("action for {id}")`
+- Span context MUST be propagated across async task boundaries
+
+**Rationale:** Observability is the only way to diagnose problems in a running desktop
+app without a debugger attached. Structured fields make logs machine-queryable.
+`tracing` integrates natively with tokio's task model.
+
+### VIII. LLM / AI Integration
+
+**Non-Negotiable Rules:**
+
+- For Gemini models, ALWAYS use the 3-series (e.g. `gemini-3-flash-preview`); NEVER
+  use the 2-series
+- LLM APIs MUST NOT be called in tests — mock the trait or interface
+- All LLM integrations MUST be behind a trait to enable substitution in tests
+- Recorded fixtures or mocks MUST be used where test scenarios require LLM responses
+
+**Rationale:** The 2-series Gemini models are superseded and may be deprecated. Calling
+live LLMs in tests creates flaky, slow, and cost-incurring test suites. Trait-based
+abstraction allows the test suite to run entirely offline.
 
 ## Technical Constraints
 
@@ -123,24 +200,25 @@ with ruff reduces cognitive load during code review.
 
 **Non-Negotiable Rules:**
 
-- Use simple String types for data modeling unless strong typing prevents bugs
+- This is a demo/prototype, not a production system — keep code as simple as possible
 - Avoid premature abstraction (no trait until 3+ concrete implementations exist)
-- No new features UNLESS explicitly requested by user or required for existing features
-- Dependencies MUST be justified: explain what problem they solve and why custom code won't work
+- No new features UNLESS explicitly requested by the user or required for existing
+  features
+- Dependencies MUST be justified: explain what problem they solve and why custom code
+  won't suffice
 - Configuration MUST have sensible defaults (zero-config first run for basic use)
 
-**Rationale:** Complexity is the enemy of maintainability. String typing reduces cognitive
-load. YAGNI (You Aren't Gonna Need It) prevents feature creep. Dependencies are liabilities
-(supply chain risk, compilation time, maintenance burden).
+**Rationale:** Complexity is the enemy of maintainability. YAGNI prevents feature creep.
+Dependencies are liabilities (supply chain risk, compilation time, maintenance burden).
 
 ### Technology Stack
 
 **Fixed:**
 
-- Backend: Rust 1.75+ with Tokio async runtime
+- Backend: Rust stable toolchain (via rustup) with Tokio async runtime
 - Frontend: egui/eframe (pure Rust, no JavaScript)
 - Database: SQLite via rusqlite (bundled)
-- Embeddings: Python 3.11+ with FastAPI and google/embeddinggemma-300M model
+- Embeddings: Python 3.13+ with FastAPI and google/embeddinggemma-300M model
 - Package Management: `uv` for Python dependencies
 
 **Variable (user-configurable):**
@@ -149,7 +227,7 @@ load. YAGNI (You Aren't Gonna Need It) prevents feature creep. Dependencies are 
 
 ### Bundle Identity
 
-- **Bundle Identifier**: `com.localmind.app` (MUST NOT change—breaks update mechanism)
+- **Bundle Identifier**: `com.localmind.app` (MUST NOT change — breaks update mechanism)
 - **Application Name**: `LocalMind` (user-visible, can localize in future)
 
 ## Governance
@@ -165,12 +243,20 @@ load. YAGNI (You Aren't Gonna Need It) prevents feature creep. Dependencies are 
 7. Constitution version MUST be updated following semantic versioning
 8. Templates MUST be updated to reflect new principles before merge
 
+### Explicit Approval Gates
+
+The following actions MUST NOT proceed without explicit user approval:
+
+- Adding any new dependency to `Cargo.toml`
+- Adding any new feature or capability not described in the current spec
+- Applying any schema migration on a live database
+
 ### Quality Gates
 
 **Pre-Commit (Rust):**
 
-- `cargo fmt --check` MUST pass
-- `cargo clippy` MUST pass with zero warnings
+- `cargo fmt --check` MUST pass (or run `cargo fmt` to auto-fix)
+- `cargo clippy -- -D warnings` MUST pass with zero warnings
 
 **Pre-Commit (Python):**
 
@@ -180,7 +266,7 @@ load. YAGNI (You Aren't Gonna Need It) prevents feature creep. Dependencies are 
 
 **Pre-Release:**
 
-- `cargo test` MUST pass all tests
+- `cargo test --all` MUST pass all tests
 - Manual smoke test on target platforms (Windows, macOS, or Linux)
 - Release binary MUST build successfully
 - Python embedding server MUST start within 30 seconds and respond to health checks
@@ -199,4 +285,4 @@ load. YAGNI (You Aren't Gonna Need It) prevents feature creep. Dependencies are 
 - See `localmind-rs/README.md` for developer quickstart
 - See `.specify/templates/` for feature planning templates
 
-**Version**: 1.2.0 | **Ratified**: 2025-12-09 | **Last Amended**: 2026-01-06
+**Version**: 1.3.1 | **Ratified**: 2025-12-09 | **Last Amended**: 2026-04-07

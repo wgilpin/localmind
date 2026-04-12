@@ -22,7 +22,7 @@ pub struct RagResponse {
     pub sources: Vec<DocumentSource>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DocumentSource {
     pub doc_id: i64,
     pub title: String,
@@ -403,6 +403,117 @@ impl RagPipeline {
         format!("...{}\n...", snippet.trim())
     }
 
+    /// Fuse vector and BM25 results using thresholded Reciprocal Rank Fusion (RRF).
+    ///
+    /// Both searches run concurrently. BM25 results are pre-filtered to those scoring at
+    /// least 50% of the top BM25 score. RRF scores are normalised to 0-1 before returning,
+    /// so the existing similarity_cutoff slider remains meaningful.
+    ///
+    /// If vector search fails (e.g. embedding server down), BM25-only results are returned.
+    pub async fn get_search_hits_fused(&self, query: &str) -> Result<Vec<DocumentSource>> {
+        const BM25_PERCENT_THRESHOLD: f64 = 0.5;
+        const K: f32 = 60.0;
+
+        // Escape query for FTS5 (wrap each token in double quotes)
+        let escaped = query
+            .split_whitespace()
+            .map(|w| format!("\"{}\"", w.replace('"', "")))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Run both searches concurrently
+        let (vector_result, fts_result) =
+            tokio::join!(self.get_search_hits_with_cutoff(query, 0.0), async {
+                if escaped.is_empty() {
+                    Ok(vec![])
+                } else {
+                    self.db.search_documents_scored(&escaped, 20).await
+                }
+            });
+
+        let vector_sources = vector_result.unwrap_or_default();
+        let fts_scored = fts_result.unwrap_or_default();
+
+        // Sort vector results descending by similarity
+        let mut sorted_vector = vector_sources.clone();
+        sorted_vector.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Filter BM25 results to >= 50% of the top BM25 score, sorted best-first
+        let sorted_bm25: Vec<_> = if fts_scored.is_empty() {
+            vec![]
+        } else {
+            let max_bm25 = fts_scored
+                .iter()
+                .map(|(_, s)| *s)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let cutoff = max_bm25 * BM25_PERCENT_THRESHOLD;
+            let mut filtered: Vec<_> = fts_scored
+                .into_iter()
+                .filter(|(_, s)| *s >= cutoff)
+                .collect();
+            filtered.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            filtered
+        };
+
+        // Build doc metadata map: prefer vector snippet (chunk-level), fall back to FTS content
+        let mut doc_info: std::collections::HashMap<i64, DocumentSource> =
+            std::collections::HashMap::new();
+        for source in &sorted_vector {
+            doc_info.insert(source.doc_id, source.clone());
+        }
+        for (doc, _) in &sorted_bm25 {
+            doc_info.entry(doc.id).or_insert_with(|| DocumentSource {
+                doc_id: doc.id,
+                title: doc.title.clone(),
+                content_snippet: self.extract_snippet(&doc.content, query),
+                similarity: 0.0,
+                profile: doc.profile.clone(),
+                needs_auth: doc.needs_auth.unwrap_or(false),
+            });
+        }
+
+        // Compute RRF scores
+        let mut rrf_scores: std::collections::HashMap<i64, f32> = std::collections::HashMap::new();
+        for (rank, source) in sorted_vector.iter().enumerate() {
+            *rrf_scores.entry(source.doc_id).or_insert(0.0) += 1.0 / (K + rank as f32 + 1.0);
+        }
+        for (rank, (doc, _)) in sorted_bm25.iter().enumerate() {
+            *rrf_scores.entry(doc.id).or_insert(0.0) += 1.0 / (K + rank as f32 + 1.0);
+        }
+
+        // Normalise RRF scores to 0-1
+        let max_rrf = rrf_scores
+            .values()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
+        if max_rrf > 0.0 {
+            for score in rrf_scores.values_mut() {
+                *score /= max_rrf;
+            }
+        }
+
+        // Sort by RRF score and build output
+        let mut ranked: Vec<(i64, f32)> = rrf_scores.into_iter().collect();
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let results = ranked
+            .into_iter()
+            .take(10)
+            .filter_map(|(doc_id, rrf_score)| {
+                doc_info.remove(&doc_id).map(|mut source| {
+                    source.similarity = rrf_score;
+                    source
+                })
+            })
+            .collect();
+
+        Ok(results)
+    }
+
     pub async fn document_exists(&self, url: &str) -> Result<bool> {
         // Use background priority since this is typically called during ingestion
         self.db
@@ -481,12 +592,7 @@ impl RagPipeline {
     // Completion methods removed - this is an embedding-only service
 
     /// Update an existing document by URL: replace content, clear auth/dead flags, re-embed.
-    pub async fn update_document(
-        &self,
-        doc_id: i64,
-        title: &str,
-        content: &str,
-    ) -> Result<i64> {
+    pub async fn update_document(&self, doc_id: i64, title: &str, content: &str) -> Result<i64> {
         // Update document content in DB (clears is_dead and needs_auth)
         self.db
             .update_document_content(doc_id, title, content)
@@ -553,6 +659,15 @@ impl RagPipeline {
         } else {
             (0, true) // Return empty stats if locked
         }
+    }
+
+    /// Remove all in-memory vector entries for a document.
+    ///
+    /// Called after `db.delete_document` (or `db.delete_documents_by_source`)
+    /// to keep the VectorStore consistent with the database.
+    pub async fn remove_document_vectors(&self, document_id: i64) {
+        let mut vs = self.vector_store.lock().await;
+        vs.remove_vectors_for_document(document_id);
     }
 
     // Streaming completion methods removed - this is an embedding-only service

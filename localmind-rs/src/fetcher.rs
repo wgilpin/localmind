@@ -55,9 +55,7 @@ impl WebFetcher {
 
         // Check status - detect auth-required responses
         let status = response.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED
-            || status == reqwest::StatusCode::FORBIDDEN
-        {
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             println!("Auth required ({}) for {}", status, url);
             return Ok(FetchResult {
                 content: String::new(),
@@ -93,7 +91,6 @@ impl WebFetcher {
         url: &str,
         response: reqwest::Response,
     ) -> Result<String, Box<dyn std::error::Error>> {
-
         // Check content type to handle different file types properly
         let content_type = response
             .headers()
