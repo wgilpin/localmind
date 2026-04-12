@@ -405,8 +405,8 @@ impl RagPipeline {
 
     /// Fuse vector and BM25 results using thresholded Reciprocal Rank Fusion (RRF).
     ///
-    /// Both searches run concurrently. BM25 results are pre-filtered to those scoring
-    /// >= 50% of the top BM25 score. RRF scores are normalised to 0-1 before returning
+    /// Both searches run concurrently. BM25 results are pre-filtered to those scoring at
+    /// least 50% of the top BM25 score. RRF scores are normalised to 0-1 before returning,
     /// so the existing similarity_cutoff slider remains meaningful.
     ///
     /// If vector search fails (e.g. embedding server down), BM25-only results are returned.
