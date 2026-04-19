@@ -45,7 +45,9 @@
       "Bash(target/debug/localmind-rs.exe:*)",
       "Bash(echo \"Exit code: $?\")",
       "Bash(npm init:*)",
-      "Bash(sed:*)"
+
+      "Bash(uv add *)",
+      "Read(//c/Users/wgilp/.localmind/**)"
     ],
     "deny": [],
     "ask": [],

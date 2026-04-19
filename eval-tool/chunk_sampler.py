@@ -69,7 +69,7 @@ class ChunkSampler:
 
             # Get chunk metadata from embeddings table
             cursor.execute("""
-                SELECT e.id, e.document_id, e.chunk_index, e.chunk_start, e.chunk_end,
+                SELECT e.id, e.document_id, e.chunk_start, e.chunk_end,
                        d.title, d.content, d.url
                 FROM embeddings e
                 JOIN documents d ON e.document_id = d.id
@@ -80,8 +80,9 @@ class ChunkSampler:
             if not row:
                 return None
 
-            (chunk_id, doc_id, chunk_index, chunk_start, chunk_end,
+            (chunk_id, doc_id, chunk_start, chunk_end,
              doc_title, doc_content, doc_url) = row
+            chunk_index = 0
 
             # Extract chunk text from document content
             chunk_text = doc_content[chunk_start:chunk_end] if doc_content else ""
@@ -118,7 +119,7 @@ class ChunkSampler:
 
             # Build query based on filters
             query = """
-                SELECT e.id, e.document_id, e.chunk_index, e.chunk_start, e.chunk_end,
+                SELECT e.id, e.document_id, e.chunk_start, e.chunk_end,
                        d.title, d.content, d.url
                 FROM embeddings e
                 JOIN documents d ON e.document_id = d.id

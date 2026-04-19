@@ -33,7 +33,28 @@ class ChunkQueryGenerator:
         """Initialize with LM Studio model"""
         self.model = model
         self.lmstudio_client = LMStudioClient(base_url=lmstudio_url)
-        self.generation_cache = {}  # Cache generated terms
+        self.generation_cache = {}
+
+        self._validate_model()
+
+    def _validate_model(self):
+        """Fail fast if the model can't do chat completions."""
+        try:
+            response = self.lmstudio_client.chat(
+                model=self.model,
+                messages=[{"role": "user", "content": "Reply with the single word: ok"}],
+                max_tokens=10,
+                temperature=0.0,
+            )
+            content = response.get('message', {}).get('content', '').strip()
+            if not content:
+                raise ValueError("Model returned empty response — it may be an embedding-only model.")
+        except Exception as e:
+            raise RuntimeError(
+                f"Model '{self.model}' failed chat validation. "
+                f"Make sure you're using a chat/instruction model, not an embedding model.\n"
+                f"Error: {e}"
+            )
 
         # Statistics
         self.stats = {

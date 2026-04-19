@@ -5,7 +5,17 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "openai>=1.109.1",
+    "openai>=1.0.0",
     "pyarrow>=21.0.0",
     "types-requests>=2.32.4.20250913",
+    "click>=8.1.7",
+    "tqdm>=4.67.1",
+    "pandas>=2.2.3",
+    "sentence-transformers>=3.3.1",
+    "requests>=2.32.3",
+    "beautifulsoup4>=4.12.3",
+    "ollama>=0.4.4",
+    "rank-bm25>=0.2.2",
+    "chromadb>=1.5.8",
+    "scikit-learn>=1.8.0",
 ]

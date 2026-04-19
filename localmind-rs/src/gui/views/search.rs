@@ -20,6 +20,7 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
         }
 
         if back_button.clicked() {
+            app.query_logger.finalize("abandoned", None);
             app.current_view = View::Home;
             app.search_results.clear();
             app.all_results.clear();
@@ -169,6 +170,7 @@ pub fn render_search_results(ui: &mut Ui, app: &mut LocalMindApp) {
                             "Clicked search result: {} (id={})",
                             result.title, result.doc_id
                         );
+                        app.query_logger.finalize("clicked", Some(result.doc_id));
                         app.load_document(result.doc_id);
                     }
 

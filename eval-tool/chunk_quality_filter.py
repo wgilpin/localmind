@@ -372,7 +372,8 @@ Respond with only "SUITABLE" or "UNSUITABLE"
         with open(input_path, 'r', encoding='utf-8') as f:
             chunks_dict = json.load(f)
 
-        chunks = [QualityChunkSample(**chunk) for chunk in chunks_dict]
+        valid_fields = {f.name for f in QualityChunkSample.__dataclass_fields__.values()}
+        chunks = [QualityChunkSample(**{k: v for k, v in chunk.items() if k in valid_fields}) for chunk in chunks_dict]
         print(f" Loaded {len(chunks)} quality chunks from {input_path}")
         return chunks
 

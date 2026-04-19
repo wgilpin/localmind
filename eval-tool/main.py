@@ -11,6 +11,7 @@ from chunk_sampler import ChunkSampler
 from chunk_quality_filter import ChunkQualityFilter
 from chunk_query_generator import ChunkQueryGenerator
 from chunk_vector_evaluator import ChunkVectorEvaluator
+from retrieval_evaluator import RetrievalEvaluator, print_results
 
 def reset_data():
     """Reset/delete all existing data"""
@@ -51,7 +52,7 @@ def sample(sample_size, fetch_content, output):
 
 @cli.command()
 @click.option('--samples', default='data/sampled_bookmarks.json', help='Input file with sampled bookmarks')
-@click.option('--model', default='qwen3:4b', help='Ollama model to use for query generation')
+@click.option('--model', default='gemma-4-e4b', help='LLM model to use for query generation')
 @click.option('--output', default='data/generated_queries.json', help='Output file for queries')
 def generate(samples, model, output):
     """Generate search queries for sampled bookmarks"""
@@ -120,7 +121,7 @@ def evaluate(samples, queries, top_k, embedding_model, ollama, ollama_url, outpu
 
 @cli.command()
 @click.option('--sample-size', default=200, help='Number of bookmarks to sample')
-@click.option('--model', default='qwen3:4b', help='Ollama model for query generation')
+@click.option('--model', default='gemma-4-e4b', help='LLM model for query generation')
 @click.option('--reset', is_flag=True, help='Reset/delete all existing data and start fresh')
 def sample_and_generate(sample_size, model, reset):
     """Sample bookmarks and generate queries incrementally (automatically resumes)"""
@@ -139,7 +140,7 @@ def sample_and_generate(sample_size, model, reset):
 
 @cli.command()
 @click.option('--sample-size', default=200, help='Number of bookmarks to sample')
-@click.option('--model', default='qwen3:4b', help='Ollama model for query generation')
+@click.option('--model', default='gemma-4-e4b', help='Ollama model for query generation')
 @click.option('--top-k', default=20, help='Number of top results to retrieve')
 @click.option('--embedding-model', default='all-MiniLM-L6-v2', help='Embedding model name')
 @click.option('--ollama', is_flag=True, help='Use Ollama for embeddings instead of SentenceTransformers')
@@ -256,7 +257,7 @@ def sample_chunks(sample_size, db_path, min_chunk_length, output, stats):
 
 @cli.command()
 @click.option('--chunks', default='data/sampled_chunks.json', help='Input chunks file')
-@click.option('--model', default='qwen3:4b', help='LM Studio model for quality assessment')
+@click.option('--model', default='gemma-4-e4b', help='LM Studio model for quality assessment')
 @click.option('--min-confidence', default=0.6, help='Minimum confidence score')
 @click.option('--quick', is_flag=True, help='Apply quick heuristic filters first')
 def filter_chunks(chunks, model, min_confidence, quick):
@@ -291,7 +292,7 @@ def filter_chunks(chunks, model, min_confidence, quick):
 
 @cli.command()
 @click.option('--chunks', default='data/quality_chunks.json', help='Quality chunks file')
-@click.option('--model', default='qwen3:4b', help='LM Studio model for term generation')
+@click.option('--model', default='gemma-4-e4b', help='LM Studio model for term generation')
 @click.option('--num-terms', default=3, help='Number of search terms per chunk')
 @click.option('--batch-size', default=5, help='Batch size for processing')
 def generate_chunk_terms(chunks, model, num_terms, batch_size):
@@ -371,7 +372,7 @@ def evaluate_chunks(chunks, terms, embedding_model, ollama, top_k, output):
 @cli.command()
 @click.option('--sample-size', default=200, help='Number of chunks to sample')
 @click.option('--db-path', help='Path to localmind.db')
-@click.option('--llm-model', default='qwen3:4b', help='LM Studio model for quality/terms')
+@click.option('--llm-model', default='gemma-4-e4b', help='LM Studio model for quality/terms')
 @click.option('--embedding-model', default='all-MiniLM-L6-v2', help='Embedding model')
 @click.option('--ollama', is_flag=True, help='Use Ollama for embeddings')
 @click.option('--lmstudio', is_flag=True, help='Use LM Studio for embeddings')
@@ -636,6 +637,44 @@ def analyze_chunk_results(report):
 
     # Analyze failures
     evaluator.analyze_failures(loaded_report, top_n=10)
+
+@cli.command()
+@click.option('--queries', default='data/generated_queries.json', help='Queries file (generated_queries.json)')
+@click.option('--embedding-model', default='all-MiniLM-L6-v2', help='Embedding model name')
+@click.option('--ollama', is_flag=True, help='Use Ollama for embeddings')
+@click.option('--lmstudio', is_flag=True, help='Use LM Studio for embeddings')
+@click.option('--ollama-url', default='http://localhost:11434', help='Ollama API URL')
+@click.option('--lmstudio-url', default='http://localhost:1234', help='LM Studio API URL')
+@click.option('--top-k', default=20, help='Number of results to retrieve per query')
+@click.option('--cache-dir', default='./chunk_embeddings_cache', help='Embedding cache directory')
+@click.option('--output', default='results/retrieval_comparison.json', help='Output file for results')
+def evaluate_retrieval(queries, embedding_model, ollama, lmstudio, ollama_url, lmstudio_url, top_k, cache_dir, output):
+    """Evaluate BM25, vector, and hybrid retrieval. Reports MRR, Recall@K, NDCG@K."""
+
+    with open(queries, encoding='utf-8') as f:
+        queries_data = json.load(f)
+
+    evaluator = RetrievalEvaluator(
+        embedding_model=embedding_model,
+        cache_dir=cache_dir,
+        use_ollama=ollama,
+        use_lmstudio=lmstudio,
+        ollama_url=ollama_url,
+        lmstudio_url=lmstudio_url,
+    )
+
+    evaluator.load_index()
+
+    results = evaluator.evaluate(queries_data, top_k=top_k)
+
+    print_results(results)
+
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=2)
+    click.echo(f"\nResults saved to {output_path}")
+
 
 if __name__ == '__main__':
     cli()

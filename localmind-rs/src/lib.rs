@@ -1,4 +1,5 @@
 pub mod bookmark;
+pub mod query_logger;
 pub mod bookmark_exclusion;
 pub mod db;
 pub mod document;

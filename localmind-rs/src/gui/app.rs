@@ -154,6 +154,9 @@ pub struct LocalMindApp {
     /// Transient receiver for the watched-folders DB load (cleared after first recv)
     _watched_folders_loader:
         Option<std::sync::mpsc::Receiver<Vec<crate::folder_watcher::WatchedFolder>>>,
+
+    /// Query logger for shadow logging of search queries and click outcomes
+    pub query_logger: crate::query_logger::QueryLogger,
 }
 
 /// Bookmark ingestion progress event
@@ -395,6 +398,12 @@ impl LocalMindApp {
             add_folder_input: String::new(),
             add_folder_error: None,
             _watched_folders_loader: None,
+            query_logger: {
+                let log_dir = dirs::data_dir()
+                    .unwrap_or_else(|| std::env::current_dir().unwrap())
+                    .join("localmind");
+                crate::query_logger::QueryLogger::new(log_dir.join("query_log.jsonl"))
+            },
         }
     }
 
@@ -831,6 +840,7 @@ impl LocalMindApp {
                     self.all_results = results;
                     self.apply_search_filters();
                     self.search_receiver = None;
+                    self.query_logger.record_search(&self.search_query, &self.search_results);
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
                     // Still searching

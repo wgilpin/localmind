@@ -1,220 +1,216 @@
-# Embedding Model Evaluation Tool
+# LocalMind Retrieval Evaluation Tool
 
-A command-line tool for evaluating and comparing different embedding models (both Ollama and SentenceTransformers) for semantic search on Chrome bookmarks.
+Evaluates BM25, vector, and hybrid (RRF) retrieval over LocalMind's production
+corpus. Measures MRR, Recall@K, and NDCG@K using chunks sampled from the live
+SQLite database.
 
-## Features
+---
 
-- Samples bookmarks from Chrome's bookmarks file
-- **Automatic exclusion filtering**: Respects LocalMind exclude list for consistent filtering
-- Fetches actual page content for bookmarks
-- Generates search queries using Ollama LLM (qwen3:4b)
-- **Supports multiple embedding models**: Both Ollama and SentenceTransformers models
-- **Model comparison**: Automatically appends results to comparison CSV
-- **Incremental saves**: Saves embeddings every 10 documents to prevent data loss
-- **Resume capability**: Automatically resumes from where it left off if interrupted
-- Measures search performance metrics (recall, MRR, rank distribution)
-- Windows-compatible file operations
-
-## Installation
+## Setup
 
 ```bash
-uv pip install -r requirements.txt
+uv sync
+source .venv/Scripts/activate   # Windows Git Bash
 ```
 
-## Quick Start
+All scripts must run inside this venv. The embedding server (LM Studio) must be
+running for any command that embeds queries or generates text.
+
+---
+
+## Evaluation pipeline
+
+There are two corpus sampling strategies. Use the cluster-based one for realistic
+hard-negative evaluation; use quality-chunks for a quick sanity check.
+
+### Cluster-based (recommended)
+
+Samples from the largest topic clusters in the production corpus, creating
+within-topic hard negatives.
 
 ```bash
-# Run the complete evaluation pipeline (200 samples)
+# 1. Sample corpus from production SQLite embeddings
+python cluster_sampler.py \
+  --n-clusters 50 --top-clusters 20 --per-cluster 15
+
+# 2. Generate search terms for each eval chunk
+python main.py generate-chunk-terms --chunks data/cluster_eval_chunks.json
+
+# 3. Build qrels
+python make_qrels.py \
+  --terms data/chunk_terms.json \
+  --chunks data/cluster_eval_chunks.json \
+  --output data/cluster_queries.json
+
+# 4. Run eval (sanity-check first with --sample 20)
+python run_retrieval_eval.py evaluate \
+  --queries data/cluster_queries.json \
+  --chunks data/cluster_corpus.json \
+  --lmstudio \
+  --embedding-model text-embedding-embeddinggemma-300m-qat \
+  --sample 20
+```
+
+### Quality-chunks (quick sanity check)
+
+Uses the existing quality-filtered chunk set. Faster but less rigorous — queries
+are generated from the same chunks, which inflates vector scores.
+
+```bash
 python main.py run-all --sample-size 200
-
-# Evaluate with Ollama embedding model
-python main.py evaluate --embedding-model nomic-embed-text --ollama
-
-# Evaluate with SentenceTransformers model
-python main.py evaluate --embedding-model all-MiniLM-L6-v2
-
-# Compare multiple models
-python main.py evaluate --embedding-model qwen3-embedding:0.6b --ollama
-python main.py evaluate --embedding-model mxbai-embed-large --ollama
-python main.py evaluate --embedding-model all-mpnet-base-v2
-# Results automatically append to results/model_comparison.csv
+python run_retrieval_eval.py evaluate \
+  --queries data/generated_queries.json \
+  --chunks data/quality_chunks.json \
+  --lmstudio \
+  --embedding-model text-embedding-embeddinggemma-300m-qat
 ```
 
-## Usage
+---
 
-### Main Commands
+## Commands
 
-**Complete Pipeline:**
+### `run_retrieval_eval.py evaluate`
+
+```text
+--queries        Path to qrels JSON             (default: data/generated_queries.json)
+--chunks         Path to corpus JSON            (default: data/quality_chunks.json)
+--embedding-model                               (default: all-MiniLM-L6-v2)
+--lmstudio       Use LM Studio for embeddings
+--ollama         Use Ollama for embeddings
+--lmstudio-url                                  (default: http://localhost:1234)
+--top-k                                         (default: 20)
+--cache-dir      Embedding cache directory      (default: ./chunk_embeddings_cache)
+--output         Results JSON path              (default: results/retrieval_comparison.json)
+--sample N       Sanity-check N random queries first; abort if vector MRR < 0.1
+--expand N       Generate N LLM query variants per query and fuse with two-stage RRF
+--expand-model   Chat model for expansion       (default: gemma-4-e4b)
+```
+
+Always use `--sample 20` on first run after any pipeline change to catch
+embedding-space mismatches before committing to a full hour-long run.
+
+### `run_retrieval_eval.py paraphrase-queries`
+
+Rewrites queries with natural user phrasing (simulates "half-remembering"
+the content) to reduce the semantic echo between generated queries and their
+source chunks.
+
 ```bash
-python main.py run-all --sample-size 200 [--model qwen3:4b] [--reset]
+python run_retrieval_eval.py paraphrase-queries \
+  --queries data/generated_queries.json \
+  --chunks data/quality_chunks.json \
+  --output data/paraphrased_queries.json \
+  --model gemma-4-e4b
 ```
 
-**Sample and Generate Only:**
-```bash
-python main.py sample-and-generate --sample-size 200 [--model qwen3:4b] [--reset]
+Supports `--resume` (default on) to continue interrupted runs.
+
+### `cluster_sampler.py`
+
+```text
+--n-clusters     Total K-means clusters to fit  (default: 50)
+--top-clusters   Keep N largest clusters        (default: 20)
+--per-cluster    Chunks sampled per cluster     (default: 15)
+--corpus-output                                 (default: data/cluster_corpus.json)
+--eval-output                                   (default: data/cluster_eval_chunks.json)
+--db-path        Path to localmind.db           (default: %APPDATA%/localmind/localmind.db)
+--embedding-model                               (default: text-embedding-embeddinggemma-300m-qat)
 ```
 
-**Evaluate with Different Embedding Models:**
-```bash
-# Ollama models (requires --ollama flag)
-python main.py evaluate --embedding-model nomic-embed-text --ollama
-python main.py evaluate --embedding-model mxbai-embed-large --ollama
-python main.py evaluate --embedding-model qwen3-embedding:0.6b --ollama
+Reads chunk embeddings directly from the production SQLite database (stored as
+bincode `Vec<f32>` blobs). Filters stub bookmarks (< 30 words, or starting with
+`Bookmark:`/`URL:`). Chunk IDs are stable SQLite embedding IDs so corpus and
+qrels files stay consistent regardless of sort order.
 
-# SentenceTransformers models (no --ollama flag)
-python main.py evaluate --embedding-model all-MiniLM-L6-v2
-python main.py evaluate --embedding-model all-mpnet-base-v2
-python main.py evaluate --embedding-model sentence-transformers/all-MiniLM-L12-v2
+### `make_qrels.py`
+
+```text
+--terms   chunk_terms.json input               (default: data/chunk_terms.json)
+--chunks  Chunk JSON for URL/title lookup      (default: data/quality_chunks.json)
+--output  Output qrels file                    (default: data/generated_queries.json)
 ```
 
-**Reset All Data:**
-```bash
-python main.py reset
-```
+### `main.py` (legacy pipeline)
 
-**Analyze Results:**
-```bash
-python main.py analyze [--results results/evaluation_results.json]
-```
+Covers chunk quality filtering, search-term generation, and the original
+bookmark-based embedding evaluation. Run `python main.py --help` for full
+command list. LLM defaults to `gemma-4-e4b` via LM Studio.
 
-### Advanced Commands
-
-**Sample bookmarks only:**
-```bash
-python main.py sample --sample-size 200 [--fetch-content/--no-fetch-content]
-```
-
-**Generate queries only:**
-```bash
-python main.py generate [--samples data/sampled_bookmarks.json] [--model qwen3:4b]
-```
-
-**Evaluate only:**
-```bash
-python main.py evaluate [--samples data/sampled_bookmarks.json] [--queries data/generated_queries.json] [--embedding-model MODEL] [--ollama] [--top-k 20]
-```
-
-## Key Features
-
-### Model Comparison
-- Results from all models append to `results/model_comparison.csv`
-- Single CSV row per model evaluation for easy comparison
-- Includes all metrics: recall@k, MRR, mean rank, similarity scores
-- Compare Ollama vs SentenceTransformers models directly
-
-### Incremental Processing & Recovery
-- **Incremental saves**: Embeddings saved every 10 documents during generation
-- **Automatic resume**: If interrupted, automatically skips already processed bookmarks
-- **Timeout handling**: 120-second timeout for slow Ollama models
-- **Fallback storage**: Uses Pickle if Parquet (pyarrow) unavailable
-
-### Smart Sample Management
-- If you have 150 samples and want 200, it adds exactly 50 more
-- Skips already processed bookmarks
-- Handles failed web requests gracefully
-
-### Windows Compatible
-- Handles Windows file permission issues
-- Uses safe atomic file operations with fallback
-- Supports both forward and backslash paths
-
-## Output Files
-
-- `data/sampled_bookmarks.json` - Sampled bookmarks with content
-- `data/generated_queries.json` - Generated search queries
-- `results/evaluation_results.json` - Detailed evaluation results
-- `results/evaluation_summary.csv` - CSV summary of individual query results
-- `results/model_comparison.csv` - **Single-row-per-model comparison CSV**
-- `vector_store_eval/` - Vector storage directory (Parquet or Pickle files)
+---
 
 ## Metrics
 
-- **Recall@K**: Percentage of queries that found their target bookmark in top K results
-- **Mean Reciprocal Rank (MRR)**: Average of 1/rank for each query
-- **Mean/Median Rank**: Average and median position of correct results
-- **Distance**: Cosine distance between query and document embeddings
-- **Similarity**: Cosine similarity scores
+| Metric       | Description                                                                    |
+| ------------ | ------------------------------------------------------------------------------ |
+| **MRR**      | Mean Reciprocal Rank — primary metric                                          |
+| **Recall@K** | Fraction of queries where the relevant chunk appears in top K (K = 5, 10, 20) |
+| **NDCG@K**   | Normalised Discounted Cumulative Gain at K                                     |
 
-## Configuration
+Each query has exactly one relevant chunk (the one its search terms were
+generated from). IDCG = 1 for all queries, so NDCG = 1/log₂(rank+1).
 
-- **Default Embedding Model**: `all-MiniLM-L6-v2` (SentenceTransformers)
-- **Ollama Embedding Models**: Any model available in Ollama (use `--ollama` flag)
-- **Query Generation Model**: `qwen3:4b` (via Ollama)
-- **Sample Size**: 200 bookmarks (default)
-- **Top-K Results**: 20 (default)
-- **Ollama Timeout**: 120 seconds per embedding
-- **Incremental Save Frequency**: Every 10 embeddings
-- **Exclude List**: Automatically loaded from LocalMind config (`~/.localmind/config.json`) or uses defaults
+---
 
-### Exclude List
+## Multi-query expansion (`--expand N`)
 
-The tool automatically filters out bookmarks that match patterns in the LocalMind exclude list:
-- Default excludes: `node_modules`, `.git`, `build`, `dist`, `coverage`, `tmp`, etc.
-- Loads from LocalMind configuration if available
-- Filters based on both URL paths and bookmark titles
-- Provides clear logging of excluded bookmarks
+Generates N alternative phrasings per query via LM Studio, runs all variants
+against both indices, and fuses results with two-stage RRF:
 
-## Examples
+1. Per-variant: BM25 + vector → local hybrid
+2. Across variants: RRF of all local hybrids → final ranking
 
-### Compare Multiple Embedding Models
-```bash
-# Test Ollama models
-python main.py evaluate --embedding-model nomic-embed-text --ollama
-python main.py evaluate --embedding-model mxbai-embed-large --ollama
-python main.py evaluate --embedding-model qwen3-embedding:0.6b --ollama
+Reports three additional columns: `MQ-BM25`, `MQ-Vector`, `MQ-Hybrid`.
 
-# Test SentenceTransformers models
-python main.py evaluate --embedding-model all-MiniLM-L6-v2
-python main.py evaluate --embedding-model all-mpnet-base-v2
+**Note**: Expansion did not improve MRR when queries were generated from chunks
+(original query is already well-matched). Re-evaluate once real user queries are
+available from the shadow log.
 
-# View comparison results
-cat results/model_comparison.csv
+---
+
+## Embedding cache
+
+The evaluator caches corpus embeddings as `{model}_chunks.pkl` in
+`./chunk_embeddings_cache/`. If vector MRR is near-random, delete the stale pkl
+and re-run — the evaluator will re-embed from the corpus JSON.
+
+The cluster sampler no longer writes to the cache. The evaluator always
+re-embeds the cluster corpus using its own prefix conventions
+(`title: {title} | text: {text}` for documents, `task: search result | query: {query}` for queries),
+which must match for cosine similarity to be meaningful.
+
+---
+
+## Data files
+
+| File                                  | Description                                                        |
+| ------------------------------------- | ------------------------------------------------------------------ |
+| `data/cluster_corpus.json`            | Retrieval index (300 chunks, 20 topic clusters)                    |
+| `data/cluster_eval_chunks.json`       | Query generation source (same chunks, sorted by centroid distance) |
+| `data/cluster_queries.json`           | Qrels for cluster eval                                             |
+| `data/chunk_terms.json`               | LLM-generated search terms per chunk                              |
+| `data/quality_chunks.json`            | Quality-filtered chunks from bookmark sampler                      |
+| `data/generated_queries.json`         | Qrels for quality-chunk eval                                       |
+| `data/paraphrased_queries.json`       | Rewritten queries (reduced embedding bias)                         |
+| `results/retrieval_comparison.json`   | Last eval results                                                  |
+| `chunk_embeddings_cache/*.pkl`        | Cached corpus embeddings (delete to force re-embed)                |
+
+---
+
+## Shadow query log
+
+The production app writes real user searches to
+`%APPDATA%/localmind/query_log.jsonl`. Each line is a JSON object:
+
+```json
+{
+  "timestamp": 1745123456,
+  "query": "how does attention work",
+  "results": [{"rank": 1, "doc_id": 42, "title": "...", "score": 0.87}],
+  "outcome": "clicked",
+  "clicked_doc_id": 42
+}
 ```
 
-### Incremental Workflow
-```bash
-# Start with 50 samples
-python main.py run-all --sample-size 50
-
-# Later, expand to 200 (adds 150 more)
-python main.py run-all --sample-size 200
-
-# If interrupted during evaluation, just re-run (auto-resumes)
-python main.py evaluate --embedding-model nomic-embed-text --ollama
-```
-
-### Reset and Start Fresh
-```bash
-# Clear all data and start over
-python main.py reset
-python main.py run-all --sample-size 100 --model qwen3:4b
-```
-
-## Troubleshooting
-
-### Ollama Timeout Errors
-- Default timeout is 120 seconds per embedding
-- For very slow models, modify timeout in `ollama_embedding.py`
-
-### Missing Dependencies
-- If Parquet fails, install: `pip install pyarrow`
-- Tool automatically falls back to Pickle format if needed
-
-### Resume After Interruption
-- Just re-run the same command - it automatically resumes
-- Check `vector_store_eval/` directory for saved embeddings
-
-## Architecture Changes
-
-### Previous (ChromaDB-based)
-- Used ChromaDB for vector storage
-- No incremental saves
-- Lost data on interruption
-
-### Current (NumPy/Pandas-based)
-- Pure NumPy arrays for embeddings
-- Pandas DataFrames for metadata
-- Scikit-learn for cosine similarity
-- Parquet/Pickle for persistence
-- Incremental saves prevent data loss
-- Model comparison CSV for analysis
+Outcomes: `clicked`, `abandoned`, `new_search`. Use this log to build a
+ground-truth eval set of real user queries for unbiased evaluation of retrieval
+and multi-query expansion.
